@@ -5,6 +5,8 @@ export type User = {
   bio: string;
   title: string;
   avatarColor: string;
+  /** Server-relative path of the profile photo, or null. */
+  avatarUrl: string | null;
   online: boolean;
   lastSeen: number | null;
 };

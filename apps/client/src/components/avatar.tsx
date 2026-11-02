@@ -1,5 +1,7 @@
+import { Image } from 'expo-image';
 import { View, type StyleProp, type ViewStyle } from 'react-native';
 
+import { getApiUrl } from '@/lib/config';
 import { initials } from '@/lib/format';
 import type { Conversation, User } from '@/lib/types';
 import { colors, fonts } from '@/theme';
@@ -13,7 +15,7 @@ export function Avatar({
   ringBg = colors.canvas,
   style,
 }: {
-  user: Pick<User, 'displayName' | 'avatarColor' | 'online'> | null | undefined;
+  user: (Pick<User, 'displayName' | 'avatarColor' | 'online'> & { avatarUrl?: string | null }) | null | undefined;
   size?: number;
   showPresence?: boolean;
   ring?: string;
@@ -22,7 +24,15 @@ export function Avatar({
 }) {
   const color = user?.avatarColor ?? colors.textMuted;
   const dot = Math.max(10, Math.round(size * 0.24));
-  const inner = (
+  const inner = user?.avatarUrl ? (
+    <Image
+      source={{ uri: `${getApiUrl()}${user.avatarUrl}` }}
+      style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: colors.surfaceHigh }}
+      contentFit="cover"
+      transition={150}
+      accessibilityLabel={user.displayName}
+    />
+  ) : (
     <View
       style={{
         width: size,

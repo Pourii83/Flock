@@ -10,6 +10,9 @@ User=flock
 Group=flock
 WorkingDirectory=/opt/flock/server
 EnvironmentFile=/etc/flock/flock.env
+# Uploaded profile photos live in /var/lib/flock (created and owned by systemd).
+StateDirectory=flock
+Environment=UPLOAD_DIR=/var/lib/flock/uploads
 ExecStart=/opt/flock/node/bin/node /opt/flock/server/src/index.js
 Restart=on-failure
 RestartSec=3

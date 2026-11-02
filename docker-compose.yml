@@ -27,17 +27,16 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-flock}:${POSTGRES_PASSWORD:-flock}@db:5432/${POSTGRES_DB:-flock}
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env (see .env.example)}
       CORS_ORIGIN: ${CORS_ORIGIN:-*}
+      TURN_URLS: ${TURN_URLS:-}
+      TURN_SECRET: ${TURN_SECRET:-}
+    volumes:
+      - uploads:/app/data/uploads
     # Exposed so the Android app / desktop app can reach the API directly.
     ports:
       - "${SERVER_PORT:-4000}:4000"
 
   web:
-    build:
-      context: ./apps/client
-      args:
-        EXPO_PUBLIC_TURN_URL: ${TURN_URL:-}
-        EXPO_PUBLIC_TURN_USERNAME: ${TURN_USERNAME:-}
-        EXPO_PUBLIC_TURN_CREDENTIAL: ${TURN_CREDENTIAL:-}
+    build: ./apps/client
     restart: unless-stopped
     depends_on:
       server:
@@ -47,3 +46,4 @@ services:
 
 volumes:
   pgdata:
+  uploads:

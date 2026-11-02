@@ -1,3 +1,4 @@
+import * as Clipboard from 'expo-clipboard';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -18,7 +19,7 @@ import { useCalls } from '@/state/calls';
 import { chatStore, useChat, useConversation, useMessages, useTyping } from '@/state/chat-store';
 import { colors, fonts, radius } from '@/theme';
 import { Avatar, ConversationAvatar } from './avatar';
-import { Button, Icon, IconButton, noOutline, T } from './ui';
+import { Button, Icon, IconButton, noOutline, T, type IconName } from './ui';
 
 const EMOJIS = ['😀', '😂', '😍', '🥳', '😎', '🤔', '😅', '😢', '👍', '🙏', '👏', '🔥', '❤️', '✨', '🎉', '✅'];
 
@@ -56,6 +57,8 @@ export function ChatThread({
   const hasMore = useChat((s) => !!s.hasMore[conversationId]);
   const { user } = useAuth();
   const [replyTo, setReplyTo] = useState<Message | null>(null);
+  // Message whose action bar (Reply / Copy) is open: tap-to-act on touch screens.
+  const [actionsFor, setActionsFor] = useState<string | null>(null);
   const [loadError, setLoadError] = useState(false);
 
   // Parents key this component by conversationId, so local state resets on switch.
@@ -118,7 +121,12 @@ export function ChatThread({
                 conversation={conversation}
                 mine={item.message.senderId === user?.id}
                 desktop={desktop}
-                onReply={() => setReplyTo(item.message)}
+                actionsOpen={actionsFor === item.message.id}
+                onToggleActions={() => setActionsFor((id) => (id === item.message.id ? null : item.message.id))}
+                onReply={() => {
+                  setActionsFor(null);
+                  setReplyTo(item.message);
+                }}
               />
             )
           }
@@ -266,25 +274,61 @@ function Bubble({
   conversation,
   mine,
   desktop,
+  actionsOpen,
+  onToggleActions,
   onReply,
 }: {
   row: Extract<Row, { type: 'message' }>;
   conversation: Conversation;
   mine: boolean;
   desktop: boolean;
+  actionsOpen: boolean;
+  onToggleActions: () => void;
   onReply: () => void;
 }) {
   const { message: m, first, last } = row;
+  const [hovered, setHovered] = useState(false);
   const sender = conversation.members.find((u) => u.id === m.senderId);
   const showSender = !mine && first && (conversation.type === 'group' || desktop);
   const bubbleBg = mine ? colors.amberSoft : '#202838';
   const fg = mine ? colors.onAmber : colors.text;
   const r = 20;
+  // Pending/failed messages don't exist on the server yet, so they can't be replied to.
+  const canAct = !m.pending && !m.failed;
+  const web = Platform.OS === 'web';
+
+  const copy = async () => {
+    await Clipboard.setStringAsync(m.body);
+    onToggleActions();
+  };
+
+  // Hover reply button: always mounted (only its opacity changes) so a click can't be lost
+  // to a hover re-render, and it sits beside the bubble instead of overlapping it.
+  const hoverReply = web && desktop && canAct && (
+    <Pressable
+      onPress={onReply}
+      accessibilityLabel="Reply"
+      style={({ hovered: h }: any) => ({
+        width: 30,
+        height: 30,
+        borderRadius: 15,
+        alignSelf: 'center',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: h ? colors.surfaceHighest : colors.surfaceHigh,
+        opacity: hovered ? 1 : 0,
+      })}>
+      <Icon name="corner-up-left" size={15} color={colors.text} />
+    </Pressable>
+  );
 
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 10, marginTop: first ? 14 : 3, justifyContent: mine ? 'flex-end' : 'flex-start' }}>
+    <View
+      {...(web ? { onPointerEnter: () => setHovered(true), onPointerLeave: () => setHovered(false) } : {})}
+      style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 10, marginTop: first ? 14 : 3, justifyContent: mine ? 'flex-end' : 'flex-start' }}>
       {!mine && <View style={{ width: 34 }}>{last && <Avatar user={sender} size={34} showPresence={false} />}</View>}
-      <View style={{ maxWidth: desktop ? '72%' : '82%', alignItems: mine ? 'flex-end' : 'flex-start', gap: 6 }}>
+      {mine && hoverReply}
+      <View style={{ maxWidth: desktop ? '72%' : '78%', alignItems: mine ? 'flex-end' : 'flex-start', gap: 6 }}>
         {showSender && (
           <View style={{ flexDirection: 'row', gap: 8, alignItems: 'baseline', paddingHorizontal: 4 }}>
             <T variant="labelLg">{sender?.displayName ?? 'Someone'}</T>
@@ -294,10 +338,11 @@ function Bubble({
           </View>
         )}
         <Pressable
-          onLongPress={onReply}
-          onPress={m.failed ? () => chatStore.retry(m) : undefined}
-          delayLongPress={300}
-          style={({ hovered }: any) => [
+          onPress={m.failed ? () => chatStore.retry(m) : canAct && !desktop ? onToggleActions : undefined}
+          onLongPress={canAct ? onReply : undefined}
+          delayLongPress={350}
+          {...(web && canAct ? { onDoubleClick: onReply } : {})}
+          style={[
             {
               backgroundColor: bubbleBg,
               paddingHorizontal: 18,
@@ -309,55 +354,41 @@ function Bubble({
               borderTopRightRadius: mine && !first ? 8 : r,
               opacity: m.pending ? 0.75 : 1,
               gap: 8,
+              borderWidth: 1,
+              borderColor: actionsOpen ? colors.amber : 'transparent',
             },
-            hovered && Platform.OS === 'web' && { filter: 'brightness(1.06)' } as object,
+            (hovered || actionsOpen) && web && ({ filter: 'brightness(1.06)' } as object),
           ]}>
-          {({ hovered }: any) => (
-            <>
-              {m.replyTo && (
-                <View
-                  style={{
-                    flexDirection: 'row',
-                    gap: 10,
-                    backgroundColor: mine ? 'rgba(61,38,0,0.08)' : colors.surface,
-                    borderRadius: 12,
-                    padding: 10,
-                  }}>
-                  <View style={{ width: 3, borderRadius: 2, backgroundColor: colors.amber }} />
-                  <View style={{ flexShrink: 1 }}>
-                    <T variant="label" color={mine ? '#8A5A00' : colors.amber}>
-                      {m.replyTo.senderName}
-                    </T>
-                    <T variant="body" color={mine ? colors.onAmber : colors.textMuted} numberOfLines={2} style={{ fontStyle: 'italic' }}>
-                      {m.replyTo.body}
-                    </T>
-                  </View>
-                </View>
-              )}
-              <T variant="bodyLg" color={fg} style={{ fontSize: 16, lineHeight: 24 }} selectable>
-                {m.body}
-              </T>
-              {hovered && Platform.OS === 'web' && !m.pending && (
-                <Pressable
-                  onPress={onReply}
-                  accessibilityLabel="Reply"
-                  style={{
-                    position: 'absolute',
-                    top: -12,
-                    [mine ? 'left' : 'right']: -12,
-                    width: 28,
-                    height: 28,
-                    borderRadius: 14,
-                    backgroundColor: colors.surfaceHighest,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}>
-                  <Icon name="corner-up-left" size={14} color={colors.text} />
-                </Pressable>
-              )}
-            </>
+          {m.replyTo && (
+            <View
+              style={{
+                flexDirection: 'row',
+                gap: 10,
+                backgroundColor: mine ? 'rgba(61,38,0,0.08)' : colors.surface,
+                borderRadius: 12,
+                padding: 10,
+              }}>
+              <View style={{ width: 3, borderRadius: 2, backgroundColor: colors.amber }} />
+              <View style={{ flexShrink: 1 }}>
+                <T variant="label" color={mine ? '#8A5A00' : colors.amber}>
+                  {m.replyTo.senderName}
+                </T>
+                <T variant="body" color={mine ? colors.onAmber : colors.textMuted} numberOfLines={2} style={{ fontStyle: 'italic' }}>
+                  {m.replyTo.body}
+                </T>
+              </View>
+            </View>
           )}
+          <T variant="bodyLg" color={fg} style={{ fontSize: 16, lineHeight: 24 }} selectable={desktop}>
+            {m.body}
+          </T>
         </Pressable>
+        {actionsOpen && (
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <ActionChip icon="corner-up-left" label="Reply" onPress={onReply} />
+            <ActionChip icon="copy" label="Copy" onPress={copy} />
+          </View>
+        )}
         {last && (mine || !desktop) && (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 4 }}>
             <T variant="bodySm" color={m.failed ? colors.danger : colors.textMuted} style={{ fontVariant: ['tabular-nums'] }}>
@@ -367,7 +398,27 @@ function Bubble({
           </View>
         )}
       </View>
+      {!mine && hoverReply}
     </View>
+  );
+}
+
+function ActionChip({ icon, label, onPress }: { icon: IconName; label: string; onPress: () => void }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => ({
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        paddingHorizontal: 12,
+        paddingVertical: 7,
+        borderRadius: radius.pill,
+        backgroundColor: pressed ? colors.surfaceHighest : colors.surfaceHigh,
+      })}>
+      <Icon name={icon} size={14} color={colors.amber} />
+      <T variant="label">{label}</T>
+    </Pressable>
   );
 }
 

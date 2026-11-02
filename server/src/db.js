@@ -68,6 +68,7 @@ export async function migrate() {
       ended_at BIGINT
     );
     CREATE INDEX IF NOT EXISTS calls_conv ON calls (conversation_id, started_at DESC);
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_path TEXT;
   `);
 }
 

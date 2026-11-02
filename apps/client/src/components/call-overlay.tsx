@@ -230,8 +230,12 @@ function useElapsed(since: number | null) {
 function ActiveCall() {
   const { call, hangUp, toggleMic, toggleCamera, toggleScreenShare, toggleSpeaker, flipCamera, sendReaction } = useCalls();
   const elapsed = useElapsed(call.answeredAt);
-  const remoteHasVideo = !!call.remoteStream?.getVideoTracks().length && call.video;
-  const localHasVideo = !!call.localStream?.getVideoTracks().length && !call.cameraOff;
+  // The other side announces when its video slot carries camera or screen.
+  const remoteHasVideo = call.remoteVideo && !!call.remoteStream?.getVideoTracks().length;
+  // Local preview: the shared screen wins over the camera.
+  const localPreview = call.sharingScreen ? call.screenStream : !call.cameraOff ? call.localStream : null;
+  const anyVideo = remoteHasVideo || !!localPreview;
+  const peerName = call.title || call.peer?.displayName;
 
   const [floatAnim] = useState(() => new Animated.Value(0));
   useEffect(() => {
@@ -245,12 +249,12 @@ function ActiveCall() {
       {/* Remote stage */}
       <View style={StyleSheet.absoluteFill}>
         {remoteHasVideo ? (
-          <VideoView stream={call.remoteStream} />
+          <VideoView key={`remote-${call.mediaVersion}`} stream={call.remoteStream} contain={call.remoteScreen} />
         ) : (
           <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 16 }}>
             <LinearGradient colors={['rgba(255,184,77,0.08)', 'rgba(11,14,20,0)']} style={StyleSheet.absoluteFill} />
             <Avatar user={call.peer} size={160} ring={colors.amber} />
-            <T variant="headline">{call.title || call.peer?.displayName}</T>
+            <T variant="headline">{peerName}</T>
             <T variant="body" color={colors.textMuted}>
               {call.remoteStream ? 'Voice call' : 'Connecting…'}
             </T>
@@ -284,7 +288,7 @@ function ActiveCall() {
               <View style={[styles.tag, { backgroundColor: colors.tealTint }]}>
                 <Icon name="wifi" size={13} color={colors.teal} />
                 <T variant="label" color={colors.teal}>
-                  {call.video ? 'HD Video' : 'Voice'}
+                  {call.remoteScreen ? 'Screen' : anyVideo ? 'HD Video' : 'Voice'}
                 </T>
               </View>
               <View style={[styles.tag, { backgroundColor: colors.amberTint }]}>
@@ -296,17 +300,18 @@ function ActiveCall() {
             </View>
           </View>
 
-          {call.video && (
+          {localPreview && (
             <View style={styles.pip}>
-              {localHasVideo ? (
-                <VideoView stream={call.localStream} mirror={call.frontCamera} muted overlay />
-              ) : (
-                <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface }}>
-                  <Icon name="video-off" size={22} color={colors.textMuted} />
-                </View>
-              )}
+              <VideoView
+                key={`local-${call.sharingScreen ? 'screen' : 'cam'}-${call.mediaVersion}`}
+                stream={localPreview}
+                mirror={!call.sharingScreen && call.frontCamera}
+                contain={call.sharingScreen}
+                muted
+                overlay
+              />
               <T variant="label" style={{ position: 'absolute', left: 10, bottom: 8 }}>
-                You
+                {call.sharingScreen ? 'Your screen' : 'You'}
               </T>
             </View>
           )}
@@ -344,16 +349,14 @@ function ActiveCall() {
           </View>
           <View style={[styles.glass, { flexDirection: 'row', gap: 12, padding: 10, borderRadius: radius.pill }]}>
             <DockButton icon={call.micMuted ? 'mic-off' : 'mic'} active={!call.micMuted} onPress={toggleMic} label="Microphone" />
-            {call.video && (
-              <DockButton icon={call.cameraOff ? 'video-off' : 'video'} active={!call.cameraOff} onPress={toggleCamera} label="Camera" />
-            )}
-            {call.video && canSwitchCamera && !call.cameraOff && (
+            <DockButton icon={call.cameraOff ? 'video-off' : 'video'} active={!call.cameraOff} onPress={toggleCamera} label="Camera" />
+            {canSwitchCamera && !call.cameraOff && (
               <DockButton icon="refresh-ccw" active={false} onPress={flipCamera} label="Switch camera" />
             )}
             {Platform.OS !== 'web' && (
               <DockButton icon={call.speakerOn ? 'volume-2' : 'volume-1'} active={call.speakerOn} onPress={toggleSpeaker} label="Speaker" />
             )}
-            {call.video && screenShareSupported() && (
+            {screenShareSupported() && (
               <DockButton icon="monitor" active={call.sharingScreen} onPress={toggleScreenShare} label="Share screen" />
             )}
             <Pressable

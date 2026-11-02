@@ -12,6 +12,7 @@ export function publicUser(row) {
     bio: row.bio,
     title: row.title,
     avatarColor: row.avatar_color,
+    avatarUrl: row.avatar_path ? `/api/avatars/${row.avatar_path}` : null,
     online: isOnline(row.id),
     lastSeen: row.last_seen,
   };
@@ -263,3 +264,6 @@ export async function listCalls(meId) {
     };
   });
 }
+
+export const setAvatarPath = (id, avatarPath) =>
+  one('UPDATE users SET avatar_path = $2 WHERE id = $1 RETURNING *', [id, avatarPath]);

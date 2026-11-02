@@ -112,6 +112,12 @@ class ChatStore {
     }));
   }
 
+  /** Applies a profile change (name, photo…) everywhere the user appears. */
+  updateUser(user: User) {
+    if (this.me?.id === user.id) this.me = user;
+    this.patchUser(user.id, user);
+  }
+
   private patchUser(userId: string, patch: Partial<User>) {
     this.set((s) => ({
       conversations: s.conversations.map((c) =>

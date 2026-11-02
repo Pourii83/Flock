@@ -16,6 +16,8 @@ type AuthState = {
   register: (username: string, displayName: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   updateProfile: (patch: Partial<Pick<User, 'displayName' | 'bio' | 'title'>>) => Promise<void>;
+  /** Uploads a base64 JPEG as the profile photo, or removes it when null. */
+  setAvatar: (base64: string | null) => Promise<void>;
   /** Switches to another Flock server; the current session belongs to the old one, so it signs out. */
   changeServer: (url: string) => Promise<void>;
 };
@@ -75,7 +77,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       updateProfile: async (patch) => {
         const next = await api.updateMe(patch);
         setUser(next);
-        if (chatStore.me) chatStore.me = next;
+        chatStore.updateUser(next);
+      },
+      setAvatar: async (base64) => {
+        const next = base64 ? await api.setAvatar(base64) : await api.removeAvatar();
+        setUser(next);
+        chatStore.updateUser(next);
       },
       changeServer: async (url) => {
         await applySession(null, null);

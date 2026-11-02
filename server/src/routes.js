@@ -1,5 +1,7 @@
 import { Router } from 'express';
+import crypto from 'node:crypto';
 import { checkPassword, hashPassword, requireAuth, signToken } from './auth.js';
+import { deleteAvatar, saveAvatar } from './avatars.js';
 import * as repo from './repo.js';
 
 const USERNAME_RE = /^[a-zA-Z0-9_.]{3,24}$/;
@@ -53,6 +55,28 @@ export function createRouter(realtime) {
         title: title?.slice(0, 60),
       }),
     );
+    realtime.broadcastUser(user);
+    res.json(user);
+  });
+
+  r.put('/me/avatar', async (req, res) => {
+    let file;
+    try {
+      file = await saveAvatar(req.userId, req.body?.data);
+    } catch (e) {
+      return res.status(400).json({ error: e.message });
+    }
+    const previous = (await repo.getUserRow(req.userId))?.avatar_path;
+    const user = repo.publicUser(await repo.setAvatarPath(req.userId, file));
+    await deleteAvatar(previous);
+    realtime.broadcastUser(user);
+    res.json(user);
+  });
+
+  r.delete('/me/avatar', async (req, res) => {
+    const previous = (await repo.getUserRow(req.userId))?.avatar_path;
+    const user = repo.publicUser(await repo.setAvatarPath(req.userId, null));
+    await deleteAvatar(previous);
     realtime.broadcastUser(user);
     res.json(user);
   });
@@ -116,6 +140,21 @@ export function createRouter(realtime) {
   });
 
   // ---------- calls ----------
+
+  // ICE servers for WebRTC. TURN credentials are short-lived (TURN REST API, coturn
+  // "use-auth-secret"), so the shared secret never reaches clients.
+  r.get('/ice', (req, res) => {
+    const iceServers = [{ urls: process.env.STUN_URLS?.split(',') ?? ['stun:stun.l.google.com:19302'] }];
+    const turnUrls = process.env.TURN_URLS?.split(',').map((u) => u.trim()).filter(Boolean);
+    if (turnUrls?.length && process.env.TURN_SECRET) {
+      const ttl = 12 * 3600;
+      const username = `${Math.floor(Date.now() / 1000) + ttl}:${req.userId}`;
+      const credential = crypto.createHmac('sha1', process.env.TURN_SECRET).update(username).digest('base64');
+      iceServers.push({ urls: turnUrls, username, credential });
+    }
+    res.json({ iceServers });
+  });
+
 
   r.get('/calls', async (req, res) => res.json(await repo.listCalls(req.userId)));
 

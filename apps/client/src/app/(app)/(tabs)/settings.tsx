@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Platform, ScrollView, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Avatar } from '@/components/avatar';
@@ -7,6 +7,7 @@ import { DesktopTopBar, MobileHeader, PageTitle } from '@/components/shell';
 import { Button, Card, Field, Icon, SectionLabel, T, type IconName } from '@/components/ui';
 import { useIsWide } from '@/hooks/use-layout';
 import { ServerField, useServerField } from '@/components/server-field';
+import { pickAvatar } from '@/lib/avatar-upload';
 import { checkServer, isInstalledApp, useServerUrl } from '@/lib/config';
 import { useAuth } from '@/state/auth';
 import { useChat } from '@/state/chat-store';
@@ -64,6 +65,67 @@ function ServerSettings() {
   );
 }
 
+/** Profile photo with tap-to-change and remove. */
+function ProfilePhoto({ online }: { online: boolean }) {
+  const { user, setAvatar } = useAuth();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const run = async (fn: () => Promise<void>) => {
+    setBusy(true);
+    setError(null);
+    try {
+      await fn();
+    } catch (e: any) {
+      setError(e.message || 'Could not update photo');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const change = () =>
+    run(async () => {
+      const base64 = await pickAvatar();
+      if (base64) await setAvatar(base64);
+    });
+
+  return (
+    <View style={{ alignItems: 'center', gap: 8 }}>
+      <Pressable onPress={change} disabled={busy} accessibilityRole="button" accessibilityLabel="Change profile photo">
+        <Avatar user={user ? { ...user, online } : null} size={96} ringBg={colors.surface} />
+        <View
+          style={{
+            position: 'absolute',
+            right: -2,
+            bottom: -2,
+            width: 34,
+            height: 34,
+            borderRadius: 17,
+            backgroundColor: colors.amber,
+            borderWidth: 3,
+            borderColor: colors.surface,
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}>
+          {busy ? <ActivityIndicator size="small" color={colors.onAmber} /> : <Icon name="camera" size={15} color={colors.onAmber} />}
+        </View>
+      </Pressable>
+      {!!user?.avatarUrl && !busy && (
+        <Pressable onPress={() => run(() => setAvatar(null))} hitSlop={6}>
+          <T variant="label" color={colors.textMuted}>
+            Remove photo
+          </T>
+        </Pressable>
+      )}
+      {!!error && (
+        <T variant="bodySm" color={colors.danger}>
+          {error}
+        </T>
+      )}
+    </View>
+  );
+}
+
 function SettingsBody() {
   const { user, updateProfile, logout } = useAuth();
   const serverUrl = useServerUrl();
@@ -93,7 +155,7 @@ function SettingsBody() {
   return (
     <ScrollView contentContainerStyle={{ padding: 20, gap: 20, paddingBottom: 120, maxWidth: 720, width: '100%', alignSelf: 'center' }}>
       <Card style={{ alignItems: 'center', gap: 6, paddingVertical: 28, borderRadius: radius.xl }}>
-        <Avatar user={user ? { ...user, online: connected } : null} size={96} ringBg={colors.surface} />
+        <ProfilePhoto online={connected} />
         <T variant="headline" style={{ marginTop: 10, fontSize: 26 }}>
           {user?.displayName}
         </T>

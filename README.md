@@ -106,7 +106,7 @@ The Android and desktop apps ask for the **server address** on the sign-in and s
 
 ## Notes
 
-- Calls use STUN by default. For users behind strict NATs, configure a TURN server (`TURN_URL`, `TURN_USERNAME`, `TURN_CREDENTIAL`).
+- Calls between different networks need a TURN relay. Install with `--turn` (coturn, see [deploy/INSTALL.md](deploy/INSTALL.md#turn-server-for-calls)); the server hands out short-lived TURN credentials via `/api/ice`.
 - Messages are private to conversation members and protected by TLS when served over HTTPS. They are not end-to-end encrypted.
 
 ## License

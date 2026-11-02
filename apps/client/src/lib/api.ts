@@ -50,6 +50,8 @@ export const api = {
     request<AuthResponse>('POST', '/auth/register', { username, displayName, password }),
   me: () => request<User>('GET', '/me'),
   updateMe: (patch: Partial<Pick<User, 'displayName' | 'bio' | 'title'>>) => request<User>('PATCH', '/me', patch),
+  setAvatar: (base64: string) => request<User>('PUT', '/me/avatar', { data: base64 }),
+  removeAvatar: () => request<User>('DELETE', '/me/avatar'),
   users: (q = '') => request<User[]>('GET', `/users?q=${encodeURIComponent(q)}`),
   conversations: () => request<Conversation[]>('GET', '/conversations'),
   conversation: (id: string) => request<Conversation>('GET', `/conversations/${id}`),
@@ -63,4 +65,5 @@ export const api = {
     request<Message>('POST', `/conversations/${id}/messages`, { body, replyToId }),
   markRead: (id: string) => request<{ readAt: number }>('POST', `/conversations/${id}/read`),
   calls: () => request<CallLog[]>('GET', '/calls'),
+  ice: () => request<{ iceServers: RTCIceServer[] }>('GET', '/ice'),
 };
