@@ -57,15 +57,16 @@ export const videoTransceiver = (pc: RTCPeerConnection) =>
 
 export async function getLocalMedia(video: boolean) {
   try {
-    return await navigator.mediaDevices.getUserMedia({ audio: true, video: video ? CAMERA : false });
+    return await navigator.mediaDevices.getUserMedia({ audio: MIC, video: video ? CAMERA : false });
   } catch {
     // No camera (or denied): try audio only so the call still connects.
-    if (video) return navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    if (video) return navigator.mediaDevices.getUserMedia({ audio: MIC, video: false });
     throw new Error(t('Microphone access was blocked'));
   }
 }
 
 const CAMERA = { width: 1280, height: 720, facingMode: 'user' };
+const MIC = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
 
 /** Opens the camera mid-call; throws a friendly error when unavailable. */
 export async function getCameraTrack() {

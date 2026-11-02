@@ -34,6 +34,8 @@ export type CallState = {
   remoteScreen: boolean;
   /** Bumped when tracks inside a stream change, so video views re-render. */
   mediaVersion: number;
+  /** Detected from WebRTC stats: our audio isn't leaving, or theirs isn't arriving. */
+  audioIssue: 'send' | 'receive' | null;
   notice: string | null;
   reaction: { emoji: string; key: number } | null;
 };
@@ -57,6 +59,7 @@ const IDLE: CallState = {
   remoteVideo: false,
   remoteScreen: false,
   mediaVersion: 0,
+  audioIssue: null,
   notice: null,
   reaction: null,
 };
@@ -100,6 +103,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const acceptedHere = useRef(false);
   const cameraTrack = useRef<MediaStreamTrack | null>(null);
   const screenTrack = useRef<MediaStreamTrack | null>(null);
+  // The caller's peer may still be waiting on mic/camera permission when the callee answers.
+  const peerReady = useRef<Promise<RTCPeerConnection | null> | null>(null);
 
   const patch = useCallback((p: Partial<CallState>) => setCall((c) => ({ ...c, ...p })), [setCall]);
 
@@ -108,6 +113,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     pcRef.current = null;
     pendingCandidates.current = [];
     acceptedHere.current = false;
+    peerReady.current = null;
     const { localStream } = callRef.current;
     localStream?.getTracks().forEach((t) => t.stop());
     cameraTrack.current?.stop();
@@ -158,6 +164,16 @@ export function CallProvider({ children }: { children: ReactNode }) {
       const pc = createPeer(iceServers, signal, (remote) =>
         setCall((c) => ({ ...c, remoteStream: remote, mediaVersion: c.mediaVersion + 1 })),
       );
+      pc.oniceconnectionstatechange = async () => {
+        // Network changed (Wi-Fi ↔ mobile data…): the caller renegotiates new ICE paths.
+        if (pc.iceConnectionState === 'failed' && isCaller && pcRef.current === pc) {
+          try {
+            const offer = await pc.createOffer({ iceRestart: true });
+            await pc.setLocalDescription(offer);
+            signal({ type: 'offer', sdp: offer.sdp });
+          } catch {}
+        }
+      };
       stream.getAudioTracks().forEach((t) => pc.addTrack(t, stream));
       const cam = stream.getVideoTracks()[0] ?? null;
       cameraTrack.current = cam;
@@ -166,6 +182,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
       // with replaceTrack() — no renegotiation needed. The callee gets it from the offer.
       else if (isCaller) pc.addTransceiver('video', { direction: 'sendrecv', streams: [stream] });
       pcRef.current = pc;
+      // Dev-only hook for call diagnostics (e2e tests read WebRTC stats through it).
+      if (__DEV__) (globalThis as any).__flockPc = pc;
       patch({ localStream: stream, cameraOff: !cam });
       return pc;
     },
@@ -197,8 +215,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
       }
       if (c.phase !== 'outgoing') return;
       patch({ phase: 'active', answeredAt: Date.now() });
-      const pc = pcRef.current;
-      if (pc) {
+      // If our mic/camera prompt is still open, wait for the peer instead of never sending the offer.
+      const pc = pcRef.current ?? (await peerReady.current);
+      if (pc && callRef.current.callId === callId) {
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
         signal({ type: 'offer', sdp: offer.sdp });
@@ -258,6 +277,41 @@ export function CallProvider({ children }: { children: ReactNode }) {
     };
   }, [user, connected, cleanup, patch, signal, setCall, announceMedia]);
 
+  // Watch real audio flow: video can work while audio silently doesn't (muted device, blocked playback…).
+  useEffect(() => {
+    if (call.phase !== 'active') return;
+    let lastSent = -1;
+    let lastReceived = -1;
+    let stuckSend = 0;
+    let stuckReceive = 0;
+    const id = setInterval(async () => {
+      const pc = pcRef.current;
+      if (!pc || !['connected', 'completed'].includes(pc.iceConnectionState)) return;
+      let sent = 0;
+      let received = 0;
+      try {
+        const stats = await pc.getStats();
+        stats.forEach((r: any) => {
+          const kind = r.kind ?? r.mediaType;
+          if (r.type === 'outbound-rtp' && kind === 'audio') sent += r.bytesSent ?? 0;
+          if (r.type === 'inbound-rtp' && kind === 'audio') received += r.bytesReceived ?? 0;
+        });
+      } catch {
+        return;
+      }
+      stuckSend = lastSent >= 0 && sent <= lastSent && !callRef.current.micMuted ? stuckSend + 1 : 0;
+      stuckReceive = lastReceived >= 0 && received <= lastReceived ? stuckReceive + 1 : 0;
+      lastSent = sent;
+      lastReceived = received;
+      const issue = stuckSend >= 3 ? 'send' : stuckReceive >= 3 ? 'receive' : null;
+      if (issue !== callRef.current.audioIssue) {
+        if (issue) console.warn('[flock] call audio problem:', issue, { sent, received });
+        patch({ audioIssue: issue });
+      }
+    }, 2000);
+    return () => clearInterval(id);
+  }, [call.phase, patch]);
+
   // Hang up if the user signs out mid-call.
   useEffect(() => {
     if (!user && callRef.current.phase !== 'idle') cleanup();
@@ -278,7 +332,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
         }
         patch({ callId: res.callId });
       });
-      await preparePeer(video, true);
+      peerReady.current = preparePeer(video, true);
+      await peerReady.current;
     },
     [user, cleanup, patch, preparePeer, setCall],
   );

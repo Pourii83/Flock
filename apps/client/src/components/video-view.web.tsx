@@ -1,17 +1,24 @@
 import { useEffect, useRef } from 'react';
 
-/** Renders a MediaStream with a DOM <video>; web/Electron only. */
-export function VideoView({ stream, mirror, muted, contain }: { stream: MediaStream | null; mirror?: boolean; muted?: boolean; contain?: boolean; overlay?: boolean }) {
+/**
+ * Renders a MediaStream's video with a DOM <video>; web/Electron only.
+ * Always muted: call audio plays through RemoteAudio, so remounting a video never cuts the sound.
+ */
+export function VideoView({ stream, mirror, contain }: { stream: MediaStream | null; mirror?: boolean; muted?: boolean; contain?: boolean; overlay?: boolean }) {
   const ref = useRef<HTMLVideoElement | null>(null);
   useEffect(() => {
-    if (ref.current && ref.current.srcObject !== stream) ref.current.srcObject = stream;
+    const el = ref.current;
+    if (!el) return;
+    el.muted = true; // React's `muted` prop isn't reliably applied to the DOM property.
+    if (el.srcObject !== stream) el.srcObject = stream;
+    el.play().catch(() => {});
   }, [stream]);
   return (
     <video
       ref={ref}
       autoPlay
       playsInline
-      muted={muted}
+      muted
       style={{
         width: '100%',
         height: '100%',

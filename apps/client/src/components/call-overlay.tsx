@@ -10,6 +10,7 @@ import { useCalls } from '@/state/calls';
 import { colors, radius } from '@/theme';
 import { Avatar } from './avatar';
 import { Icon, T, type IconName } from './ui';
+import { RemoteAudio } from './remote-audio';
 import { VideoView } from './video-view';
 import { t } from '@/lib/i18n';
 
@@ -261,13 +262,9 @@ function ActiveCall() {
             </T>
           </View>
         )}
-        {/* Hidden audio sink for voice-only calls */}
-        {!remoteHasVideo && call.remoteStream && Platform.OS === 'web' && (
-          <View style={{ width: 0, height: 0, overflow: 'hidden' }}>
-            <VideoView stream={call.remoteStream} />
-          </View>
-        )}
       </View>
+      {/* One persistent audio output for the whole call (web); video views are muted. */}
+      <RemoteAudio stream={call.remoteStream} version={call.mediaVersion} />
 
       <SafeAreaView style={{ flex: 1, justifyContent: 'space-between' }} pointerEvents="box-none">
         {/* Top status */}
@@ -339,6 +336,17 @@ function ActiveCall() {
           {!!call.notice && (
             <View style={[styles.glass, { paddingHorizontal: 14, paddingVertical: 8 }]}>
               <Notice text={call.notice} />
+            </View>
+          )}
+          {!!call.audioIssue && (
+            <View style={[styles.glass, { paddingHorizontal: 14, paddingVertical: 8, borderColor: colors.amber }]}>
+              <Notice
+                text={
+                  call.audioIssue === 'send'
+                    ? t("Your microphone isn't sending audio — check that it's connected and allowed.")
+                    : t("Not receiving the other person's audio — their microphone may be off or blocked.")
+                }
+              />
             </View>
           )}
           <View style={{ flexDirection: 'row', gap: 10 }}>

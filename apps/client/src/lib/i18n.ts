@@ -237,6 +237,9 @@ const fa: Record<string, string> = {
   'Share screen': 'اشتراک صفحه',
   'Hang up': 'قطع تماس',
   'Microphone access was blocked': 'دسترسی به میکروفون مسدود است',
+  'Tap to play sound': 'برای پخش صدا بزنید',
+  "Your microphone isn't sending audio — check that it's connected and allowed.": 'صدای میکروفون شما ارسال نمی‌شود؛ وصل بودن و اجازه‌ی دسترسی میکروفون را بررسی کنید.',
+  "Not receiving the other person's audio — their microphone may be off or blocked.": 'صدای طرف مقابل نمی‌رسد؛ ممکن است میکروفون او خاموش یا مسدود باشد.',
   'Camera is unavailable or access was blocked': 'دوربین در دسترس نیست یا دسترسی به آن مسدود است',
   'Audio/video needs the installed Flock app — Expo Go only supports call signaling.':
     'صدا و تصویر نیاز به نسخه‌ی نصبی فلاک دارد؛ Expo Go فقط برقراری تماس را پشتیبانی می‌کند.',

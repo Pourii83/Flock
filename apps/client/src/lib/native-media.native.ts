@@ -39,6 +39,7 @@ export const callAudio = {
     if (!m) return;
     m.stopRingtone();
     m.start({ media: video ? 'video' : 'audio' });
+    m.setMicrophoneMute(false);
     m.setKeepScreenOn(true);
     m.setForceSpeakerphoneOn(video);
   },
