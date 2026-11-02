@@ -4,8 +4,6 @@
 
 Flock is a real-time messenger built with **React Native (Expo)**. It runs from one codebase as a **PWA**, an **Android app** and a **desktop app**. It has a Node.js + PostgreSQL backend for chat, presence and WebRTC calls. The UI follows the *Synchronous Flight* design system from Google Stitch: deep-space surfaces, warm amber accents and Inter typography.
 
-**فارسی:** فلاک یک پیام‌رسان بلادرنگ با React Native است که از یک کدبیس، نسخه‌ی وب (PWA)، اندروید و دسکتاپ می‌سازد. بک‌اند با Node.js و PostgreSQL نوشته شده و همه‌چیز با Docker بالا می‌آید.
-
 ## Features
 
 - Simple sign-up and login (username + password, JWT)
