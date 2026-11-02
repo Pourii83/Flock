@@ -13,3 +13,6 @@ server/data/
 # local tooling
 .claude/
 .DS_Store
+
+# server packages
+dist/

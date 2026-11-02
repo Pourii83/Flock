@@ -28,6 +28,14 @@ server/      Express + Socket.IO + PostgreSQL API
 docker-compose.yml
 ```
 
+## Install on a Linux server (no Docker)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Pourii83/Flock/main/deploy/install.sh | sudo bash
+```
+
+Or download `flock-server-linux-x64.tar.gz` from Releases and install offline. See **[deploy/INSTALL.md](deploy/INSTALL.md)** for the one-line, offline and manual install methods.
+
 ## Run everything with Docker
 
 ```bash
@@ -63,6 +71,8 @@ Point the app at another server with `EXPO_PUBLIC_API_URL` (see `apps/client/.en
 | `JWT_SECRET` | random per start | **Set in production** |
 | `PORT` | `4000` | |
 | `CORS_ORIGIN` | `*` | Comma-separated allowed origins |
+| `WEB_DIR` | — | Folder with the built PWA to serve from the same port |
+| `HOST` | `0.0.0.0` | Listen address |
 
 ## Android
 

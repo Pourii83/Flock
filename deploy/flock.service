@@ -1,0 +1,27 @@
+[Unit]
+Description=Flock messenger server
+Documentation=https://github.com/Pourii83/Flock
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=flock
+Group=flock
+WorkingDirectory=/opt/flock/server
+EnvironmentFile=/etc/flock/flock.env
+ExecStart=/opt/flock/node/bin/node /opt/flock/server/src/index.js
+Restart=on-failure
+RestartSec=3
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target
