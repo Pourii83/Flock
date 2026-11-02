@@ -57,7 +57,8 @@
         "expo-build-properties",
         {
           "android": {
-            "usesCleartextTraffic": true
+            "usesCleartextTraffic": true,
+            "extraProguardRules": "# react-native-webrtc: native code calls into these classes (R8 must keep them)\n-keep class org.webrtc.** { *; }\n-dontwarn org.webrtc.**\n-keep class com.zxcpoiu.incallmanager.** { *; }"
           }
         }
       ],

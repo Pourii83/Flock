@@ -59,5 +59,15 @@
     "typecheck": "tsc --noEmit"
   },
   "private": true,
-  "license": "SEE LICENSE IN LICENSE"
+  "license": "SEE LICENSE IN LICENSE",
+  "expo": {
+    "doctor": {
+      "reactNativeDirectoryCheck": {
+        "exclude": [
+          "react-native-webrtc",
+          "react-native-incall-manager"
+        ]
+      }
+    }
+  }
 }
