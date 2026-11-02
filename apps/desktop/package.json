@@ -1,0 +1,53 @@
+{
+  "name": "flock-desktop",
+  "productName": "Flock",
+  "version": "1.0.0",
+  "description": "Flock desktop app (Electron shell around the React Native Web build)",
+  "main": "main.js",
+  "private": true,
+  "author": "Flock",
+  "scripts": {
+    "build:web": "cd ../client && npx expo export --platform web --output-dir ../desktop/web-dist",
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "dist": "npm run build:web && electron-builder",
+    "dist:win": "npm run build:web && electron-builder --win",
+    "dist:mac": "npm run build:web && electron-builder --mac",
+    "dist:linux": "npm run build:web && electron-builder --linux"
+  },
+  "build": {
+    "appId": "app.flock.desktop",
+    "productName": "Flock",
+    "files": [
+      "main.js",
+      "preload.js",
+      "web-dist/**/*",
+      "icon.png"
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "icon.png"
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "icon.png",
+      "category": "public.app-category.social-networking"
+    },
+    "linux": {
+      "target": "AppImage",
+      "icon": "icon.png",
+      "category": "Network"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  },
+  "devDependencies": {
+    "electron": "^45.2.1",
+    "electron-builder": "^26.18.0"
+  }
+}

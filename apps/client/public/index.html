@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="%LANG_ISO_CODE%">
+  <head>
+    <meta charset="utf-8" />
+    <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no, viewport-fit=cover" />
+    <title>Flock</title>
+    <meta name="description" content="Flock — stay together, wherever you are. Real-time chat and video calls." />
+    <meta name="theme-color" content="#0B0E14" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Flock" />
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <style id="expo-reset">
+      html,
+      body {
+        height: 100%;
+        background-color: #0b0e14;
+        color-scheme: dark;
+      }
+      body {
+        overflow: hidden;
+        margin: 0;
+      }
+      #root {
+        display: flex;
+        height: 100%;
+        flex: 1;
+      }
+      ::-webkit-scrollbar { width: 10px; height: 10px; }
+      ::-webkit-scrollbar-thumb { background: #1a2130; border-radius: 8px; border: 2px solid #0b0e14; }
+      ::-webkit-scrollbar-track { background: transparent; }
+    </style>
+    <script>
+      // Register the PWA service worker for built apps (skipped on the Metro dev server).
+      if ('serviceWorker' in navigator && location.port !== '8081') {
+        window.addEventListener('load', function () {
+          navigator.serviceWorker.register('/sw.js').catch(function () {});
+        });
+      }
+    </script>
+  </head>
+  <body>
+    <noscript>You need to enable JavaScript to run Flock.</noscript>
+    <div id="root"></div>
+  </body>
+</html>

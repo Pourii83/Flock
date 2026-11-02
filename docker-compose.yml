@@ -1,0 +1,49 @@
+name: flock
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-flock}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-flock}
+      POSTGRES_DB: ${POSTGRES_DB:-flock}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-flock} -d ${POSTGRES_DB:-flock}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  server:
+    build: ./server
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PORT: 4000
+      DATABASE_URL: postgres://${POSTGRES_USER:-flock}:${POSTGRES_PASSWORD:-flock}@db:5432/${POSTGRES_DB:-flock}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env (see .env.example)}
+      CORS_ORIGIN: ${CORS_ORIGIN:-*}
+    # Exposed so the Android app / desktop app can reach the API directly.
+    ports:
+      - "${SERVER_PORT:-4000}:4000"
+
+  web:
+    build:
+      context: ./apps/client
+      args:
+        EXPO_PUBLIC_TURN_URL: ${TURN_URL:-}
+        EXPO_PUBLIC_TURN_USERNAME: ${TURN_USERNAME:-}
+        EXPO_PUBLIC_TURN_CREDENTIAL: ${TURN_CREDENTIAL:-}
+    restart: unless-stopped
+    depends_on:
+      server:
+        condition: service_healthy
+    ports:
+      - "${WEB_PORT:-8080}:80"
+
+volumes:
+  pgdata:

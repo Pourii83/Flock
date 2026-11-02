@@ -1,0 +1,15 @@
+node_modules/
+.env
+*.log
+
+# builds
+apps/client/dist/
+apps/desktop/web-dist/
+apps/desktop/release/
+
+# server local data
+server/data/
+
+# local tooling
+.claude/
+.DS_Store
