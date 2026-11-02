@@ -152,3 +152,20 @@ scripts/package-server.sh x64      # or arm64 → dist/flock-server-linux-x64.ta
 ```
 
 Pushing a tag like `v1.0.0` builds both architectures with GitHub Actions and attaches them to a release.
+
+## TURN server for calls
+
+Calls between users on different networks (mobile data, office NATs, …) need a TURN relay. Without one, a call may "connect" with no audio or video.
+
+```bash
+sudo ./flock-server/install.sh --domain chat.example.com --turn
+# server whose Nginx you configure yourself: give the domain to TURN only
+sudo TURN_DOMAIN=chat.example.com ./flock-server/install.sh --turn
+```
+
+This installs **coturn** with:
+- short-lived credentials: Flock hands them out via `/api/ice` (`use-auth-secret`), so nothing secret ships in the apps
+- ports **3478** (UDP/TCP), **5349** (TLS, when a Let's Encrypt certificate exists for the domain) and relay ports **49160–49200/udp**
+- relaying to private/internal addresses blocked, and per-user quotas
+
+Open those ports in your hosting provider's firewall as well. The installer sets `TURN_URLS` and `TURN_SECRET` in `/etc/flock/flock.env`. For an existing coturn, set them yourself (`static-auth-secret` must equal `TURN_SECRET`).

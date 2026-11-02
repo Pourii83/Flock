@@ -306,10 +306,10 @@ if [ "$WITH_TURN" = 1 ]; then
   TURN_HOST="${TDOMAIN:-}"
   RELAY_IP=""
   if [ -n "$TDOMAIN" ]; then
-    DOMAIN_IP="$(getent ahostsv4 "$TDOMAIN" 2>/dev/null | awk 'NR==1{print $1}')"
+    DOMAIN_IP="$(getent ahostsv4 "$TDOMAIN" 2>/dev/null | awk 'NR==1{print $1}' || true)"
     if [ -n "$DOMAIN_IP" ] && hostname -I | tr ' ' '\n' | grep -qx "$DOMAIN_IP"; then RELAY_IP="$DOMAIN_IP"; fi
   fi
-  [ -n "$RELAY_IP" ] || RELAY_IP="$(hostname -I | tr ' ' '\n' | grep -vE '^(10\.|127\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.|169\.254\.)' | grep -v ':' | head -1)"
+  [ -n "$RELAY_IP" ] || RELAY_IP="$(hostname -I | tr ' ' '\n' | grep -vE '^(10\.|127\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.|169\.254\.)' | grep -v ':' | head -1 || true)"
   PUBLIC_IP="${TURN_PUBLIC_IP:-$RELAY_IP}"
   if [ -z "$RELAY_IP" ]; then
     # Behind NAT (e.g. cloud VMs): relay on the private address, advertise the public one.
@@ -319,7 +319,7 @@ if [ "$WITH_TURN" = 1 ]; then
   fi
   [ -n "$TURN_HOST" ] || TURN_HOST="$PUBLIC_IP"
 
-  TURN_SECRET="$(grep -E '^TURN_SECRET=' "$ENV_FILE" | cut -d= -f2-)"
+  TURN_SECRET="$(grep -E '^TURN_SECRET=' "$ENV_FILE" | cut -d= -f2- || true)"
   [ -n "$TURN_SECRET" ] || TURN_SECRET="$(random 48)"
 
   TLS_CONF=""
