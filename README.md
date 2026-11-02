@@ -34,7 +34,7 @@ docker-compose.yml
 curl -fsSL https://raw.githubusercontent.com/Pourii83/Flock/main/deploy/install.sh | sudo bash
 ```
 
-Or download `flock-server-linux-x64.tar.gz` from Releases and install offline. See **[deploy/INSTALL.md](deploy/INSTALL.md)** for the one-line, offline and manual install methods.
+Add `--domain chat.example.com` for automatic HTTPS with Nginx + Let's Encrypt. Or download `flock-server-linux-x64.tar.gz` from Releases and install offline. See **[deploy/INSTALL.md](deploy/INSTALL.md)** for the one-line, offline and manual install methods.
 
 ## Run everything with Docker
 

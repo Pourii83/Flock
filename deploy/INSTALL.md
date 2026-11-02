@@ -21,7 +21,10 @@ Useful options (after `bash -s --` when piping):
 curl -fsSL .../install.sh | sudo bash -s -- --port 8080
 curl -fsSL .../install.sh | sudo bash -s -- --version v1.1.0
 curl -fsSL .../install.sh | sudo bash -s -- --db-url postgres://user:pass@db-host:5432/flock
+curl -fsSL .../install.sh | sudo bash -s -- --domain chat.example.com --email you@example.com
 ```
+
+`--domain` installs **Nginx + certbot**, proxies `https://chat.example.com` to Flock (including WebSockets), gets a Let's Encrypt certificate that renews automatically, and keeps Flock itself on `127.0.0.1`. The domain's DNS must point at the server and ports 80/443 must be open. Use it on a **dedicated** server. If Nginx already hosts other sites, follow [Server that already runs Nginx](#server-that-already-runs-nginx) instead.
 
 > **Private repository:** raw GitHub URLs and release downloads need authentication. Download `install.sh` and run it with a token that can read the repository:
 > `sudo GITHUB_TOKEN=ghp_xxx bash install.sh`
@@ -85,13 +88,62 @@ sudo -u flock env $(grep -v '^#' /etc/flock/flock.env | xargs) /opt/flock/node/b
 - Logs: `journalctl -u flock -f`. Restart: `sudo systemctl restart flock`
 - **Upgrade:** run the installer again (online, or with the new package). Your config and database are kept.
 - **Uninstall:** `sudo /opt/flock/uninstall.sh` (add `--purge` to also delete config and database)
-- **HTTPS:** for production, put Flock behind a reverse proxy with TLS. Example with Caddy:
-  ```
-  chat.example.com {
-      reverse_proxy 127.0.0.1:4000
-  }
-  ```
-  Browsers only allow camera/microphone (calls) on HTTPS or localhost, so HTTPS is required for calls from the web app.
+- **HTTPS:** use `--domain` (above) or the Nginx setup below. Browsers only allow camera/microphone (calls) on HTTPS or localhost, so HTTPS is required for calls from the web app.
+
+## Server that already runs Nginx
+
+On a shared server, don't let certbot rewrite Nginx for you. Its generated `listen 443` binds every address, which can clash with sites or proxies bound to a specific IP. Instead:
+
+```bash
+# 1. Install Flock without --domain, then keep it local-only
+sudo ./flock-server/install.sh
+sudo sed -i 's/^HOST=.*/HOST=127.0.0.1/' /etc/flock/flock.env && sudo systemctl restart flock
+
+# 2. HTTP site for the ACME challenge, then the certificate
+sudo mkdir -p /var/www/flock-acme
+#    (create /etc/nginx/sites-available/flock with only the port-80 server below, link it, nginx -t, reload)
+sudo certbot certonly --webroot -w /var/www/flock-acme -d chat.example.com --deploy-hook "systemctl reload nginx"
+```
+
+`/etc/nginx/sites-available/flock` (link it into `sites-enabled`, then `sudo nginx -t && sudo systemctl reload nginx`):
+
+```nginx
+map $http_upgrade $flock_connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name chat.example.com;
+    location /.well-known/acme-challenge/ { root /var/www/flock-acme; }
+    location / { return 301 https://chat.example.com$request_uri; }
+}
+
+server {
+    listen 443 ssl http2;            # or <server-ip>:443 to match how your other sites listen
+    server_name chat.example.com;
+    ssl_certificate     /etc/letsencrypt/live/chat.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/chat.example.com/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    client_max_body_size 10m;
+
+    location / {
+        proxy_pass http://127.0.0.1:4000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $flock_connection_upgrade;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 3600s;
+    }
+}
+```
+
+The `/.well-known/acme-challenge/` location must stay in place so certbot can renew the certificate automatically.
 
 ## Building a package yourself
 
