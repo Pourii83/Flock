@@ -8,6 +8,7 @@ import { colors, radius } from '@/theme';
 import { Avatar } from './avatar';
 import { FlockTile } from './logo';
 import { Icon, T, UnreadBadge, type IconName } from './ui';
+import { t } from '@/lib/i18n';
 
 export const TABS: Record<string, { icon: IconName; label: string }> = {
   index: { icon: 'message-square', label: 'Chats' },
@@ -56,7 +57,7 @@ export function RailTabBar(props: BottomTabBarProps) {
               <Pressable
                 key={route.key}
                 accessibilityRole="tab"
-                accessibilityLabel={tab.label}
+                accessibilityLabel={t(tab.label)}
                 accessibilityState={{ selected: focused }}
                 onPress={() => press(route.key, focused)}
                 style={({ hovered }: any) => ({
@@ -78,7 +79,7 @@ export function RailTabBar(props: BottomTabBarProps) {
         </View>
       </View>
       <Pressable
-        accessibilityLabel="Your profile"
+        accessibilityLabel={t('Your profile')}
         onPress={() => settingsRoute && press(settingsRoute.key, state.routes[state.index]?.name === 'settings')}>
         <Avatar user={user} size={44} ringBg={colors.canvas} />
       </Pressable>
@@ -120,7 +121,7 @@ export function BottomTabBar(props: BottomTabBarProps) {
               {route.name === 'index' && <UnreadBadge count={unread} style={{ position: 'absolute', top: -8, right: -14 }} />}
             </View>
             <T variant="label" color={focused ? colors.amber : colors.textMuted}>
-              {tab.label}
+              {t(tab.label)}
             </T>
           </Pressable>
         );

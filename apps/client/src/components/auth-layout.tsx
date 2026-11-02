@@ -5,8 +5,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useIsWide } from '@/hooks/use-layout';
 import { colors, radius } from '@/theme';
+import { LanguagePicker } from './language-picker';
 import { FlockMark, FlockTile } from './logo';
 import { Icon, T, type IconName } from './ui';
+import { t } from '@/lib/i18n';
 
 const FEATURES: { icon: IconName; color: string; title: string; body: string }[] = [
   {
@@ -35,6 +37,7 @@ export function AuthLayout({ title, subtitle, children }: { title: string; subti
 
   const form = (
     <View style={{ width: '100%', maxWidth: 440, alignSelf: 'center', gap: 24 }}>
+      <LanguagePicker compact />
       {wide ? (
         <View style={{ alignItems: 'center', gap: 8 }}>
           <T variant="headline" style={{ fontSize: 34, lineHeight: 42, textAlign: 'center' }}>
@@ -62,16 +65,16 @@ export function AuthLayout({ title, subtitle, children }: { title: string; subti
             <FlockTile size={88} glow />
           </View>
           <T variant="display" style={{ fontSize: 40, marginTop: 8 }}>
-            Flock
+            {t('Flock')}
           </T>
           <T variant="bodyLg" color={colors.amberSoft} style={{ opacity: 0.85 }}>
-            Stay together, wherever you are
+            {t('Stay together, wherever you are')}
           </T>
         </View>
       )}
       {children}
       <T variant="bodySm" color={colors.textDim} style={{ textAlign: 'center' }}>
-        Flock Desktop & Web · v1.0
+        {t('Flock Desktop & Web · v1.0')}
       </T>
     </View>
   );
@@ -111,10 +114,10 @@ export function AuthLayout({ title, subtitle, children }: { title: string; subti
           <FlockTile size={52} />
           <View>
             <T variant="headlineSm" style={{ fontSize: 24 }}>
-              Flock
+              {t('Flock')}
             </T>
             <T variant="overline" color={colors.textMuted}>
-              WORKPLACE & FLUID SYNC
+              {t('WORKPLACE & FLUID SYNC')}
             </T>
           </View>
         </View>
@@ -133,20 +136,21 @@ export function AuthLayout({ title, subtitle, children }: { title: string; subti
             }}>
             <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: colors.online }} />
             <T variant="label" color={colors.amber}>
-              FLOCK MESSENGER
+              {t('FLOCK MESSENGER')}
             </T>
           </View>
           <View>
             <T variant="display" style={{ fontSize: 60, lineHeight: 66 }}>
-              Stay together,
+              {t('Stay together,')}
             </T>
             <T variant="display" color={colors.amber} style={{ fontSize: 60, lineHeight: 66 }}>
-              wherever you are.
+              {t('wherever you are.')}
             </T>
           </View>
           <T variant="bodyLg" color={colors.textMuted} style={{ fontSize: 18, lineHeight: 30 }}>
-            Built for calm, focused conversations. Instant messages, live presence and one-tap video huddles with
-            the people who matter.
+            {t(
+              'Built for calm, focused conversations. Instant messages, live presence and one-tap video huddles with the people who matter.',
+            )}
           </T>
           <View style={{ gap: 24, marginTop: 8 }}>
             {FEATURES.map((f) => (
@@ -163,9 +167,9 @@ export function AuthLayout({ title, subtitle, children }: { title: string; subti
                   <Icon name={f.icon} color={f.color} size={20} />
                 </View>
                 <View style={{ flex: 1, gap: 4 }}>
-                  <T variant="headlineSm">{f.title}</T>
+                  <T variant="headlineSm">{t(f.title)}</T>
                   <T variant="body" color={colors.textMuted} style={{ fontSize: 15, lineHeight: 22 }}>
-                    {f.body}
+                    {t(f.body)}
                   </T>
                 </View>
               </View>
@@ -176,7 +180,7 @@ export function AuthLayout({ title, subtitle, children }: { title: string; subti
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, opacity: 0.6 }}>
           <FlockMark size={20} />
           <T variant="bodySm" color={colors.textMuted}>
-            One codebase · Android · Web · Desktop
+            {t('One codebase · Android · Web · Desktop')}
           </T>
         </View>
       </View>
@@ -209,7 +213,7 @@ export function AuthCard({ badge, children }: { badge: string; children: ReactNo
         </View>
         <View style={{ backgroundColor: colors.tealTint, borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 4 }}>
           <T variant="label" color={colors.teal}>
-            Secure session
+            {t('Secure session')}
           </T>
         </View>
       </View>

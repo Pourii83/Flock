@@ -8,6 +8,7 @@ import { Button, Field, T } from '@/components/ui';
 import { isInstalledApp } from '@/lib/config';
 import { useAuth } from '@/state/auth';
 import { colors } from '@/theme';
+import { t } from '@/lib/i18n';
 
 const USERNAME_RE = /^[a-zA-Z0-9_.]{3,24}$/;
 
@@ -22,12 +23,12 @@ export default function RegisterScreen() {
   const usernameRef = useRef<TextInputInstance>(null);
   const passwordRef = useRef<TextInputInstance>(null);
 
-  const usernameError = username && !USERNAME_RE.test(username) ? '3–24 letters, numbers, _ or .' : null;
+  const usernameError = username && !USERNAME_RE.test(username) ? t('3–24 letters, numbers, _ or .') : null;
 
   const submit = async () => {
-    if (!displayName.trim()) return setError('Tell your flock your name');
-    if (!USERNAME_RE.test(username)) return setError('Pick a valid username');
-    if (password.length < 6) return setError('Password must be at least 6 characters');
+    if (!displayName.trim()) return setError(t('Tell your flock your name'));
+    if (!USERNAME_RE.test(username)) return setError(t('Pick a valid username'));
+    if (password.length < 6) return setError(t('Password must be at least 6 characters'));
     setBusy(true);
     setError(null);
     try {
@@ -40,13 +41,13 @@ export default function RegisterScreen() {
   };
 
   return (
-    <AuthLayout title="Join Flock" subtitle="Create your account in a few seconds">
-      <AuthCard badge="CREATE ACCOUNT">
+    <AuthLayout title={t('Join Flock')} subtitle={t('Create your account in a few seconds')}>
+      <AuthCard badge={t('CREATE ACCOUNT')}>
         {isInstalledApp && <ServerField field={server} />}
         <Field
-          label="Your name"
+          label={t('Your name')}
           icon="user"
-          placeholder="Maya Lin"
+          placeholder={t('Maya Lin')}
           autoComplete="name"
           value={displayName}
           onChangeText={setDisplayName}
@@ -55,9 +56,9 @@ export default function RegisterScreen() {
         />
         <Field
           ref={usernameRef}
-          label="Username"
+          label={t('Username')}
           icon="at-sign"
-          placeholder="maya.lin"
+          placeholder={t('maya.lin')}
           autoCapitalize="none"
           autoCorrect={false}
           autoComplete="username-new"
@@ -69,9 +70,9 @@ export default function RegisterScreen() {
         />
         <Field
           ref={passwordRef}
-          label="Password"
+          label={t('Password')}
           icon="lock"
-          placeholder="At least 6 characters"
+          placeholder={t('At least 6 characters')}
           secureTextEntry
           autoComplete="new-password"
           textContentType="newPassword"
@@ -81,16 +82,16 @@ export default function RegisterScreen() {
           onSubmitEditing={submit}
           error={error}
         />
-        <Button title="Create account" iconRight="arrow-right" size="lg" onPress={submit} loading={busy} />
+        <Button title={t('Create account')} iconRight="arrow-right" size="lg" onPress={submit} loading={busy} />
       </AuthCard>
 
       <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 6 }}>
         <T variant="body" color={colors.textMuted}>
-          Already have an account?
+          {t('Already have an account?')}
         </T>
         <Link href="/login">
           <T variant="labelLg" color={colors.amber}>
-            Sign in
+            {t('Sign in')}
           </T>
         </Link>
       </View>

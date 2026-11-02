@@ -8,6 +8,7 @@ import { Button, Field, Icon, T } from '@/components/ui';
 import { isInstalledApp } from '@/lib/config';
 import { useAuth } from '@/state/auth';
 import { colors } from '@/theme';
+import { t } from '@/lib/i18n';
 
 export default function LoginScreen() {
   const { login } = useAuth();
@@ -20,7 +21,7 @@ export default function LoginScreen() {
   const passwordRef = useRef<TextInputInstance>(null);
 
   const submit = async () => {
-    if (!username.trim() || !password) return setError('Enter your username and password');
+    if (!username.trim() || !password) return setError(t('Enter your username and password'));
     setBusy(true);
     setError(null);
     try {
@@ -33,13 +34,13 @@ export default function LoginScreen() {
   };
 
   return (
-    <AuthLayout title="Welcome back to Flock" subtitle="Sign in to pick up right where you left off">
-      <AuthCard badge="FAST LOGIN">
+    <AuthLayout title={t('Welcome back to Flock')} subtitle={t('Sign in to pick up right where you left off')}>
+      <AuthCard badge={t('FAST LOGIN')}>
         {isInstalledApp && <ServerField field={server} />}
         <Field
-          label="Username"
+          label={t('Username')}
           icon="at-sign"
-          placeholder="your.username"
+          placeholder={t('your.username')}
           autoCapitalize="none"
           autoCorrect={false}
           autoComplete="username"
@@ -51,7 +52,7 @@ export default function LoginScreen() {
         />
         <Field
           ref={passwordRef}
-          label="Password"
+          label={t('Password')}
           icon="lock"
           placeholder="••••••••"
           secureTextEntry={!showPassword}
@@ -63,24 +64,24 @@ export default function LoginScreen() {
           onSubmitEditing={submit}
           error={error}
           right={
-            <Pressable onPress={() => setShowPassword((v) => !v)} hitSlop={8} accessibilityLabel="Toggle password visibility">
+            <Pressable onPress={() => setShowPassword((v) => !v)} hitSlop={8} accessibilityLabel={t('Toggle password visibility')}>
               <Icon name={showPassword ? 'eye-off' : 'eye'} size={18} color={colors.textMuted} />
             </Pressable>
           }
         />
-        <Button title="Continue" iconRight="arrow-right" size="lg" onPress={submit} loading={busy} />
+        <Button title={t('Continue')} iconRight="arrow-right" size="lg" onPress={submit} loading={busy} />
       </AuthCard>
 
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
         <View style={{ flex: 1, height: 1, backgroundColor: colors.surfaceHigh }} />
         <T variant="overline" color={colors.textMuted}>
-          NEW TO FLOCK?
+          {t('NEW TO FLOCK?')}
         </T>
         <View style={{ flex: 1, height: 1, backgroundColor: colors.surfaceHigh }} />
       </View>
 
       <Link href="/register" asChild>
-        <Button title="Create an account" icon="user-plus" variant="ghost" size="lg" />
+        <Button title={t('Create an account')} icon="user-plus" variant="ghost" size="lg" />
       </Link>
     </AuthLayout>
   );

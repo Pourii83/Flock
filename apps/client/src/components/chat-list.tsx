@@ -9,6 +9,7 @@ import { useChat } from '@/state/chat-store';
 import { colors, radius } from '@/theme';
 import { Avatar, ConversationAvatar } from './avatar';
 import { Button, Chip, Icon, SearchBar, SectionLabel, T, UnreadBadge } from './ui';
+import { t } from '@/lib/i18n';
 
 type Filter = 'all' | 'unread' | 'groups';
 
@@ -33,14 +34,14 @@ function Preview({ c, meId, typing }: { c: Conversation; meId?: string; typing: 
   if (typing)
     return (
       <T variant="body" color={colors.amber} numberOfLines={1} style={{ flex: 1 }}>
-        typing…
+        {t('typing…')}
       </T>
     );
   const m = c.lastMessage;
   if (!m)
     return (
       <T variant="body" color={colors.textDim} numberOfLines={1} style={{ flex: 1 }}>
-        Say hello 👋
+        {t('Say hello 👋')}
       </T>
     );
   const mine = m.senderId === meId;
@@ -88,7 +89,7 @@ export function ChatRow({
         borderColor: colors.surfaceHigh,
       })}>
       {selected && (
-        <View style={{ position: 'absolute', left: 0, top: 14, bottom: 14, width: 3, borderRadius: 2, backgroundColor: colors.amber }} />
+        <View style={{ position: 'absolute', start: 0, top: 14, bottom: 14, width: 3, borderRadius: 2, backgroundColor: colors.amber }} />
       )}
       <ConversationAvatar conversation={c} meId={user?.id} size={card ? 52 : 48} ringBg={selected ? colors.surface : colors.canvas} />
       <View style={{ flex: 1, gap: 4 }}>
@@ -138,7 +139,7 @@ function OnlineStrip({ onOpen }: { onOpen: (c: Conversation) => void }) {
           <Icon name="plus" size={26} color={colors.amber} />
         </View>
         <T variant="label" color={colors.textMuted}>
-          New
+          {t('New')}
         </T>
       </Pressable>
       {sorted.slice(0, 12).map((c) => {
@@ -181,7 +182,7 @@ export function ChatList({
       {desktop && (
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
           <T variant="headline" style={{ fontSize: 26 }}>
-            Chats
+            {t('Chats')}
           </T>
           <View style={{ backgroundColor: colors.surfaceHigh, borderRadius: radius.pill, paddingHorizontal: 9, paddingVertical: 2 }}>
             <T variant="label" color={colors.textMuted}>
@@ -189,24 +190,24 @@ export function ChatList({
             </T>
           </View>
           <View style={{ flex: 1 }} />
-          <Button title="New Chat" icon="plus" size="sm" onPress={onNewChat} />
+          <Button title={t('New Chat')} icon="plus" size="sm" onPress={onNewChat} />
         </View>
       )}
       <SearchBar
         value={query}
         onChangeText={setQuery}
-        placeholder={desktop ? 'Search chats…' : 'Search chats, messages, people…'}
+        placeholder={desktop ? t('Search chats…') : t('Search chats, messages, people…')}
         style={!desktop && { height: 52 }}
       />
       <View style={{ flexDirection: 'row', gap: 8 }}>
-        <Chip label="All" count={all.length} active={filter === 'all'} onPress={() => setFilter('all')} />
-        <Chip label="Unread" dot={unreadCount > 0} active={filter === 'unread'} onPress={() => setFilter('unread')} />
-        <Chip label="Groups" count={groupCount} active={filter === 'groups'} onPress={() => setFilter('groups')} />
+        <Chip label={t('All')} count={all.length} active={filter === 'all'} onPress={() => setFilter('all')} />
+        <Chip label={t('Unread')} dot={unreadCount > 0} active={filter === 'unread'} onPress={() => setFilter('unread')} />
+        <Chip label={t('Groups')} count={groupCount} active={filter === 'groups'} onPress={() => setFilter('groups')} />
       </View>
       {!desktop && !query && filter === 'all' && all.length > 0 && (
         <>
           <OnlineStrip onOpen={onOpen} />
-          <SectionLabel>Recent messages</SectionLabel>
+          <SectionLabel>{t('Recent messages')}</SectionLabel>
         </>
       )}
     </View>
@@ -228,9 +229,9 @@ export function ChatList({
           <View style={{ alignItems: 'center', gap: 12, paddingVertical: 48, paddingHorizontal: 24 }}>
             <Icon name={query ? 'search' : 'message-circle'} size={32} color={colors.textDim} />
             <T variant="body" color={colors.textMuted} style={{ textAlign: 'center' }}>
-              {query ? 'No chats match your search.' : filter !== 'all' ? 'Nothing here yet.' : 'No conversations yet. Start one with someone from your flock.'}
+              {query ? t('No chats match your search.') : filter !== 'all' ? t('Nothing here yet.') : t('No conversations yet. Start one with someone from your flock.')}
             </T>
-            {!query && filter === 'all' && <Button title="Start a chat" icon="plus" size="sm" onPress={onNewChat} />}
+            {!query && filter === 'all' && <Button title={t('Start a chat')} icon="plus" size="sm" onPress={onNewChat} />}
           </View>
         )
       }

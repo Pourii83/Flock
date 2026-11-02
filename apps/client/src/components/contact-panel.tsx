@@ -8,6 +8,7 @@ import { chatStore, useConversation } from '@/state/chat-store';
 import { colors, radius } from '@/theme';
 import { Avatar, ConversationAvatar } from './avatar';
 import { Icon, IconButton, T, type IconName } from './ui';
+import { t, num } from '@/lib/i18n';
 
 function Action({ icon, label, onPress, active }: { icon: IconName; label: string; onPress: () => void; active?: boolean }) {
   return (
@@ -40,8 +41,8 @@ export function ContactPanel({ conversationId, onClose }: { conversationId: stri
   return (
     <View style={{ width: 360, backgroundColor: colors.rail, borderLeftWidth: 1, borderLeftColor: colors.surfaceHigh }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, height: 72 }}>
-        <T variant="headlineSm">{peer ? 'Contact Info' : 'Group Info'}</T>
-        <IconButton name="x" label="Close panel" onPress={onClose} />
+        <T variant="headlineSm">{peer ? t('Contact Info') : t('Group Info')}</T>
+        <IconButton name="x" label={t('Close panel')} onPress={onClose} />
       </View>
       <ScrollView contentContainerStyle={{ padding: 20, paddingTop: 4, gap: 24 }}>
         <View style={{ backgroundColor: colors.surface, borderRadius: radius.xl, padding: 24, alignItems: 'center', gap: 8 }}>
@@ -60,25 +61,25 @@ export function ContactPanel({ conversationId, onClose }: { conversationId: stri
             </View>
           )}
           <T variant="body" color={colors.textMuted} style={{ textAlign: 'center', marginTop: 4 }}>
-            {peer ? peer.bio || lastSeenLabel(peer.online, peer.lastSeen) : `${conversation.members.length} members`}
+            {peer ? peer.bio || lastSeenLabel(peer.online, peer.lastSeen) : t('{n} members', { n: num(conversation.members.length) })}
           </T>
         </View>
 
         <View style={{ flexDirection: 'row', gap: 8 }}>
           <Action
             icon={conversation.muted ? 'bell-off' : 'bell'}
-            label={conversation.muted ? 'Muted' : 'Mute'}
+            label={conversation.muted ? t('Muted') : t('Mute')}
             active={conversation.muted}
             onPress={() => chatStore.setMuted(conversation.id, !conversation.muted)}
           />
           <Action
             icon="bookmark"
-            label={conversation.pinned ? 'Pinned' : 'Pin'}
+            label={conversation.pinned ? t('Pinned') : t('Pin')}
             active={conversation.pinned}
             onPress={() => chatStore.setPinned(conversation.id, !conversation.pinned)}
           />
-          <Action icon="phone" label="Call" onPress={() => startCall(conversation, false)} />
-          <Action icon="video" label="Video" onPress={() => startCall(conversation, true)} />
+          <Action icon="phone" label={t('Call')} onPress={() => startCall(conversation, false)} />
+          <Action icon="video" label={t('Video')} onPress={() => startCall(conversation, true)} />
         </View>
 
         <Members conversation={conversation} meId={user?.id} />
@@ -87,11 +88,12 @@ export function ContactPanel({ conversationId, onClose }: { conversationId: stri
           <Icon name="shield" size={18} color={colors.teal} />
           <View style={{ flex: 1, gap: 4 }}>
             <T variant="labelLg" color={colors.teal}>
-              Private conversation
+              {t('Private conversation')}
             </T>
             <T variant="bodySm" color={colors.textMuted}>
-              Only members of this {conversation.type === 'group' ? 'group' : 'chat'} can read these messages. Calls are encrypted
-              peer-to-peer with WebRTC.
+              {t('Only members of this {kind} can read these messages. Calls are encrypted peer-to-peer with WebRTC.', {
+                kind: conversation.type === 'group' ? t('group') : t('chat'),
+              })}
             </T>
           </View>
         </View>
@@ -105,7 +107,7 @@ function Members({ conversation, meId }: { conversation: Conversation; meId?: st
   return (
     <View style={{ gap: 10 }}>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-        <T variant="labelLg">Members</T>
+        <T variant="labelLg">{t('Members')}</T>
         <T variant="label" color={colors.textMuted}>
           {conversation.members.length}
         </T>

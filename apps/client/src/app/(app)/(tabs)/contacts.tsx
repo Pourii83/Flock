@@ -14,6 +14,7 @@ import type { User } from '@/lib/types';
 import { useCalls } from '@/state/calls';
 import { chatStore, useChat } from '@/state/chat-store';
 import { colors, radius } from '@/theme';
+import { t, num } from '@/lib/i18n';
 
 /** Opens (or creates) the DM with a user and returns the conversation. */
 async function directWith(user: User) {
@@ -61,9 +62,9 @@ function PersonRow({ user, wide }: { user: User; wide: boolean }) {
           {lastSeenLabel(person.online, person.lastSeen)}
         </T>
       </View>
-      <IconButton name="message-square" label="Message" onPress={message} bg={colors.surface} />
-      <IconButton name="phone" label="Voice call" onPress={() => call(false)} bg={colors.surface} color={colors.teal} />
-      <IconButton name="video" label="Video call" onPress={() => call(true)} bg={colors.surface} color={colors.amber} />
+      <IconButton name="message-square" label={t('Message')} onPress={message} bg={colors.surface} />
+      <IconButton name="phone" label={t('Voice call')} onPress={() => call(false)} bg={colors.surface} color={colors.teal} />
+      <IconButton name="video" label={t('Video call')} onPress={() => call(true)} bg={colors.surface} color={colors.amber} />
     </Pressable>
   );
 }
@@ -92,8 +93,8 @@ function PeopleList({ wide }: { wide: boolean }) {
   const online = people?.filter((p) => p.online) ?? [];
   const rest = people?.filter((p) => !p.online) ?? [];
   const sections: (User | string)[] = [
-    ...(online.length ? [`Online — ${online.length}`, ...online] : []),
-    ...(rest.length ? [`Everyone — ${rest.length}`, ...rest] : []),
+    ...(online.length ? [t('Online — {n}', { n: num(online.length) }), ...online] : []),
+    ...(rest.length ? [t('Everyone — {n}', { n: num(rest.length) }), ...rest] : []),
   ];
 
   return (
@@ -102,7 +103,7 @@ function PeopleList({ wide }: { wide: boolean }) {
       keyExtractor={(item) => (typeof item === 'string' ? item : item.id)}
       contentContainerStyle={{ padding: 16, gap: 2, paddingBottom: 120 }}
       ListHeaderComponent={
-        <SearchBar value={query} onChangeText={setQuery} placeholder="Search people by name or @username" style={{ marginBottom: 16 }} />
+        <SearchBar value={query} onChangeText={setQuery} placeholder={t('Search people by name or @username')} style={{ marginBottom: 16 }} />
       }
       renderItem={({ item }) =>
         typeof item === 'string' ? (
@@ -118,7 +119,7 @@ function PeopleList({ wide }: { wide: boolean }) {
           <ActivityIndicator color={colors.amber} />
         ) : (
           <T variant="body" color={colors.textMuted} style={{ textAlign: 'center', marginTop: 24 }}>
-            {query ? 'Nobody found.' : 'No one else is here yet — share Flock with your team!'}
+            {query ? t('Nobody found.') : t('No one else is here yet — share Flock with your team!')}
           </T>
         )
       }
@@ -134,7 +135,7 @@ export default function ContactsScreen() {
       <SafeAreaView edges={['top']} style={{ flex: 1, backgroundColor: colors.canvas }}>
         <MobileHeader />
         <View style={{ paddingHorizontal: 20, paddingTop: 4 }}>
-          <PageTitle title="Contacts" />
+          <PageTitle title={t('Contacts')} />
         </View>
         <PeopleList wide={false} />
       </SafeAreaView>
@@ -147,12 +148,12 @@ export default function ContactsScreen() {
       <View style={{ flex: 1, flexDirection: 'row' }}>
         <View style={{ width: 480, backgroundColor: colors.rail, borderRightWidth: 1, borderRightColor: colors.surfaceHigh }}>
           <View style={{ paddingHorizontal: 20, paddingTop: 20 }}>
-            <PageTitle title="Contacts" />
+            <PageTitle title={t('Contacts')} />
           </View>
           <PeopleList wide />
         </View>
         <EmptyStage
-          title="Your flock, all in one place"
+          title={t('Your flock, all in one place')}
           body="Everyone on this Flock server shows up here. Message them, or jump straight into a voice or video call."
           onNewChat={() => router.push('/new-chat')}
         />

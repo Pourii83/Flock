@@ -3,6 +3,7 @@ import { ActivityIndicator, Platform, Pressable, ScrollView, View } from 'react-
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Avatar } from '@/components/avatar';
+import { LanguagePicker } from '@/components/language-picker';
 import { DesktopTopBar, MobileHeader, PageTitle } from '@/components/shell';
 import { Button, Card, Field, Icon, SectionLabel, T, type IconName } from '@/components/ui';
 import { useIsWide } from '@/hooks/use-layout';
@@ -12,6 +13,7 @@ import { checkServer, isInstalledApp, useServerUrl } from '@/lib/config';
 import { useAuth } from '@/state/auth';
 import { useChat } from '@/state/chat-store';
 import { colors, radius } from '@/theme';
+import { t } from '@/lib/i18n';
 
 function InfoRow({ icon, label, value }: { icon: IconName; label: string; value: string }) {
   return (
@@ -37,7 +39,7 @@ function ServerSettings() {
   const [error, setError] = useState<string | null>(null);
 
   const save = async () => {
-    if (!field.normalized) return setError('Enter a valid server address.');
+    if (!field.normalized) return setError(t('Enter a valid server address.'));
     setBusy(true);
     setError(null);
     try {
@@ -51,15 +53,15 @@ function ServerSettings() {
 
   return (
     <>
-      <SectionLabel>Server</SectionLabel>
+      <SectionLabel>{t('Server')}</SectionLabel>
       <Card style={{ gap: 14, padding: 20 }}>
-        <ServerField field={field} hint="Changing the server signs you out so you can sign in there." />
+        <ServerField field={field} hint={t('Changing the server signs you out so you can sign in there.')} />
         {!!error && (
           <T variant="body" color={colors.danger}>
             {error}
           </T>
         )}
-        <Button title="Switch server" icon="refresh-cw" variant="ghost" onPress={save} loading={busy} disabled={!field.changed} />
+        <Button title={t('Switch server')} icon="refresh-cw" variant="ghost" onPress={save} loading={busy} disabled={!field.changed} />
       </Card>
     </>
   );
@@ -77,7 +79,7 @@ function ProfilePhoto({ online }: { online: boolean }) {
     try {
       await fn();
     } catch (e: any) {
-      setError(e.message || 'Could not update photo');
+      setError(e.message || t('Could not update photo'));
     } finally {
       setBusy(false);
     }
@@ -91,7 +93,7 @@ function ProfilePhoto({ online }: { online: boolean }) {
 
   return (
     <View style={{ alignItems: 'center', gap: 8 }}>
-      <Pressable onPress={change} disabled={busy} accessibilityRole="button" accessibilityLabel="Change profile photo">
+      <Pressable onPress={change} disabled={busy} accessibilityRole="button" accessibilityLabel={t('Change profile photo')}>
         <Avatar user={user ? { ...user, online } : null} size={96} ringBg={colors.surface} />
         <View
           style={{
@@ -113,7 +115,7 @@ function ProfilePhoto({ online }: { online: boolean }) {
       {!!user?.avatarUrl && !busy && (
         <Pressable onPress={() => run(() => setAvatar(null))} hitSlop={6}>
           <T variant="label" color={colors.textMuted}>
-            Remove photo
+            {t('Remove photo')}
           </T>
         </Pressable>
       )}
@@ -139,12 +141,12 @@ function SettingsBody() {
   const dirty = displayName !== user?.displayName || title !== user?.title || bio !== user?.bio;
 
   const save = async () => {
-    if (!displayName.trim()) return setMessage({ text: 'Name cannot be empty', ok: false });
+    if (!displayName.trim()) return setMessage({ text: t('Name cannot be empty'), ok: false });
     setSaving(true);
     setMessage(null);
     try {
       await updateProfile({ displayName: displayName.trim(), title: title.trim(), bio: bio.trim() });
-      setMessage({ text: 'Profile saved', ok: true });
+      setMessage({ text: t('Profile saved'), ok: true });
     } catch (e: any) {
       setMessage({ text: e.message, ok: false });
     } finally {
@@ -169,30 +171,33 @@ function SettingsBody() {
         )}
       </Card>
 
-      <SectionLabel>Profile</SectionLabel>
+      <SectionLabel>{t('Profile')}</SectionLabel>
       <Card style={{ gap: 18, padding: 20 }}>
-        <Field label="Display name" icon="user" value={displayName} onChangeText={setDisplayName} maxLength={60} />
-        <Field label="Role / title" icon="briefcase" placeholder="Creative Technologist" value={title} onChangeText={setTitle} maxLength={60} />
-        <Field label="Bio" icon="edit-3" placeholder="A few words about you" value={bio} onChangeText={setBio} maxLength={280} />
+        <Field label={t('Display name')} icon="user" value={displayName} onChangeText={setDisplayName} maxLength={60} />
+        <Field label={t('Role / title')} icon="briefcase" placeholder={t('Creative Technologist')} value={title} onChangeText={setTitle} maxLength={60} />
+        <Field label={t('Bio')} icon="edit-3" placeholder={t('A few words about you')} value={bio} onChangeText={setBio} maxLength={280} />
         {message && (
           <T variant="body" color={message.ok ? colors.teal : colors.danger}>
             {message.text}
           </T>
         )}
-        <Button title="Save changes" icon="check" onPress={save} loading={saving} disabled={!dirty} />
+        <Button title={t('Save changes')} icon="check" onPress={save} loading={saving} disabled={!dirty} />
       </Card>
 
       {isInstalledApp && <ServerSettings />}
 
-      <SectionLabel>About</SectionLabel>
+      <SectionLabel>{t('Language')}</SectionLabel>
+      <LanguagePicker />
+
+      <SectionLabel>{t('About')}</SectionLabel>
       <Card style={{ paddingVertical: 8 }}>
-        <InfoRow icon="activity" label="Connection" value={connected ? 'Live' : 'Reconnecting…'} />
-        <InfoRow icon="server" label="Server" value={serverUrl.replace(/^https?:\/\//, '')} />
-        <InfoRow icon="smartphone" label="Platform" value={Platform.OS === 'web' ? 'Web / Desktop' : Platform.OS} />
-        <InfoRow icon="info" label="Version" value="1.0.0" />
+        <InfoRow icon="activity" label={t('Connection')} value={connected ? t('Live') : t('Reconnecting…')} />
+        <InfoRow icon="server" label={t('Server')} value={serverUrl.replace(/^https?:\/\//, '')} />
+        <InfoRow icon="smartphone" label={t('Platform')} value={Platform.OS === 'web' ? t('Web / Desktop') : Platform.OS} />
+        <InfoRow icon="info" label={t('Version')} value="1.2.0" />
       </Card>
 
-      <Button title="Sign out" icon="log-out" variant="danger" onPress={logout} />
+      <Button title={t('Sign out')} icon="log-out" variant="danger" onPress={logout} />
     </ScrollView>
   );
 }
@@ -204,7 +209,7 @@ export default function SettingsScreen() {
       <SafeAreaView edges={['top']} style={{ flex: 1, backgroundColor: colors.canvas }}>
         <MobileHeader />
         <View style={{ paddingHorizontal: 20, paddingTop: 4 }}>
-          <PageTitle title="Settings" />
+          <PageTitle title={t('Settings')} />
         </View>
         <SettingsBody />
       </SafeAreaView>
@@ -214,7 +219,7 @@ export default function SettingsScreen() {
     <View style={{ flex: 1, backgroundColor: colors.canvas }}>
       <DesktopTopBar />
       <View style={{ paddingHorizontal: 20, paddingTop: 24, maxWidth: 720, width: '100%', alignSelf: 'center' }}>
-        <PageTitle title="Settings" />
+        <PageTitle title={t('Settings')} />
       </View>
       <SettingsBody />
     </View>

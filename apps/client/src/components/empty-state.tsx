@@ -4,11 +4,12 @@ import Svg, { Defs, RadialGradient, Rect, Stop } from 'react-native-svg';
 import { colors, radius } from '@/theme';
 import { FlockTile } from './logo';
 import { Button, Icon, T, type IconName } from './ui';
+import { t } from '@/lib/i18n';
 
 /** Desktop "Select a conversation" stage. */
 export function EmptyStage({
-  title = 'Select a conversation to start chatting',
-  body = 'Send messages in real time, start instant Flock video huddles, or catch up with your teams.',
+  title = t('Select a conversation to start chatting'),
+  body = t('Send messages in real time, start instant Flock video huddles, or catch up with your teams.'),
   onNewChat,
   secondary,
 }: {
@@ -58,14 +59,14 @@ export function EmptyStage({
           {body}
         </T>
         <View style={{ flexDirection: 'row', gap: 16, marginTop: 12, flexWrap: 'wrap', justifyContent: 'center' }}>
-          {onNewChat && <Button title="New Chat" icon="plus" size="lg" onPress={onNewChat} />}
+          {onNewChat && <Button title={t('New Chat')} icon="plus" size="lg" onPress={onNewChat} />}
           {secondary && <Button title={secondary.label} icon={secondary.icon} variant="ghost" size="lg" onPress={secondary.onPress} />}
         </View>
       </View>
       <View style={{ position: 'absolute', bottom: 24, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
         <Icon name="lock" size={13} color={colors.teal} />
         <T variant="bodySm" color={colors.textMuted}>
-          Private messaging · Flock Desktop
+          {t('Private messaging · Flock Desktop')}
         </T>
       </View>
     </View>

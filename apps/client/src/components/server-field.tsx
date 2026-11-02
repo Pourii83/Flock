@@ -4,6 +4,7 @@ import { View } from 'react-native';
 import { checkServer, normalizeServerUrl, setServerUrl, useServerUrl } from '@/lib/config';
 import { colors } from '@/theme';
 import { Field, T } from './ui';
+import { t } from '@/lib/i18n';
 
 /**
  * Server address input for installed apps (Android / desktop).
@@ -19,7 +20,7 @@ export function useServerField() {
 
   /** Returns the saved URL; throws a user-facing error when invalid or unreachable. */
   const apply = async () => {
-    if (!normalized) throw new Error('Enter a valid server address, e.g. https://chat.example.com');
+    if (!normalized) throw new Error(t('Enter a valid server address, e.g. https://chat.example.com'));
     if (!changed) return normalized;
     setChecking(true);
     try {
@@ -37,8 +38,8 @@ export function useServerField() {
 
 export function ServerField({
   field,
-  label = 'Server address',
-  hint = 'The address of your Flock server — ask whoever runs it.',
+  label = t('Server address'),
+  hint = t('The address of your Flock server — ask whoever runs it.'),
 }: {
   field: ReturnType<typeof useServerField>;
   label?: string;
@@ -58,7 +59,7 @@ export function ServerField({
         onChangeText={field.setValue}
       />
       <T variant="bodySm" color={field.value && !field.normalized ? colors.danger : colors.textDim}>
-        {field.value && !field.normalized ? 'That doesn’t look like a valid address.' : hint}
+        {field.value && !field.normalized ? t('That doesn’t look like a valid address.') : hint}
       </T>
     </View>
   );

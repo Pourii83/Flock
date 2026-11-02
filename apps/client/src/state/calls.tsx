@@ -7,6 +7,7 @@ import { createPeer, getCameraTrack, getLocalMedia, loadIceServers, rtcSupported
 import type { Conversation, User } from '@/lib/types';
 import { useAuth } from './auth';
 import { chatStore, useChat } from './chat-store';
+import { t } from '@/lib/i18n';
 
 export type CallPhase = 'idle' | 'outgoing' | 'incoming' | 'active';
 
@@ -143,7 +144,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const preparePeer = useCallback(
     async (video: boolean, isCaller: boolean) => {
       if (!rtcSupported()) {
-        patch({ notice: NATIVE_NOTICE });
+        patch({ notice: t(NATIVE_NOTICE) });
         return null;
       }
       let stream: MediaStream;
@@ -324,7 +325,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const toggleCamera = useCallback(async () => {
     const c = callRef.current;
     if (!pcRef.current || !c.localStream) {
-      if (!rtcSupported()) patch({ notice: NATIVE_NOTICE });
+      if (!rtcSupported()) patch({ notice: t(NATIVE_NOTICE) });
       return;
     }
     if (!c.cameraOff) {

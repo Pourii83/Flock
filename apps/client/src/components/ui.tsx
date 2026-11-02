@@ -15,6 +15,7 @@ import {
   type ViewStyle,
 } from 'react-native';
 
+import { isRTL, t } from '@/lib/i18n';
 import { colors, fonts, radius, type, type TypeVariant } from '@/theme';
 
 // Web-only: hide the browser focus ring on inputs (we draw our own).
@@ -35,8 +36,12 @@ export function T({
 
 export type IconName = ComponentProps<typeof Feather>['name'];
 
+// Icons that point "forward/backward" and must mirror in right-to-left layouts.
+const DIRECTIONAL = new Set<IconName>(['arrow-left', 'arrow-right', 'chevron-left', 'chevron-right', 'send', 'corner-up-left', 'log-out', 'arrow-up-right', 'arrow-down-left']);
+
 export function Icon({ name, size = 20, color = colors.text }: { name: IconName; size?: number; color?: string }) {
-  return <Feather name={name} size={size} color={color} />;
+  const mirror = isRTL() && DIRECTIONAL.has(name);
+  return <Feather name={name} size={size} color={color} style={mirror ? { transform: [{ scaleX: -1 }] } : undefined} />;
 }
 
 /** Circular / rounded icon button with press + hover feedback. */
@@ -206,7 +211,7 @@ export const Field = forwardRef<
             onBlur?.(e);
           }}
           style={[
-            { flex: 1, color: colors.text, fontFamily: fonts.medium, fontSize: 16, height: '100%' },
+            { flex: 1, minWidth: 0, color: colors.text, fontFamily: fonts.medium, fontSize: 16, height: '100%' },
             noOutline,
             style,
           ]}
@@ -264,10 +269,10 @@ export function SearchBar({
         placeholderTextColor={colors.textMuted}
         autoFocus={autoFocus}
         autoCapitalize="none"
-        style={[{ flex: 1, color: colors.text, fontFamily: fonts.regular, fontSize: 14, height: '100%' }, noOutline]}
+        style={[{ flex: 1, minWidth: 0, color: colors.text, fontFamily: fonts.regular, fontSize: 14, height: '100%' }, noOutline]}
       />
       {!!value && (
-        <Pressable onPress={() => onChangeText('')} accessibilityLabel="Clear search" hitSlop={8}>
+        <Pressable onPress={() => onChangeText('')} accessibilityLabel={t('Clear search')} hitSlop={8}>
           <Icon name="x" size={16} color={colors.textMuted} />
         </Pressable>
       )}

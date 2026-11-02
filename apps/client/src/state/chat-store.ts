@@ -4,6 +4,7 @@ import { io, type Socket } from 'socket.io-client';
 import { api } from '@/lib/api';
 import { getApiUrl } from '@/lib/config';
 import type { Conversation, Message, User } from '@/lib/types';
+import { t } from '@/lib/i18n';
 
 type State = {
   connected: boolean;
@@ -248,9 +249,9 @@ class ChatStore {
   }
 
   memberName(conversationId: string, userId: string) {
-    if (userId === this.me?.id) return 'You';
+    if (userId === this.me?.id) return t('You');
     const c = this.state.conversations.find((x) => x.id === conversationId);
-    return c?.members.find((u) => u.id === userId)?.displayName ?? 'Someone';
+    return c?.members.find((u) => u.id === userId)?.displayName ?? t('Someone');
   }
 
   // ---------- typing ----------

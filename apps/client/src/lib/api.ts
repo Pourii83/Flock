@@ -1,5 +1,6 @@
 import { getApiUrl } from './config';
 import type { CallLog, Conversation, Message, User } from './types';
+import { t } from '@/lib/i18n';
 
 export class ApiError extends Error {
   constructor(
@@ -32,12 +33,13 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch {
-    throw new ApiError("Can't reach the Flock server. Check your connection.", 0);
+    throw new ApiError(t("Can't reach the Flock server. Check your connection."), 0);
   }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     if (res.status === 401 && authToken) onUnauthorized?.();
-    throw new ApiError(data.error || `Request failed (${res.status})`, res.status);
+    // Server messages are English; translate the known ones.
+    throw new ApiError(data.error ? t(data.error) : t('Request failed ({status})', { status: res.status }), res.status);
   }
   return data as T;
 }

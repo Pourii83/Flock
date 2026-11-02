@@ -12,6 +12,7 @@ import { Icon } from '@/components/ui';
 import { useIsWide, useShowDetailsPanel } from '@/hooks/use-layout';
 import { useChat } from '@/state/chat-store';
 import { colors } from '@/theme';
+import { t, num } from '@/lib/i18n';
 
 export default function ChatsScreen() {
   const wide = useIsWide();
@@ -36,11 +37,11 @@ export default function ChatsScreen() {
         <ConnectionBanner />
         <View style={{ paddingHorizontal: 20, paddingTop: 4, paddingBottom: 12 }}>
           <PageTitle
-            title="Chats"
-            pill={activeCount ? `${activeCount} unread` : undefined}
+            title={t('Chats')}
+            pill={activeCount ? t('{n} unread', { n: num(activeCount) }) : undefined}
             action={
               <Pressable
-                accessibilityLabel="New chat"
+                accessibilityLabel={t('New chat')}
                 onPress={newChat}
                 style={({ pressed }) => ({
                   width: 56,
@@ -90,7 +91,7 @@ export default function ChatsScreen() {
         ) : (
           <EmptyStage
             onNewChat={newChat}
-            secondary={{ label: 'Find people', icon: 'users', onPress: () => router.navigate('/contacts') }}
+            secondary={{ label: t('Find people'), icon: 'users', onPress: () => router.navigate('/contacts') }}
           />
         )}
       </View>

@@ -11,6 +11,7 @@ import { colors, radius } from '@/theme';
 import { Avatar } from './avatar';
 import { Icon, T, type IconName } from './ui';
 import { VideoView } from './video-view';
+import { t } from '@/lib/i18n';
 
 const REACTIONS = ['❤️', '👏', '💡', '🔥'];
 
@@ -103,12 +104,12 @@ function RingingCall() {
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.surface, borderRadius: radius.pill, paddingHorizontal: 18, paddingVertical: 8 }}>
             <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: colors.amber }} />
             <T variant="overline" color={colors.amber} style={{ fontSize: 14 }}>
-              {call.video ? 'FLOCK HD VIDEO' : 'FLOCK VOICE'}
+              {call.video ? t('FLOCK HD VIDEO') : t('FLOCK VOICE')}
             </T>
           </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
             <T variant="body" color={colors.amberSoft}>
-              Secure session
+              {t('Secure session')}
             </T>
             <Icon name="lock" size={14} color={colors.teal} />
           </View>
@@ -136,7 +137,7 @@ function RingingCall() {
           </T>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             <T variant="bodyLg" color={colors.amberSoft} style={{ fontSize: 18 }}>
-              {incoming ? `Flock ${call.video ? 'Video' : 'Voice'} Calling` : 'Ringing…'}
+              {incoming ? (call.video ? t('Flock Video Calling') : t('Flock Voice Calling')) : t('Ringing…')}
             </T>
             <Icon name="bar-chart-2" size={18} color={colors.amber} />
           </View>
@@ -155,7 +156,7 @@ function RingingCall() {
             <View style={{ flexDirection: 'row', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
               {[
                 { icon: 'message-square' as const, text: "Can't talk right now" },
-                { icon: 'clock' as const, text: 'Call you back?' },
+                { icon: 'clock' as const, text: t('Call you back?') },
               ].map((q) => (
                 <Pressable
                   key={q.text}
@@ -180,15 +181,15 @@ function RingingCall() {
           <View style={{ flexDirection: 'row', justifyContent: 'space-evenly', alignItems: 'flex-start' }}>
             {incoming ? (
               <>
-                <RoundAction icon="phone-off" label="Decline" bg={colors.dangerDeep} color="#FF8A80" glow={colors.danger} onPress={() => decline()} />
+                <RoundAction icon="phone-off" label={t('Decline')} bg={colors.dangerDeep} color="#FF8A80" glow={colors.danger} onPress={() => decline()} />
                 {call.video && (
                   <View style={{ paddingTop: 10 }}>
-                    <RoundAction icon="video-off" label="Audio only" bg={colors.surfaceHigh} size={52} onPress={() => accept(true)} />
+                    <RoundAction icon="video-off" label={t('Audio only')} bg={colors.surfaceHigh} size={52} onPress={() => accept(true)} />
                   </View>
                 )}
                 <RoundAction
                   icon={call.video ? 'video' : 'phone'}
-                  label="Accept"
+                  label={t('Accept')}
                   bg={colors.online}
                   color="#003824"
                   glow={colors.accept}
@@ -196,7 +197,7 @@ function RingingCall() {
                 />
               </>
             ) : (
-              <RoundAction icon="phone-off" label="Cancel" bg={colors.dangerDeep} color="#FF8A80" glow={colors.danger} onPress={hangUp} />
+              <RoundAction icon="phone-off" label={t('Cancel')} bg={colors.dangerDeep} color="#FF8A80" glow={colors.danger} onPress={hangUp} />
             )}
           </View>
           {!!call.notice && <Notice text={call.notice} />}
@@ -256,7 +257,7 @@ function ActiveCall() {
             <Avatar user={call.peer} size={160} ring={colors.amber} />
             <T variant="headline">{peerName}</T>
             <T variant="body" color={colors.textMuted}>
-              {call.remoteStream ? 'Voice call' : 'Connecting…'}
+              {call.remoteStream ? t('Voice call') : t('Connecting…')}
             </T>
           </View>
         )}
@@ -288,13 +289,13 @@ function ActiveCall() {
               <View style={[styles.tag, { backgroundColor: colors.tealTint }]}>
                 <Icon name="wifi" size={13} color={colors.teal} />
                 <T variant="label" color={colors.teal}>
-                  {call.remoteScreen ? 'Screen' : anyVideo ? 'HD Video' : 'Voice'}
+                  {call.remoteScreen ? t('Screen') : anyVideo ? t('HD Video') : t('Voice')}
                 </T>
               </View>
               <View style={[styles.tag, { backgroundColor: colors.amberTint }]}>
                 <Icon name="activity" size={13} color={colors.amber} />
                 <T variant="label" color={colors.amber}>
-                  Synced
+                  {t('Synced')}
                 </T>
               </View>
             </View>
@@ -310,8 +311,8 @@ function ActiveCall() {
                 muted
                 overlay
               />
-              <T variant="label" style={{ position: 'absolute', left: 10, bottom: 8 }}>
-                {call.sharingScreen ? 'Your screen' : 'You'}
+              <T variant="label" style={{ position: 'absolute', start: 10, bottom: 8 }}>
+                {call.sharingScreen ? t('Your screen') : t('You')}
               </T>
             </View>
           )}
@@ -348,19 +349,19 @@ function ActiveCall() {
             ))}
           </View>
           <View style={[styles.glass, { flexDirection: 'row', gap: 12, padding: 10, borderRadius: radius.pill }]}>
-            <DockButton icon={call.micMuted ? 'mic-off' : 'mic'} active={!call.micMuted} onPress={toggleMic} label="Microphone" />
-            <DockButton icon={call.cameraOff ? 'video-off' : 'video'} active={!call.cameraOff} onPress={toggleCamera} label="Camera" />
+            <DockButton icon={call.micMuted ? 'mic-off' : 'mic'} active={!call.micMuted} onPress={toggleMic} label={t('Microphone')} />
+            <DockButton icon={call.cameraOff ? 'video-off' : 'video'} active={!call.cameraOff} onPress={toggleCamera} label={t('Camera')} />
             {canSwitchCamera && !call.cameraOff && (
-              <DockButton icon="refresh-ccw" active={false} onPress={flipCamera} label="Switch camera" />
+              <DockButton icon="refresh-ccw" active={false} onPress={flipCamera} label={t('Switch camera')} />
             )}
             {Platform.OS !== 'web' && (
-              <DockButton icon={call.speakerOn ? 'volume-2' : 'volume-1'} active={call.speakerOn} onPress={toggleSpeaker} label="Speaker" />
+              <DockButton icon={call.speakerOn ? 'volume-2' : 'volume-1'} active={call.speakerOn} onPress={toggleSpeaker} label={t('Speaker')} />
             )}
             {screenShareSupported() && (
-              <DockButton icon="monitor" active={call.sharingScreen} onPress={toggleScreenShare} label="Share screen" />
+              <DockButton icon="monitor" active={call.sharingScreen} onPress={toggleScreenShare} label={t('Share screen')} />
             )}
             <Pressable
-              accessibilityLabel="Hang up"
+              accessibilityLabel={t('Hang up')}
               onPress={hangUp}
               style={({ pressed }) => ({
                 width: 64,

@@ -8,6 +8,7 @@ import { colors, radius } from '@/theme';
 import { Avatar } from './avatar';
 import { FlockMark } from './logo';
 import { Icon, IconButton, T } from './ui';
+import { t } from '@/lib/i18n';
 
 /** Desktop top bar: "WORKSPACE | Flock" + connection status. */
 export function DesktopTopBar({ right }: { right?: ReactNode }) {
@@ -25,11 +26,11 @@ export function DesktopTopBar({ right }: { right?: ReactNode }) {
         borderBottomColor: colors.surfaceHigh,
       }}>
       <T variant="overline" color={colors.amberSoft} style={{ opacity: 0.8 }}>
-        WORKSPACE
+        {t('WORKSPACE')}
       </T>
       <View style={{ width: 1, height: 22, backgroundColor: colors.surfaceHigh }} />
       <T variant="headlineSm" style={{ fontSize: 22 }}>
-        Flock
+        {t('Flock')}
       </T>
       <View style={{ flex: 1 }} />
       <View
@@ -44,7 +45,7 @@ export function DesktopTopBar({ right }: { right?: ReactNode }) {
         }}>
         <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: connected ? colors.online : colors.amber }} />
         <T variant="label" color={colors.textMuted}>
-          {connected ? 'Connected · Live sync' : 'Reconnecting…'}
+          {connected ? t('Connected · Live sync') : t('Reconnecting…')}
         </T>
       </View>
       {right}
@@ -59,10 +60,10 @@ export function MobileHeader({ onSearch }: { onSearch?: () => void }) {
     <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 8, gap: 10 }}>
       <FlockMark size={30} />
       <T variant="headlineSm" style={{ fontSize: 24, flex: 1 }}>
-        Flock
+        {t('Flock')}
       </T>
-      {onSearch && <IconButton name="search" label="Search" onPress={onSearch} iconSize={22} />}
-      <Pressable onPress={() => router.navigate('/settings')} accessibilityLabel="Your profile">
+      {onSearch && <IconButton name="search" label={t('Search')} onPress={onSearch} iconSize={22} />}
+      <Pressable onPress={() => router.navigate('/settings')} accessibilityLabel={t('Your profile')}>
         <Avatar user={user} size={40} />
       </Pressable>
     </View>
@@ -104,7 +105,7 @@ export function ConnectionBanner() {
       }}>
       <Icon name="wifi-off" size={14} color={colors.amber} />
       <T variant="label" color={colors.amber}>
-        Reconnecting to Flock…
+        {t('Reconnecting to Flock…')}
       </T>
     </View>
   );

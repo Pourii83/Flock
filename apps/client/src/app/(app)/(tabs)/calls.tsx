@@ -14,6 +14,7 @@ import type { CallLog } from '@/lib/types';
 import { useCalls } from '@/state/calls';
 import { chatStore, useChat } from '@/state/chat-store';
 import { colors, radius } from '@/theme';
+import { t } from '@/lib/i18n';
 
 function useCallLog() {
   const { historyVersion } = useCalls();
@@ -70,10 +71,10 @@ function Segmented({ value, onChange, total, missed }: { value: 'all' | 'missed'
   );
   return (
     <View style={{ flexDirection: 'row', backgroundColor: colors.surface, borderRadius: radius.lg, padding: 5 }}>
-      {seg('all', 'All Calls', <T variant="labelLg" color={colors.textMuted}>{total}</T>)}
+      {seg('all', t('All Calls'), <T variant="labelLg" color={colors.textMuted}>{total}</T>)}
       {seg(
         'missed',
-        'Missed',
+        t('Missed'),
         missed > 0 && (
           <View style={{ minWidth: 22, height: 22, borderRadius: 11, backgroundColor: colors.dangerDeep, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 }}>
             <T variant="label" color="#FFDAD6">
@@ -107,23 +108,23 @@ function FlockRoomCard() {
       </View>
       <View style={{ flex: 1 }}>
         <T variant="labelLg" style={{ fontSize: 17 }}>
-          Start Flock Room
+          {t('Start Flock Room')}
         </T>
         <T variant="body" color={colors.textMuted} numberOfLines={1}>
-          {latest ? `Instant huddle with ${latest.name}` : 'Start a chat first to call someone'}
+          {latest ? t('Instant huddle with {name}', { name: latest.name }) : t('Start a chat first to call someone')}
         </T>
       </View>
       <Pressable
         disabled={!latest}
         onPress={() => latest && startCall(latest, false)}
-        accessibilityLabel="Voice huddle"
+        accessibilityLabel={t('Voice huddle')}
         style={{ width: 46, height: 46, borderRadius: 23, backgroundColor: colors.surfaceHigh, alignItems: 'center', justifyContent: 'center', opacity: latest ? 1 : 0.4 }}>
         <Icon name="mic" size={20} color={colors.text} />
       </Pressable>
       <Pressable
         disabled={!latest}
         onPress={() => latest && startCall(latest, true)}
-        accessibilityLabel="Video huddle"
+        accessibilityLabel={t('Video huddle')}
         style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: colors.amber, alignItems: 'center', justifyContent: 'center', opacity: latest ? 1 : 0.4 }}>
         <Icon name="video" size={22} color={colors.onAmber} />
       </Pressable>
@@ -136,7 +137,7 @@ function CallRow({ log }: { log: CallLog }) {
   const conversation = useChat((s) => s.conversations.find((c) => c.id === log.conversationId));
   const directionIcon = log.missed ? 'phone-missed' : log.direction === 'outgoing' ? 'arrow-up-right' : 'arrow-down-left';
   const directionColor = log.missed ? colors.danger : log.direction === 'outgoing' ? colors.teal : colors.teal;
-  const detail = log.durationSec ? duration(log.durationSec) : log.video ? 'Video Call' : 'Audio';
+  const detail = log.durationSec ? duration(log.durationSec) : log.video ? t('Video call') : t('Audio');
   const callBack = () => conversation && startCall(conversation, log.video);
 
   return (
@@ -167,7 +168,7 @@ function CallRow({ log }: { log: CallLog }) {
           {log.missed && (
             <View style={{ backgroundColor: colors.dangerDeep, borderRadius: 4, paddingHorizontal: 6, paddingVertical: 1 }}>
               <T variant="label" color="#FFDAD6">
-                Missed
+                {t('Missed')}
               </T>
             </View>
           )}
@@ -184,7 +185,7 @@ function CallRow({ log }: { log: CallLog }) {
       </View>
       <Pressable
         onPress={callBack}
-        accessibilityLabel="Call back"
+        accessibilityLabel={t('Call back')}
         style={{
           width: 48,
           height: 48,
@@ -216,7 +217,7 @@ function CallsList() {
           <Segmented value={filter} onChange={setFilter} total={calls?.length ?? 0} missed={missed.length} />
           <FlockRoomCard />
           <SectionLabel right={<T variant="label" color={colors.textMuted}>{Intl.DateTimeFormat().resolvedOptions().timeZone}</T>}>
-            Recent activity
+            {t('Recent activity')}
           </SectionLabel>
         </View>
       }
@@ -228,7 +229,7 @@ function CallsList() {
           <View style={{ alignItems: 'center', gap: 10, paddingVertical: 32 }}>
             <Icon name="phone" size={28} color={colors.textDim} />
             <T variant="body" color={colors.textMuted}>
-              {filter === 'missed' ? 'No missed calls 🎉' : 'No calls yet. Start one from any chat.'}
+              {filter === 'missed' ? t('No missed calls 🎉') : t('No calls yet. Start one from any chat.')}
             </T>
           </View>
         )
@@ -238,7 +239,7 @@ function CallsList() {
           <View style={{ alignItems: 'center', gap: 10, paddingTop: 20 }}>
             <View style={{ width: 52, height: 4, borderRadius: 2, backgroundColor: colors.surfaceHigh }} />
             <T variant="body" color={colors.textMuted}>
-              End of recent history
+              {t('End of recent history')}
             </T>
           </View>
         ) : undefined
@@ -257,10 +258,10 @@ export default function CallsScreen() {
         <MobileHeader />
         <View style={{ paddingHorizontal: 20, paddingTop: 4 }}>
           <PageTitle
-            title="Calls"
-            pill={connected ? 'Synced' : 'Offline'}
+            title={t('Calls')}
+            pill={connected ? t('Synced') : t('Offline')}
             pillColor={connected ? colors.teal : colors.amber}
-            action={<Button title="New Call" icon="phone-call" size="sm" onPress={() => router.push('/new-chat')} />}
+            action={<Button title={t('New Call')} icon="phone-call" size="sm" onPress={() => router.push('/new-chat')} />}
           />
         </View>
         <CallsList />
@@ -274,16 +275,16 @@ export default function CallsScreen() {
       <View style={{ flex: 1, flexDirection: 'row' }}>
         <View style={{ width: 440, backgroundColor: colors.rail, borderRightWidth: 1, borderRightColor: colors.surfaceHigh }}>
           <View style={{ paddingHorizontal: 20, paddingTop: 20 }}>
-            <PageTitle title="Calls" pill={connected ? 'Synced' : 'Offline'} pillColor={connected ? colors.teal : colors.amber} />
+            <PageTitle title={t('Calls')} pill={connected ? t('Synced') : t('Offline')} pillColor={connected ? colors.teal : colors.amber} />
           </View>
           <CallsList />
         </View>
         <EmptyStage
-          title="Huddle up in one tap"
+          title={t('Huddle up in one tap')}
           body="Start a crisp voice or video call from any conversation. Calls connect peer-to-peer over WebRTC."
           onNewChat={() => router.push('/new-chat')}
           secondary={{
-            label: 'Open chats',
+            label: t('Open chats'),
             icon: 'message-square',
             onPress: () => {
               chatStore.refreshConversations();

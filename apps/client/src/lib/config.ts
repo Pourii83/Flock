@@ -2,6 +2,7 @@ import { useSyncExternalStore } from 'react';
 import { Platform } from 'react-native';
 
 import { getItem, setItem } from './storage';
+import { t } from '@/lib/i18n';
 
 const SERVER_KEY = 'flock.server';
 
@@ -81,7 +82,9 @@ export async function checkServer(url: string) {
     if (!res.ok || !data?.ok) throw new Error('not-flock');
   } catch (e: any) {
     throw new Error(
-      e?.message === 'not-flock' ? 'That address is reachable but is not a Flock server.' : `Can't reach ${url}. Check the address and your connection.`,
+      e?.message === 'not-flock'
+        ? t('That address is reachable but is not a Flock server.')
+        : t("Can't reach {url}. Check the address and your connection.", { url }),
     );
   } finally {
     clearTimeout(timer);

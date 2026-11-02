@@ -3,6 +3,7 @@
 import { Platform } from 'react-native';
 
 import { initNativeWebRTC } from './native-media';
+import { t } from '@/lib/i18n';
 
 export const rtcSupported = () => {
   if (Platform.OS !== 'web') initNativeWebRTC();
@@ -60,7 +61,7 @@ export async function getLocalMedia(video: boolean) {
   } catch {
     // No camera (or denied): try audio only so the call still connects.
     if (video) return navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-    throw new Error('Microphone access was blocked');
+    throw new Error(t('Microphone access was blocked'));
   }
 }
 
@@ -72,6 +73,6 @@ export async function getCameraTrack() {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: CAMERA });
     return stream.getVideoTracks()[0]!;
   } catch {
-    throw new Error('Camera is unavailable or access was blocked');
+    throw new Error(t('Camera is unavailable or access was blocked'));
   }
 }

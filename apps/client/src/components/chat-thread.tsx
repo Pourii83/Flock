@@ -20,6 +20,7 @@ import { chatStore, useChat, useConversation, useMessages, useTyping } from '@/s
 import { colors, fonts, radius } from '@/theme';
 import { Avatar, ConversationAvatar } from './avatar';
 import { Button, Icon, IconButton, noOutline, T, type IconName } from './ui';
+import { t, num, isRTL } from '@/lib/i18n';
 
 const EMOJIS = ['😀', '😂', '😍', '🥳', '😎', '🤔', '😅', '😢', '👍', '🙏', '👏', '🔥', '❤️', '✨', '🎉', '✅'];
 
@@ -90,7 +91,7 @@ export function ChatThread({
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 }}>
           <T color={colors.textMuted}>{"Couldn't load messages."}</T>
           <Button
-            title="Retry"
+            title={t('Retry')}
             size="sm"
             variant="ghost"
             onPress={() => {
@@ -145,16 +146,20 @@ function useStatusLine(conversation: Conversation) {
   const typing = useTyping(conversation.id);
   const others = conversation.members.filter((m) => m.id !== user?.id);
   if (typing.length) {
-    if (conversation.type === 'direct') return { text: 'typing…', color: colors.amber, dot: false };
+    if (conversation.type === 'direct') return { text: t('typing…'), color: colors.amber, dot: false };
     const names = typing.map((id) => others.find((o) => o.id === id)?.displayName.split(' ')[0]).filter(Boolean);
-    return { text: `${names.join(', ')} typing…`, color: colors.amber, dot: false };
+    return { text: t('{names} typing…', { names: names.join('، ') }), color: colors.amber, dot: false };
   }
   if (conversation.type === 'direct') {
     const peer = others[0];
     return { text: lastSeenLabel(!!peer?.online, peer?.lastSeen ?? null), color: peer?.online ? colors.teal : colors.textMuted, dot: !!peer?.online };
   }
   const online = others.filter((o) => o.online).length;
-  return { text: `${conversation.members.length} members${online ? ` · ${online} online` : ''}`, color: colors.textMuted, dot: online > 0 };
+  return {
+    text: t('{n} members', { n: num(conversation.members.length) }) + (online ? ` · ${t('{n} online', { n: num(online) })}` : ''),
+    color: colors.textMuted,
+    dot: online > 0,
+  };
 }
 
 function ThreadHeader({
@@ -175,7 +180,7 @@ function ThreadHeader({
   const insets = useSafeAreaInsets();
   const status = useStatusLine(conversation);
   const peer = conversation.members.find((m) => m.id !== user?.id);
-  const pill = conversation.type === 'group' ? 'GROUP' : peer?.title?.toUpperCase();
+  const pill = conversation.type === 'group' ? t('GROUP') : peer?.title?.toUpperCase();
 
   return (
     <View
@@ -190,7 +195,7 @@ function ThreadHeader({
         borderBottomWidth: 1,
         borderBottomColor: colors.surfaceHigh,
       }}>
-      {onBack && <IconButton name="arrow-left" label="Back" onPress={onBack} iconSize={24} />}
+      {onBack && <IconButton name="arrow-left" label={t('Back')} onPress={onBack} iconSize={24} />}
       <Pressable onPress={onToggleDetails} disabled={!onToggleDetails} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1, minWidth: 0 }}>
         <ConversationAvatar conversation={conversation} meId={user?.id} size={desktop ? 48 : 44} />
         <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
@@ -215,16 +220,16 @@ function ThreadHeader({
           </View>
         </View>
       </Pressable>
-      <IconButton name="phone" label="Voice call" onPress={() => startCall(conversation, false)} iconSize={20} />
+      <IconButton name="phone" label={t('Voice call')} onPress={() => startCall(conversation, false)} iconSize={20} />
       {desktop ? (
-        <Button title="Meet" icon="video" size="sm" onPress={() => startCall(conversation, true)} style={{ height: 44, borderRadius: radius.lg }} />
+        <Button title={t('Meet')} icon="video" size="sm" onPress={() => startCall(conversation, true)} style={{ height: 44, borderRadius: radius.lg }} />
       ) : (
-        <IconButton name="video" label="Video call" onPress={() => startCall(conversation, true)} iconSize={22} />
+        <IconButton name="video" label={t('Video call')} onPress={() => startCall(conversation, true)} iconSize={22} />
       )}
       {onToggleDetails && desktop && (
         <IconButton
           name="sidebar"
-          label="Toggle details"
+          label={t('Toggle details')}
           onPress={onToggleDetails}
           bg={detailsOpen ? colors.surfaceHigh : colors.surface}
           rounded="lg"
@@ -307,7 +312,7 @@ function Bubble({
   const hoverReply = web && desktop && canAct && (
     <Pressable
       onPress={onReply}
-      accessibilityLabel="Reply"
+      accessibilityLabel={t('Reply')}
       style={({ hovered: h }: any) => ({
         width: 30,
         height: 30,
@@ -331,7 +336,7 @@ function Bubble({
       <View style={{ maxWidth: desktop ? '72%' : '78%', alignItems: mine ? 'flex-end' : 'flex-start', gap: 6 }}>
         {showSender && (
           <View style={{ flexDirection: 'row', gap: 8, alignItems: 'baseline', paddingHorizontal: 4 }}>
-            <T variant="labelLg">{sender?.displayName ?? 'Someone'}</T>
+            <T variant="labelLg">{sender?.displayName ?? t('Someone')}</T>
             <T variant="bodySm" color={colors.textMuted}>
               {clock(m.createdAt)}
             </T>
@@ -348,10 +353,10 @@ function Bubble({
               paddingHorizontal: 18,
               paddingVertical: 13,
               borderRadius: r,
-              borderBottomLeftRadius: !mine && !last ? 8 : r,
-              borderTopLeftRadius: !mine && !first ? 8 : r,
-              borderBottomRightRadius: mine && !last ? 8 : mine ? 6 : r,
-              borderTopRightRadius: mine && !first ? 8 : r,
+              borderBottomStartRadius: !mine && !last ? 8 : r,
+              borderTopStartRadius: !mine && !first ? 8 : r,
+              borderBottomEndRadius: mine && !last ? 8 : mine ? 6 : r,
+              borderTopEndRadius: mine && !first ? 8 : r,
               opacity: m.pending ? 0.75 : 1,
               gap: 8,
               borderWidth: 1,
@@ -385,14 +390,14 @@ function Bubble({
         </Pressable>
         {actionsOpen && (
           <View style={{ flexDirection: 'row', gap: 8 }}>
-            <ActionChip icon="corner-up-left" label="Reply" onPress={onReply} />
-            <ActionChip icon="copy" label="Copy" onPress={copy} />
+            <ActionChip icon="corner-up-left" label={t('Reply')} onPress={onReply} />
+            <ActionChip icon="copy" label={t('Copy')} onPress={copy} />
           </View>
         )}
         {last && (mine || !desktop) && (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 4 }}>
             <T variant="bodySm" color={m.failed ? colors.danger : colors.textMuted} style={{ fontVariant: ['tabular-nums'] }}>
-              {m.failed ? 'Not sent · tap to retry' : clock(m.createdAt)}
+              {m.failed ? t('Not sent · tap to retry') : clock(m.createdAt)}
             </T>
             {mine && <Receipt message={m} conversation={conversation} />}
           </View>
@@ -428,9 +433,9 @@ function EmptyThread({ conversation }: { conversation: Conversation }) {
       <View style={{ width: 64, height: 64, borderRadius: 20, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' }}>
         <Icon name="message-circle" size={28} color={colors.amber} />
       </View>
-      <T variant="headlineSm">Start the conversation</T>
+      <T variant="headlineSm">{t('Start the conversation')}</T>
       <T variant="body" color={colors.textMuted} style={{ textAlign: 'center' }}>
-        Say hi to {conversation.name} — messages appear here in real time.
+        {t('Say hi to {name} — messages appear here in real time.', { name: conversation.name })}
       </T>
     </View>
   );
@@ -448,7 +453,7 @@ function TypingIndicator({ conversation }: { conversation: Conversation }) {
         ))}
       </View>
       <T variant="bodySm" color={colors.textMuted}>
-        {names.join(', ')} {names.length > 1 ? 'are' : 'is'} typing…
+        {t(names.length > 1 ? '{names} are typing…' : '{names} is typing…', { names: names.join(isRTL() ? '، ' : ', ') })}
       </T>
     </View>
   );
@@ -511,13 +516,13 @@ function Composer({
           <View style={{ width: 3, alignSelf: 'stretch', borderRadius: 2, backgroundColor: colors.amber }} />
           <View style={{ flex: 1 }}>
             <T variant="label" color={colors.amber}>
-              Replying to {chatStore.memberName(conversation.id, replyTo.senderId)}
+              {t('Replying to {name}', { name: chatStore.memberName(conversation.id, replyTo.senderId) })}
             </T>
             <T variant="body" color={colors.textMuted} numberOfLines={1}>
               {replyTo.body}
             </T>
           </View>
-          <IconButton name="x" label="Cancel reply" onPress={onClearReply} size={32} iconSize={16} />
+          <IconButton name="x" label={t('Cancel reply')} onPress={onClearReply} size={32} iconSize={16} />
         </View>
       )}
       {emojiOpen && (
@@ -542,7 +547,7 @@ function Composer({
       {desktop && (
         <View style={{ flexDirection: 'row', justifyContent: 'flex-end', paddingHorizontal: 6 }}>
           <T variant="bodySm" color={colors.textDim}>
-            Press Return ↵ to send · Shift + Return for a new line
+            {t('Press Return ↵ to send · Shift + Return for a new line')}
           </T>
         </View>
       )}
@@ -550,7 +555,7 @@ function Composer({
         {!desktop && (
           <IconButton
             name={emojiOpen ? 'x' : 'plus'}
-            label="More"
+            label={t('More')}
             onPress={() => setEmojiOpen((v) => !v)}
             size={52}
             iconSize={24}
@@ -571,13 +576,13 @@ function Composer({
             minHeight: 52,
           }}>
           {desktop && (
-            <IconButton name="smile" label="Emoji" onPress={() => setEmojiOpen((v) => !v)} color={emojiOpen ? colors.amber : colors.textMuted} />
+            <IconButton name="smile" label={t('Emoji')} onPress={() => setEmojiOpen((v) => !v)} color={emojiOpen ? colors.amber : colors.textMuted} />
           )}
           <TextInput
             ref={inputRef}
             value={text}
             onChangeText={onChange}
-            placeholder={`${desktop ? 'Type a message to' : 'Message'} ${firstName}…`}
+            placeholder={desktop ? t('Type a message to {name}…', { name: firstName }) : t('Message {name}…', { name: firstName })}
             placeholderTextColor={colors.textMuted}
             multiline
             onKeyPress={(e: any) => {
@@ -601,13 +606,13 @@ function Composer({
             ]}
           />
           {!desktop && (
-            <IconButton name="smile" label="Emoji" onPress={() => setEmojiOpen((v) => !v)} color={emojiOpen ? colors.amber : colors.textMuted} iconSize={22} style={{ marginBottom: 6 }} />
+            <IconButton name="smile" label={t('Emoji')} onPress={() => setEmojiOpen((v) => !v)} color={emojiOpen ? colors.amber : colors.textMuted} iconSize={22} style={{ marginBottom: 6 }} />
           )}
           {desktop && (
             <Pressable
               onPress={send}
               disabled={!canSend}
-              accessibilityLabel="Send"
+              accessibilityLabel={t('Send')}
               style={{
                 width: 44,
                 height: 44,
@@ -625,7 +630,7 @@ function Composer({
           <Pressable
             onPress={send}
             disabled={!canSend}
-            accessibilityLabel="Send"
+            accessibilityLabel={t('Send')}
             style={({ pressed }) => ({
               width: 52,
               height: 52,

@@ -10,6 +10,7 @@ import { api } from '@/lib/api';
 import type { User } from '@/lib/types';
 import { chatStore } from '@/state/chat-store';
 import { colors, fonts, radius } from '@/theme';
+import { t, num } from '@/lib/i18n';
 
 export default function NewChatScreen() {
   const wide = useIsWide();
@@ -62,11 +63,11 @@ export default function NewChatScreen() {
     <View style={{ flex: 1, gap: 16 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
         <T variant="headline" style={{ flex: 1, fontSize: 26 }}>
-          New chat
+          {t('New chat')}
         </T>
-        <IconButton name="x" label="Close" onPress={close} bg={colors.surface} />
+        <IconButton name="x" label={t('Close')} onPress={close} bg={colors.surface} />
       </View>
-      <SearchBar value={query} onChangeText={setQuery} placeholder="Search people by name or @username" autoFocus />
+      <SearchBar value={query} onChangeText={setQuery} placeholder={t('Search people by name or @username')} autoFocus />
 
       {selected.length > 0 && (
         <View style={{ gap: 12 }}>
@@ -90,14 +91,14 @@ export default function NewChatScreen() {
               <TextInput
                 value={groupName}
                 onChangeText={setGroupName}
-                placeholder="Group name (optional)"
+                placeholder={t('Group name (optional)')}
                 placeholderTextColor={colors.textMuted}
                 style={[{ flex: 1, color: colors.text, fontFamily: fonts.regular, fontSize: 15, height: '100%' }, noOutline]}
               />
             </View>
           )}
           <Button
-            title={selected.length > 1 ? `Create group with ${selected.length} people` : `Message ${selected[0]!.displayName}`}
+            title={selected.length > 1 ? t('Create group with {n} people', { n: num(selected.length) }) : t('Message {name}', { name: selected[0]!.displayName })}
             icon={selected.length > 1 ? 'users' : 'message-square'}
             onPress={() => open(selected)}
             loading={busy}
@@ -119,7 +120,7 @@ export default function NewChatScreen() {
             <ActivityIndicator color={colors.amber} style={{ marginTop: 24 }} />
           ) : (
             <T variant="body" color={colors.textMuted} style={{ textAlign: 'center', marginTop: 24 }}>
-              {query ? 'Nobody found with that name.' : 'No one else has joined Flock yet. Invite a friend to register!'}
+              {query ? t('Nobody found with that name.') : t('No one else has joined Flock yet. Invite a friend to register!')}
             </T>
           )
         }
@@ -153,7 +154,7 @@ export default function NewChatScreen() {
                   toggle(item);
                 }}
                 hitSlop={8}
-                accessibilityLabel={`Select ${item.displayName}`}>
+                accessibilityLabel={t('Select {name}', { name: item.displayName })}>
                 <View
                   style={{
                     width: 24,
@@ -173,7 +174,7 @@ export default function NewChatScreen() {
         }}
       />
       <T variant="bodySm" color={colors.textDim} style={{ textAlign: 'center' }}>
-        Tap a person to message them · tick several to start a group
+        {t('Tap a person to message them · tick several to start a group')}
       </T>
     </View>
   );
