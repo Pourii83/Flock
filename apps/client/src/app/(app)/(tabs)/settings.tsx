@@ -6,7 +6,8 @@ import { Avatar } from '@/components/avatar';
 import { DesktopTopBar, MobileHeader, PageTitle } from '@/components/shell';
 import { Button, Card, Field, Icon, SectionLabel, T, type IconName } from '@/components/ui';
 import { useIsWide } from '@/hooks/use-layout';
-import { API_URL } from '@/lib/config';
+import { ServerField, useServerField } from '@/components/server-field';
+import { checkServer, isInstalledApp, useServerUrl } from '@/lib/config';
 import { useAuth } from '@/state/auth';
 import { useChat } from '@/state/chat-store';
 import { colors, radius } from '@/theme';
@@ -27,8 +28,45 @@ function InfoRow({ icon, label, value }: { icon: IconName; label: string; value:
   );
 }
 
+/** Installed apps only: point the app at a different Flock server. */
+function ServerSettings() {
+  const { changeServer } = useAuth();
+  const field = useServerField();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const save = async () => {
+    if (!field.normalized) return setError('Enter a valid server address.');
+    setBusy(true);
+    setError(null);
+    try {
+      await checkServer(field.normalized);
+      await changeServer(field.normalized); // signs out; the login screen opens on the new server
+    } catch (e: any) {
+      setError(e.message);
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <SectionLabel>Server</SectionLabel>
+      <Card style={{ gap: 14, padding: 20 }}>
+        <ServerField field={field} hint="Changing the server signs you out so you can sign in there." />
+        {!!error && (
+          <T variant="body" color={colors.danger}>
+            {error}
+          </T>
+        )}
+        <Button title="Switch server" icon="refresh-cw" variant="ghost" onPress={save} loading={busy} disabled={!field.changed} />
+      </Card>
+    </>
+  );
+}
+
 function SettingsBody() {
   const { user, updateProfile, logout } = useAuth();
+  const serverUrl = useServerUrl();
   const connected = useChat((s) => s.connected);
   const [displayName, setDisplayName] = useState(user?.displayName ?? '');
   const [title, setTitle] = useState(user?.title ?? '');
@@ -82,10 +120,12 @@ function SettingsBody() {
         <Button title="Save changes" icon="check" onPress={save} loading={saving} disabled={!dirty} />
       </Card>
 
+      {isInstalledApp && <ServerSettings />}
+
       <SectionLabel>About</SectionLabel>
       <Card style={{ paddingVertical: 8 }}>
         <InfoRow icon="activity" label="Connection" value={connected ? 'Live' : 'Reconnecting…'} />
-        <InfoRow icon="server" label="Server" value={API_URL.replace(/^https?:\/\//, '')} />
+        <InfoRow icon="server" label="Server" value={serverUrl.replace(/^https?:\/\//, '')} />
         <InfoRow icon="smartphone" label="Platform" value={Platform.OS === 'web' ? 'Web / Desktop' : Platform.OS} />
         <InfoRow icon="info" label="Version" value="1.0.0" />
       </Card>

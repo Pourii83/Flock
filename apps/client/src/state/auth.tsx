@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 
 import { api, setAuthToken, setUnauthorizedHandler } from '@/lib/api';
+import { loadServerUrl, setServerUrl } from '@/lib/config';
 import { getItem, setItem } from '@/lib/storage';
 import type { User } from '@/lib/types';
 import { chatStore } from './chat-store';
@@ -15,6 +16,8 @@ type AuthState = {
   register: (username: string, displayName: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   updateProfile: (patch: Partial<Pick<User, 'displayName' | 'bio' | 'title'>>) => Promise<void>;
+  /** Switches to another Flock server; the current session belongs to the old one, so it signs out. */
+  changeServer: (url: string) => Promise<void>;
 };
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -38,6 +41,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     setUnauthorizedHandler(() => void logout());
     (async () => {
+      await loadServerUrl();
       const saved = await getItem(TOKEN_KEY);
       if (saved) {
         setAuthToken(saved);
@@ -72,6 +76,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const next = await api.updateMe(patch);
         setUser(next);
         if (chatStore.me) chatStore.me = next;
+      },
+      changeServer: async (url) => {
+        await applySession(null, null);
+        await setServerUrl(url);
       },
     }),
     [ready, user, token, applySession, logout],

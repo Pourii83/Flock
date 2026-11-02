@@ -21,7 +21,10 @@
       },
       "permissions": [
         "android.permission.CAMERA",
-        "android.permission.RECORD_AUDIO"
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.WAKE_LOCK",
+        "android.permission.BLUETOOTH_CONNECT"
       ],
       "predictiveBackGestureEnabled": false
     },
@@ -51,6 +54,13 @@
           "android": {
             "usesCleartextTraffic": true
           }
+        }
+      ],
+      [
+        "@config-plugins/react-native-webrtc",
+        {
+          "cameraPermission": "Flock uses the camera for video calls.",
+          "microphonePermission": "Flock uses the microphone for voice and video calls."
         }
       ]
     ],

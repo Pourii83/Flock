@@ -3,7 +3,9 @@ import { useRef, useState } from 'react';
 import { View, type TextInputInstance } from 'react-native';
 
 import { AuthCard, AuthLayout } from '@/components/auth-layout';
+import { ServerField, useServerField } from '@/components/server-field';
 import { Button, Field, T } from '@/components/ui';
+import { isInstalledApp } from '@/lib/config';
 import { useAuth } from '@/state/auth';
 import { colors } from '@/theme';
 
@@ -16,6 +18,7 @@ export default function RegisterScreen() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const server = useServerField();
   const usernameRef = useRef<TextInputInstance>(null);
   const passwordRef = useRef<TextInputInstance>(null);
 
@@ -28,6 +31,7 @@ export default function RegisterScreen() {
     setBusy(true);
     setError(null);
     try {
+      if (isInstalledApp) await server.apply();
       await register(username, displayName, password);
     } catch (e: any) {
       setError(e.message);
@@ -38,6 +42,7 @@ export default function RegisterScreen() {
   return (
     <AuthLayout title="Join Flock" subtitle="Create your account in a few seconds">
       <AuthCard badge="CREATE ACCOUNT">
+        {isInstalledApp && <ServerField field={server} />}
         <Field
           label="Your name"
           icon="user"

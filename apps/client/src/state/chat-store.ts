@@ -2,7 +2,7 @@ import { useSyncExternalStore } from 'react';
 import { io, type Socket } from 'socket.io-client';
 
 import { api } from '@/lib/api';
-import { API_URL } from '@/lib/config';
+import { getApiUrl } from '@/lib/config';
 import type { Conversation, Message, User } from '@/lib/types';
 
 type State = {
@@ -57,7 +57,7 @@ class ChatStore {
   start(token: string, me: User) {
     this.stop();
     this.me = me;
-    const socket = io(API_URL, { auth: { token }, transports: ['websocket', 'polling'] });
+    const socket = io(getApiUrl(), { auth: { token }, transports: ['websocket', 'polling'] });
     this.socket = socket;
 
     socket.on('connect', () => {

@@ -4,6 +4,7 @@ import { Animated, Easing, Platform, Pressable, StyleSheet, View } from 'react-n
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { timer } from '@/lib/format';
+import { canSwitchCamera } from '@/lib/native-media';
 import { screenShareSupported } from '@/lib/rtc';
 import { useCalls } from '@/state/calls';
 import { colors, radius } from '@/theme';
@@ -227,7 +228,7 @@ function useElapsed(since: number | null) {
 
 /** Stitch "Active Video Call": full-bleed remote, PiP self view, glass control dock. */
 function ActiveCall() {
-  const { call, hangUp, toggleMic, toggleCamera, toggleScreenShare, sendReaction } = useCalls();
+  const { call, hangUp, toggleMic, toggleCamera, toggleScreenShare, toggleSpeaker, flipCamera, sendReaction } = useCalls();
   const elapsed = useElapsed(call.answeredAt);
   const remoteHasVideo = !!call.remoteStream?.getVideoTracks().length && call.video;
   const localHasVideo = !!call.localStream?.getVideoTracks().length && !call.cameraOff;
@@ -298,7 +299,7 @@ function ActiveCall() {
           {call.video && (
             <View style={styles.pip}>
               {localHasVideo ? (
-                <VideoView stream={call.localStream} mirror muted />
+                <VideoView stream={call.localStream} mirror={call.frontCamera} muted overlay />
               ) : (
                 <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface }}>
                   <Icon name="video-off" size={22} color={colors.textMuted} />
@@ -345,6 +346,12 @@ function ActiveCall() {
             <DockButton icon={call.micMuted ? 'mic-off' : 'mic'} active={!call.micMuted} onPress={toggleMic} label="Microphone" />
             {call.video && (
               <DockButton icon={call.cameraOff ? 'video-off' : 'video'} active={!call.cameraOff} onPress={toggleCamera} label="Camera" />
+            )}
+            {call.video && canSwitchCamera && !call.cameraOff && (
+              <DockButton icon="refresh-ccw" active={false} onPress={flipCamera} label="Switch camera" />
+            )}
+            {Platform.OS !== 'web' && (
+              <DockButton icon={call.speakerOn ? 'volume-2' : 'volume-1'} active={call.speakerOn} onPress={toggleSpeaker} label="Speaker" />
             )}
             {call.video && screenShareSupported() && (
               <DockButton icon="monitor" active={call.sharingScreen} onPress={toggleScreenShare} label="Share screen" />

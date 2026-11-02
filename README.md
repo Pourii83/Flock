@@ -12,7 +12,7 @@ Flock is a real-time messenger built with **React Native (Expo)**. It runs from 
 - Direct and group chats with real-time delivery (Socket.IO)
 - Online presence, last seen, typing indicators and read receipts
 - Replies, emoji picker, unread counters, pin and mute
-- Voice and video calls (WebRTC, peer-to-peer) with incoming-call screen, quick replies, mute, camera, screen share and reactions
+- Voice and video calls (WebRTC, peer-to-peer) with incoming-call screen, ringtone, quick replies, mute, camera, front/back camera switch, speakerphone, screen share (web/desktop) and reactions
 - Call history with missed-call filter
 - Contacts directory and profile settings
 - Responsive layouts: phone (bottom tabs) and desktop (rail + 3-column chat + contact panel)
@@ -73,7 +73,11 @@ cd apps/client
 npx eas-cli@latest build -p android --profile preview   # installable APK
 ```
 
-Set `EXPO_PUBLIC_API_URL` in `eas.json` to your server's address. Calls on Android currently cover signaling and UI only; real audio/video needs `react-native-webrtc` in a development build. Web and desktop calls work fully.
+Voice and video calls on Android use `react-native-webrtc` (speaker routing and ringtone via `react-native-incall-manager`), so they need a real build (`preview` APK or `development` dev-client). **Expo Go can't make calls**: it lacks these native modules, so there you get chat plus call signaling only.
+
+```bash
+npx eas-cli@latest build -p android --profile development   # dev client for `npm start`
+```
 
 ## Desktop
 
@@ -84,7 +88,11 @@ npm start           # run the desktop app
 npm run dist:win    # build an installer (also dist:mac / dist:linux)
 ```
 
-The desktop app connects to `http://localhost:4000` by default. Override it with the `FLOCK_SERVER_URL` env var or `{"serverUrl": "..."}` in `config.json` inside the app's user-data folder.
+The desktop app suggests `http://localhost:4000` by default (override with the `FLOCK_SERVER_URL` env var or `{"serverUrl": "..."}` in `config.json` in the app's user-data folder).
+
+## Choosing a server (installed apps)
+
+The Android and desktop apps ask for the **server address** on the sign-in and sign-up screens, e.g. `https://chat.example.com` or `192.168.1.5:4000`. The app checks that it is a reachable Flock server before saving it. You can change it later in **Settings → Server**; switching signs you out so you can sign in on the new server. The hosted PWA always uses the server it is served from.
 
 ## Notes
 

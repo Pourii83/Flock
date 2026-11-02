@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
+import { callAudio, switchCamera } from '@/lib/native-media';
 import { createPeer, getLocalMedia, rtcSupported } from '@/lib/rtc';
 import type { Conversation, User } from '@/lib/types';
 import { useAuth } from './auth';
@@ -18,6 +19,8 @@ export type CallState = {
   micMuted: boolean;
   cameraOff: boolean;
   sharingScreen: boolean;
+  speakerOn: boolean;
+  frontCamera: boolean;
   localStream: MediaStream | null;
   remoteStream: MediaStream | null;
   notice: string | null;
@@ -35,6 +38,8 @@ const IDLE: CallState = {
   micMuted: false,
   cameraOff: false,
   sharingScreen: false,
+  speakerOn: false,
+  frontCamera: true,
   localStream: null,
   remoteStream: null,
   notice: null,
@@ -50,6 +55,8 @@ type CallApi = {
   toggleMic: () => void;
   toggleCamera: () => void;
   toggleScreenShare: () => Promise<void>;
+  toggleSpeaker: () => void;
+  flipCamera: () => void;
   sendReaction: (emoji: string) => void;
   /** Bumped when the call log should refresh (a call just finished). */
   historyVersion: number;
@@ -57,7 +64,7 @@ type CallApi = {
 
 const CallContext = createContext<CallApi | null>(null);
 
-const NATIVE_NOTICE = 'Audio/video streams need the web or desktop app in this build. Signaling still works.';
+const NATIVE_NOTICE = 'Audio/video needs the installed Flock app — Expo Go only supports call signaling.';
 
 export function CallProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
@@ -85,6 +92,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     acceptedHere.current = false;
     const { localStream } = callRef.current;
     localStream?.getTracks().forEach((t) => t.stop());
+    callAudio.stop();
     cameraTrack.current?.stop();
     cameraTrack.current = null;
     setCall(IDLE);
@@ -130,6 +138,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
         return;
       }
       setCall({ ...IDLE, phase: 'incoming', callId: p.callId, conversationId: p.conversationId, video: p.video, peer: p.caller, title: p.title });
+      callAudio.startRingtone();
     };
 
     const onAccepted = async ({ callId, by }: { callId: string; by: string }) => {
@@ -202,7 +211,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
     async (conversation: Conversation, video: boolean) => {
       if (callRef.current.phase !== 'idle' || !chatStore.socket) return;
       const peer = conversation.members.find((m) => m.id !== user?.id) ?? null;
-      setCall({ ...IDLE, phase: 'outgoing', conversationId: conversation.id, video, peer, title: conversation.name });
+      setCall({ ...IDLE, phase: 'outgoing', conversationId: conversation.id, video, peer, title: conversation.name, speakerOn: video });
+      callAudio.start(video);
       chatStore.socket.emit('call:invite', { conversationId: conversation.id, video }, (res: any) => {
         if (!res?.ok) {
           cleanup();
@@ -221,7 +231,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
       if (c.phase !== 'incoming' || !c.callId) return;
       acceptedHere.current = true;
       const video = c.video && !audioOnly;
-      patch({ phase: 'active', answeredAt: Date.now(), video });
+      patch({ phase: 'active', answeredAt: Date.now(), video, speakerOn: video });
+      callAudio.start(video);
       await preparePeer(video);
       chatStore.socket?.emit('call:accept', { callId: c.callId }, (res: any) => {
         if (!res?.ok) cleanup();
@@ -289,6 +300,18 @@ export function CallProvider({ children }: { children: ReactNode }) {
     }
   }, [patch]);
 
+  const toggleSpeaker = useCallback(() => {
+    const on = !callRef.current.speakerOn;
+    callAudio.setSpeaker(on);
+    patch({ speakerOn: on });
+  }, [patch]);
+
+  const flipCamera = useCallback(() => {
+    const c = callRef.current;
+    switchCamera(c.localStream);
+    patch({ frontCamera: !c.frontCamera });
+  }, [patch]);
+
   const sendReaction = useCallback(
     (emoji: string) => {
       signal({ type: 'reaction', emoji });
@@ -298,8 +321,21 @@ export function CallProvider({ children }: { children: ReactNode }) {
   );
 
   const value = useMemo<CallApi>(
-    () => ({ call, startCall, accept, decline, hangUp, toggleMic, toggleCamera, toggleScreenShare, sendReaction, historyVersion }),
-    [call, startCall, accept, decline, hangUp, toggleMic, toggleCamera, toggleScreenShare, sendReaction, historyVersion],
+    () => ({
+      call,
+      startCall,
+      accept,
+      decline,
+      hangUp,
+      toggleMic,
+      toggleCamera,
+      toggleScreenShare,
+      toggleSpeaker,
+      flipCamera,
+      sendReaction,
+      historyVersion,
+    }),
+    [call, startCall, accept, decline, hangUp, toggleMic, toggleCamera, toggleScreenShare, toggleSpeaker, flipCamera, sendReaction, historyVersion],
   );
 
   return (

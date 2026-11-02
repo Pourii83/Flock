@@ -1,11 +1,21 @@
-// Thin WebRTC helpers. Available on web + Electron; native builds fall back to signaling-only calls.
+// Thin WebRTC helpers. Web/Electron use the browser's WebRTC; Android/iOS use react-native-webrtc
+// (registered as globals). Expo Go has neither, so calls there fall back to signaling-only.
+import { Platform } from 'react-native';
 
-export const rtcSupported = () =>
-  typeof globalThis !== 'undefined' &&
-  typeof (globalThis as any).RTCPeerConnection === 'function' &&
-  !!(globalThis as any).navigator?.mediaDevices?.getUserMedia;
+import { initNativeWebRTC } from './native-media';
 
-export const screenShareSupported = () => !!(globalThis as any).navigator?.mediaDevices?.getDisplayMedia;
+export const rtcSupported = () => {
+  if (Platform.OS !== 'web') initNativeWebRTC();
+  return (
+    typeof globalThis !== 'undefined' &&
+    typeof (globalThis as any).RTCPeerConnection === 'function' &&
+    !!(globalThis as any).navigator?.mediaDevices?.getUserMedia
+  );
+};
+
+// Native screen capture needs a foreground MediaProjection service; web/desktop only for now.
+export const screenShareSupported = () =>
+  Platform.OS === 'web' && !!(globalThis as any).navigator?.mediaDevices?.getDisplayMedia;
 
 function iceServers(): RTCIceServer[] {
   const servers: RTCIceServer[] = [{ urls: 'stun:stun.l.google.com:19302' }];
@@ -34,7 +44,7 @@ export function createPeer(onSignal: (data: unknown) => void, onRemoteStream: (s
 
 export async function getLocalMedia(video: boolean) {
   try {
-    return await navigator.mediaDevices.getUserMedia({ audio: true, video: video ? { width: 1280, height: 720 } : false });
+    return await navigator.mediaDevices.getUserMedia({ audio: true, video: video ? { width: 1280, height: 720, facingMode: 'user' } : false });
   } catch {
     // No camera (or denied): try audio only so the call still connects.
     if (video) return navigator.mediaDevices.getUserMedia({ audio: true, video: false });

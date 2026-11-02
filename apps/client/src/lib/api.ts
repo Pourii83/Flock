@@ -1,4 +1,4 @@
-import { API_URL } from './config';
+import { getApiUrl } from './config';
 import type { CallLog, Conversation, Message, User } from './types';
 
 export class ApiError extends Error {
@@ -23,7 +23,7 @@ export const setUnauthorizedHandler = (fn: (() => void) | null) => {
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(`${API_URL}/api${path}`, {
+    res = await fetch(`${getApiUrl()}/api${path}`, {
       method,
       headers: {
         'Content-Type': 'application/json',

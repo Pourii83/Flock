@@ -6,7 +6,9 @@ import { createRealtime } from './realtime.js';
 import { createRouter } from './routes.js';
 
 const PORT = Number(process.env.PORT || 4000);
-const CORS_ORIGIN = process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',') : '*';
+// "*" (default) allows any origin — needed for the desktop (app://) and mobile apps.
+const rawOrigins = (process.env.CORS_ORIGIN || '*').split(',').map((s) => s.trim()).filter(Boolean);
+const CORS_ORIGIN = rawOrigins.includes('*') ? '*' : rawOrigins;
 
 await migrate();
 

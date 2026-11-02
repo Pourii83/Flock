@@ -3,7 +3,9 @@ import { useRef, useState } from 'react';
 import { Pressable, View, type TextInputInstance } from 'react-native';
 
 import { AuthCard, AuthLayout } from '@/components/auth-layout';
+import { ServerField, useServerField } from '@/components/server-field';
 import { Button, Field, Icon, T } from '@/components/ui';
+import { isInstalledApp } from '@/lib/config';
 import { useAuth } from '@/state/auth';
 import { colors } from '@/theme';
 
@@ -14,6 +16,7 @@ export default function LoginScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const server = useServerField();
   const passwordRef = useRef<TextInputInstance>(null);
 
   const submit = async () => {
@@ -21,6 +24,7 @@ export default function LoginScreen() {
     setBusy(true);
     setError(null);
     try {
+      if (isInstalledApp) await server.apply();
       await login(username, password);
     } catch (e: any) {
       setError(e.message);
@@ -31,6 +35,7 @@ export default function LoginScreen() {
   return (
     <AuthLayout title="Welcome back to Flock" subtitle="Sign in to pick up right where you left off">
       <AuthCard badge="FAST LOGIN">
+        {isInstalledApp && <ServerField field={server} />}
         <Field
           label="Username"
           icon="at-sign"
