@@ -108,3 +108,7 @@ The Android and desktop apps ask for the **server address** on the sign-in and s
 
 - Calls use STUN by default. For users behind strict NATs, configure a TURN server (`TURN_URL`, `TURN_USERNAME`, `TURN_CREDENTIAL`).
 - Messages are private to conversation members and protected by TLS when served over HTTPS. They are not end-to-end encrypted.
+
+## License
+
+Flock is **source-available** under the [Flock Source-Available License](LICENSE): you can use it, self-host it and contribute to it, but you may not republish, redistribute, sell or rebrand it. See [CONTRIBUTING.md](CONTRIBUTING.md).

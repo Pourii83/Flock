@@ -16,7 +16,7 @@
     "android": {
       "package": "app.flock.messenger",
       "adaptiveIcon": {
-        "backgroundColor": "#0B0E14",
+        "backgroundColor": "#0B0B0B",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
@@ -67,7 +67,8 @@
           "cameraPermission": "Flock uses the camera for video calls.",
           "microphonePermission": "Flock uses the microphone for voice and video calls."
         }
-      ]
+      ],
+      "expo-localization"
     ],
     "experiments": {
       "typedRoutes": true,

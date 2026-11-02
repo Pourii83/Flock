@@ -1,0 +1,91 @@
+Flock Source-Available License
+Version 1.0
+
+Copyright (c) 2026 Pourii83 (https://github.com/Pourii83). All rights reserved.
+
+This license governs the source code, binaries, documentation, designs and other
+materials in this repository (the "Software"). The Software is source-available:
+you may read it, use it and help improve it, but it is not open source and you
+may not republish it. By using, copying or contributing to the Software you agree
+to these terms.
+
+1. WHAT YOU MAY DO
+
+   a. View and study. You may read and study the source code.
+
+   b. Use. You may install and run the Software, unmodified or modified, for your
+      own personal use or for the internal use of your organization, including
+      hosting a Flock server for yourself, your family, your team or your
+      organization's members.
+
+   c. Modify privately. You may modify the Software for the uses allowed in 1(b),
+      as long as you do not distribute or publish the modified Software.
+
+   d. Contribute. You may fork this repository on GitHub solely to prepare
+      contributions to it, and you may submit those contributions (pull
+      requests, patches, issues and suggestions) to this repository.
+
+2. WHAT YOU MAY NOT DO
+
+   Without prior written permission from the copyright holder, you may not:
+
+   a. Redistribute. Copy, publish, distribute, sublicense or make the Software
+      or any part of it available to others in source or binary form, whether
+      modified or not, whether for free or for a fee, by any means, including
+      public repositories (other than a GitHub fork used only as described in
+      1(d)), package registries, mirrors, websites and file-sharing services.
+
+   b. Republish as your own. Publish, release or present the Software, any part
+      of it or any work derived from it under your own name or any other name,
+      or remove or alter copyright, license or attribution notices.
+
+   c. Use app stores. Publish the Software or any derivative in any application
+      store or marketplace, including Google Play, the Apple App Store, F-Droid,
+      the Microsoft Store and similar services.
+
+   d. Sell or offer as a service. Sell, rent or lease the Software, or offer it
+      or a derivative to third parties as a hosted or managed service, a
+      commercial product, or part of one.
+
+   e. Use the brand. Use the name "Flock", its logos or icons, or anything
+      confusingly similar, to identify any product, service or derivative work.
+
+3. CONTRIBUTIONS
+
+   By submitting a contribution to this repository you represent that you have
+   the right to submit it, and you grant the copyright holder a perpetual,
+   worldwide, non-exclusive, royalty-free, irrevocable license to use, copy,
+   modify, sublicense, relicense and distribute your contribution as part of
+   the Software or otherwise, under this license or any other terms the
+   copyright holder chooses. Your contribution is otherwise governed by this
+   license and you do not gain any additional rights to the Software.
+
+4. THIRD-PARTY COMPONENTS
+
+   Third-party libraries used by the Software remain under their own licenses.
+   This license does not restrict rights you have under those licenses for
+   those components.
+
+5. TERMINATION
+
+   Your rights under this license end automatically if you breach it. If you
+   stop the breach and fully remedy it within 30 days of becoming aware of it,
+   your rights are reinstated unless the copyright holder has notified you in
+   writing that they are terminated. On termination you must stop using the
+   Software and delete all copies in your possession.
+
+6. NO WARRANTY
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT. IN NO EVENT SHALL THE
+   COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+   THE SOFTWARE.
+
+7. OTHER PERMISSIONS
+
+   For any use not allowed above (for example redistribution, commercial use or
+   app-store publishing), contact the copyright holder through
+   https://github.com/Pourii83 to ask for a separate written license.

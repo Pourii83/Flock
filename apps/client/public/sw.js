@@ -1,7 +1,7 @@
 // Flock service worker: offline app shell, network-first for navigations,
 // cache-first for hashed static assets. API and socket traffic is never cached.
-const CACHE = 'flock-v1';
-const SHELL = ['/', '/manifest.json', '/favicon.svg', '/icon-192.png', '/icon-512.png'];
+const CACHE = 'flock-v2';
+const SHELL = ['/', '/manifest.json', '/favicon.png', '/icon-192.png', '/icon-512.png'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
