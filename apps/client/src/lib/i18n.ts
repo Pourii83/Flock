@@ -244,6 +244,17 @@ const fa: Record<string, string> = {
   'No messages yet — say something!': 'هنوز پیامی نیست؛ چیزی بنویسید!',
   'Write a message…': 'پیام بنویسید…',
   'Your screen + audio': 'صفحه و صدای شما',
+  'Noise cancellation': 'حذف نویز',
+  'Noise cancellation: off': 'حذف نویز: خاموش',
+  'Noise cancellation: standard': 'حذف نویز: معمولی',
+  'Noise cancellation: strong (AI)': 'حذف نویز: قوی (هوش مصنوعی)',
+  Off: 'خاموش',
+  Standard: 'معمولی',
+  'Strong (AI)': 'قوی (هوش مصنوعی)',
+  'Removes keyboard, fan and street noise with an on-device AI filter. Your audio never leaves the call.':
+    'صدای کیبورد، فن و خیابان را با یک فیلتر هوش مصنوعی روی خود دستگاه حذف می‌کند. صدای شما به هیچ سرویس دیگری ارسال نمی‌شود.',
+  "Your device's built-in noise suppression.": 'حذف نویز داخلی خود دستگاه.',
+  'Natural, unfiltered sound — best for music.': 'صدای طبیعی و بدون فیلتر؛ مناسب پخش موسیقی.',
   "Your browser can't keep the call out of system audio, so the screen is shared without sound. Share a tab to include its audio.":
     'مرورگر شما نمی‌تواند صدای تماس را از صدای سیستم جدا کند، برای همین صفحه بدون صدا به اشتراک گذاشته شد. برای اشتراک صدا، یک تب را انتخاب کنید.',
   "Your microphone isn't sending audio — check that it's connected and allowed.": 'صدای میکروفون شما ارسال نمی‌شود؛ وصل بودن و اجازه‌ی دسترسی میکروفون را بررسی کنید.',

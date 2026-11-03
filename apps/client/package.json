@@ -8,6 +8,7 @@
     "@expo-google-fonts/vazirmatn": "^0.4.1",
     "@expo/ui": "~58.0.26",
     "@expo/vector-icons": "^15.0.2",
+    "@sapphi-red/web-noise-suppressor": "^0.4.1",
     "expo": "~58.0.22",
     "expo-build-properties": "~58.0.12",
     "expo-clipboard": "~58.0.4",

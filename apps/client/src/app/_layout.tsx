@@ -9,6 +9,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { CallOverlay } from '@/components/call-overlay';
 import { loadLang, useLang } from '@/lib/i18n';
+import { loadNoisePreference } from '@/lib/noise';
 import { CallProvider } from '@/state/calls';
 import { AuthProvider, useAuth } from '@/state/auth';
 import { colors } from '@/theme';
@@ -79,7 +80,7 @@ function LocalizedApp() {
 export default function RootLayout() {
   const [langReady, setLangReady] = useState(false);
   useEffect(() => {
-    loadLang().finally(() => setLangReady(true));
+    Promise.all([loadLang(), loadNoisePreference()]).finally(() => setLangReady(true));
   }, []);
   if (!langReady) return null;
 

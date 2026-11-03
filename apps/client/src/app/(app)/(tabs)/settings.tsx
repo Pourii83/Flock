@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Avatar } from '@/components/avatar';
 import { LanguagePicker } from '@/components/language-picker';
+import { NoisePicker } from '@/components/noise-picker';
 import { DesktopTopBar, MobileHeader, PageTitle } from '@/components/shell';
 import { Button, Card, Field, Icon, SectionLabel, T, type IconName } from '@/components/ui';
 import { useIsWide } from '@/hooks/use-layout';
@@ -185,6 +186,9 @@ function SettingsBody() {
       </Card>
 
       {isInstalledApp && <ServerSettings />}
+
+      <SectionLabel>{t('Noise cancellation')}</SectionLabel>
+      <NoisePicker />
 
       <SectionLabel>{t('Language')}</SectionLabel>
       <LanguagePicker />

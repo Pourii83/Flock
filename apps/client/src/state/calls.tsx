@@ -3,6 +3,7 @@ import { Platform } from 'react-native';
 
 import { callAudio, switchCamera } from '@/lib/native-media';
 import { api } from '@/lib/api';
+import { getNoisePreference, micConstraints, processMic, strongNoiseSupported, type NoiseMode } from '@/lib/noise';
 import { createPeer, getCameraTrack, getLocalMedia, loadIceServers, rtcSupported, videoTransceiver } from '@/lib/rtc';
 import type { Conversation, User } from '@/lib/types';
 import { useAuth } from './auth';
@@ -40,6 +41,8 @@ export type CallState = {
   audioIssue: 'send' | 'receive' | null;
   /** Screen share also carries the shared tab/system audio. */
   sharingAudio: boolean;
+  /** Noise cancellation currently applied to the mic. */
+  noiseMode: NoiseMode;
   /** Temporary chat for this call only (never stored). */
   chat: CallChatMessage[];
   chatUnread: number;
@@ -68,6 +71,7 @@ const IDLE: CallState = {
   mediaVersion: 0,
   audioIssue: null,
   sharingAudio: false,
+  noiseMode: 'standard',
   chat: [],
   chatUnread: 0,
   notice: null,
@@ -86,6 +90,8 @@ type CallApi = {
   /** Starts or stops screen sharing at any point of the call (web/desktop). */
   toggleScreenShare: () => Promise<void>;
   toggleSpeaker: () => void;
+  /** Switches the mic's noise cancellation live (off / standard / strong AI). */
+  setNoiseMode: (mode: NoiseMode) => Promise<void>;
   flipCamera: () => void;
   sendReaction: (emoji: string) => void;
   sendChat: (text: string) => void;
@@ -116,7 +122,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const acceptedHere = useRef(false);
   const cameraTrack = useRef<MediaStreamTrack | null>(null);
   const screenTrack = useRef<MediaStreamTrack | null>(null);
-  const screenAudio = useRef<{ track: MediaStreamTrack; ctx: AudioContext; mixed: MediaStreamTrack } | null>(null);
+  const screenAudio = useRef<{ track: MediaStreamTrack; ctx: AudioContext; mixed: MediaStreamTrack; out: MediaStreamAudioDestinationNode; micInput: AudioNode } | null>(null);
+  // Releases the current mic pipeline (raw track, plus the RNNoise graph in strong mode).
+  const micDispose = useRef<(() => void) | null>(null);
   // The caller's peer may still be waiting on mic/camera permission when the callee answers.
   const peerReady = useRef<Promise<RTCPeerConnection | null> | null>(null);
 
@@ -149,6 +157,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
     const { localStream } = callRef.current;
     localStream?.getTracks().forEach((t) => t.stop());
     cameraTrack.current?.stop();
+    micDispose.current?.();
+    micDispose.current = null;
     screenTrack.current?.stop();
     cameraTrack.current = null;
     screenTrack.current = null;
@@ -189,7 +199,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       let stream: MediaStream;
       let iceServers: RTCIceServer[];
       try {
-        [stream, iceServers] = await Promise.all([getLocalMedia(video), loadIceServers(api.ice)]);
+        [stream, iceServers] = await Promise.all([getLocalMedia(video, micConstraints(getNoisePreference())), loadIceServers(api.ice)]);
       } catch (e: any) {
         patch({ notice: e.message });
         return null;
@@ -207,6 +217,18 @@ export function CallProvider({ children }: { children: ReactNode }) {
           } catch {}
         }
       };
+      // Run the mic through the preferred noise cancellation before it is sent.
+      const rawMic = stream.getAudioTracks()[0];
+      let noiseMode = getNoisePreference();
+      if (rawMic) {
+        const chain = await processMic(rawMic, noiseMode);
+        if (chain.track !== rawMic) {
+          stream.removeTrack(rawMic);
+          stream.addTrack(chain.track);
+        } else if (noiseMode === 'strong') noiseMode = 'standard';
+        micDispose.current = chain.dispose;
+      }
+      patch({ noiseMode });
       stream.getAudioTracks().forEach((t) => pc.addTrack(t, stream));
       const cam = stream.getVideoTracks()[0] ?? null;
       cameraTrack.current = cam;
@@ -422,6 +444,42 @@ export function CallProvider({ children }: { children: ReactNode }) {
     cleanup();
   }, [cleanup]);
 
+  const setNoiseMode = useCallback(
+    async (mode: NoiseMode) => {
+      const c = callRef.current;
+      if (mode === 'strong' && !strongNoiseSupported()) mode = 'standard';
+      if (!c.localStream || !pcRef.current) return;
+      let raw: MediaStreamTrack;
+      try {
+        raw = (await navigator.mediaDevices.getUserMedia({ audio: micConstraints(mode) })).getAudioTracks()[0]!;
+      } catch {
+        patch({ notice: t('Microphone access was blocked') });
+        return;
+      }
+      const chain = await processMic(raw, mode);
+      const applied: NoiseMode = mode === 'strong' && chain.track === raw ? 'standard' : mode;
+      chain.track.enabled = !c.micMuted;
+      raw.enabled = !c.micMuted;
+      // Swap the mic everywhere it is used: the live screen-audio mix, or the call's audio sender.
+      const mix = screenAudio.current;
+      if (mix) {
+        const input = mix.ctx.createMediaStreamSource(new MediaStream([chain.track]));
+        input.connect(mix.out);
+        mix.micInput.disconnect();
+        mix.micInput = input;
+      } else {
+        await audioSender()?.replaceTrack(chain.track);
+      }
+      const old = c.localStream.getAudioTracks()[0];
+      if (old) c.localStream.removeTrack(old);
+      c.localStream.addTrack(chain.track);
+      micDispose.current?.();
+      micDispose.current = chain.dispose;
+      setCall((s) => ({ ...s, noiseMode: applied, mediaVersion: s.mediaVersion + 1 }));
+    },
+    [patch, setCall, audioSender],
+  );
+
   const toggleMic = useCallback(() => {
     const c = callRef.current;
     const muted = !c.micMuted;
@@ -513,10 +571,11 @@ export function CallProvider({ children }: { children: ReactNode }) {
       if (shared && mic && sender) {
         const ctx = new AudioContext();
         const out = ctx.createMediaStreamDestination();
-        ctx.createMediaStreamSource(new MediaStream([mic])).connect(out);
+        const micInput = ctx.createMediaStreamSource(new MediaStream([mic]));
+        micInput.connect(out);
         ctx.createMediaStreamSource(new MediaStream([shared])).connect(out);
         const mixed = out.stream.getAudioTracks()[0]!;
-        screenAudio.current = { track: shared, ctx, mixed };
+        screenAudio.current = { track: shared, ctx, mixed, out, micInput };
         await sender.replaceTrack(mixed);
         withAudio = true;
       }
@@ -572,13 +631,14 @@ export function CallProvider({ children }: { children: ReactNode }) {
       toggleCamera,
       toggleScreenShare,
       toggleSpeaker,
+      setNoiseMode,
       flipCamera,
       sendReaction,
       sendChat,
       readChat,
       historyVersion,
     }),
-    [call, startCall, accept, decline, hangUp, toggleMic, toggleCamera, toggleScreenShare, toggleSpeaker, flipCamera, sendReaction, sendChat, readChat, historyVersion],
+    [call, startCall, accept, decline, hangUp, toggleMic, toggleCamera, toggleScreenShare, toggleSpeaker, setNoiseMode, flipCamera, sendReaction, sendChat, readChat, historyVersion],
   );
 
   return <CallContext.Provider value={value}>{children}</CallContext.Provider>;

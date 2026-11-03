@@ -5,6 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { timer } from '@/lib/format';
 import { canSwitchCamera } from '@/lib/native-media';
+import { getNoisePreference, strongNoiseSupported } from '@/lib/noise';
 import { screenShareSupported } from '@/lib/rtc';
 import { useCalls } from '@/state/calls';
 import { colors, radius } from '@/theme';
@@ -231,7 +232,12 @@ function useElapsed(since: number | null) {
 
 /** Stitch "Active Video Call": full-bleed remote, PiP self view, glass control dock. */
 function ActiveCall() {
-  const { call, hangUp, toggleMic, toggleCamera, toggleScreenShare, toggleSpeaker, flipCamera, sendReaction } = useCalls();
+  const { call, hangUp, toggleMic, toggleCamera, toggleScreenShare, toggleSpeaker, flipCamera, sendReaction, setNoiseMode } = useCalls();
+  // Dock toggle: off ↔ the user's preferred level (strong AI filter where available).
+  const toggleNoise = () => {
+    const preferred = getNoisePreference();
+    setNoiseMode(call.noiseMode !== 'off' ? 'off' : preferred !== 'off' ? preferred : strongNoiseSupported() ? 'strong' : 'standard');
+  };
   // Tap the stage to hide the controls (less visual noise), tap again to bring them back.
   const [controlsHidden, setControlsHidden] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
@@ -372,6 +378,12 @@ function ActiveCall() {
           </View>
           <View style={[styles.glass, { flexDirection: 'row', gap: 12, padding: 10, borderRadius: radius.pill }]}>
             <DockButton icon={call.micMuted ? 'mic-off' : 'mic'} active={!call.micMuted} onPress={toggleMic} label={t('Microphone')} />
+            <DockButton
+              icon="wind"
+              active={call.noiseMode !== 'off'}
+              onPress={toggleNoise}
+              label={call.noiseMode === 'off' ? t('Noise cancellation: off') : call.noiseMode === 'strong' ? t('Noise cancellation: strong (AI)') : t('Noise cancellation: standard')}
+            />
             <DockButton icon="message-square" active={chatOpen} onPress={() => setChatOpen((o) => !o)} label={t('Call chat')} badge={chatOpen ? 0 : call.chatUnread} />
             <DockButton icon={call.cameraOff ? 'video-off' : 'video'} active={!call.cameraOff} onPress={toggleCamera} label={t('Camera')} />
             {canSwitchCamera && !call.cameraOff && (

@@ -55,12 +55,12 @@ export function createPeer(
 export const videoTransceiver = (pc: RTCPeerConnection) =>
   pc.getTransceivers().find((t) => t.receiver.track?.kind === 'video') ?? null;
 
-export async function getLocalMedia(video: boolean) {
+export async function getLocalMedia(video: boolean, mic: MediaTrackConstraints = MIC) {
   try {
-    return await navigator.mediaDevices.getUserMedia({ audio: MIC, video: video ? CAMERA : false });
+    return await navigator.mediaDevices.getUserMedia({ audio: mic, video: video ? CAMERA : false });
   } catch {
     // No camera (or denied): try audio only so the call still connects.
-    if (video) return navigator.mediaDevices.getUserMedia({ audio: MIC, video: false });
+    if (video) return navigator.mediaDevices.getUserMedia({ audio: mic, video: false });
     throw new Error(t('Microphone access was blocked'));
   }
 }
