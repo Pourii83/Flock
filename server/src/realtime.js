@@ -46,6 +46,8 @@ export function createRealtime(httpServer, corsOrigin) {
 
   io.on('connection', (socket) => {
     const me = socket.data.userId;
+    // Calls this connection takes part in: if it drops (tab closed, network gone), they end.
+    const myCalls = new Set();
     socket.join(userRoom(me));
     if (presence.connect(me)) broadcastPresence(me, true).catch(console.error);
 
@@ -85,6 +87,7 @@ export function createRealtime(httpServer, corsOrigin) {
           call.id,
           setTimeout(() => finishCall(call.id, 'missed', null).catch(console.error), RING_TIMEOUT_MS),
         );
+        myCalls.add(call.id);
         return { callId: call.id };
       }),
     );
@@ -98,12 +101,25 @@ export function createRealtime(httpServer, corsOrigin) {
         clearTimeout(ringing.get(callId));
         ringing.delete(callId);
         await repo.setCallStatus(callId, 'active');
+        myCalls.add(callId);
         await toMembers(call.conversation_id, 'call:accepted', { callId, by: me });
       }),
     );
 
-    socket.on('call:decline', guard(async ({ callId }) => finishCall(callId, 'declined', me)));
-    socket.on('call:end', guard(async ({ callId }) => finishCall(callId, 'missed', me)));
+    socket.on(
+      'call:decline',
+      guard(async ({ callId }) => {
+        myCalls.delete(callId);
+        await finishCall(callId, 'declined', me);
+      }),
+    );
+    socket.on(
+      'call:end',
+      guard(async ({ callId }) => {
+        myCalls.delete(callId);
+        await finishCall(callId, 'missed', me);
+      }),
+    );
 
     socket.on(
       'call:signal',
@@ -115,6 +131,9 @@ export function createRealtime(httpServer, corsOrigin) {
     );
 
     socket.on('disconnect', () => {
+      // A participant's connection is gone: hang up so the other side isn't left in a dead call.
+      for (const callId of myCalls) finishCall(callId, 'missed', me).catch(console.error);
+      myCalls.clear();
       if (presence.disconnect(me)) {
         repo.touchLastSeen(me).catch(console.error);
         broadcastPresence(me, false).catch(console.error);

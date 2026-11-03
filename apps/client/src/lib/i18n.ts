@@ -244,6 +244,8 @@ const fa: Record<string, string> = {
   'No messages yet — say something!': 'هنوز پیامی نیست؛ چیزی بنویسید!',
   'Write a message…': 'پیام بنویسید…',
   'Your screen + audio': 'صفحه و صدای شما',
+  "Your browser can't keep the call out of system audio, so the screen is shared without sound. Share a tab to include its audio.":
+    'مرورگر شما نمی‌تواند صدای تماس را از صدای سیستم جدا کند، برای همین صفحه بدون صدا به اشتراک گذاشته شد. برای اشتراک صدا، یک تب را انتخاب کنید.',
   "Your microphone isn't sending audio — check that it's connected and allowed.": 'صدای میکروفون شما ارسال نمی‌شود؛ وصل بودن و اجازه‌ی دسترسی میکروفون را بررسی کنید.',
   "Not receiving the other person's audio — their microphone may be off or blocked.": 'صدای طرف مقابل نمی‌رسد؛ ممکن است میکروفون او خاموش یا مسدود باشد.',
   'Camera is unavailable or access was blocked': 'دوربین در دسترس نیست یا دسترسی به آن مسدود است',

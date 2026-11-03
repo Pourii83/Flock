@@ -351,6 +351,18 @@ export function CallProvider({ children }: { children: ReactNode }) {
     return () => clearInterval(id);
   }, [call.phase, patch]);
 
+  // Closing/reloading the tab ends the call right away (the server also ends it when the socket drops).
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof window === 'undefined') return;
+    const onLeave = () => {
+      const c = callRef.current;
+      if (c.phase === 'idle' || !c.callId) return;
+      chatStore.socket?.emit(c.phase === 'incoming' ? 'call:decline' : 'call:end', { callId: c.callId });
+    };
+    window.addEventListener('pagehide', onLeave);
+    return () => window.removeEventListener('pagehide', onLeave);
+  }, []);
+
   // Hang up if the user signs out mid-call.
   useEffect(() => {
     if (!user && callRef.current.phase !== 'idle') cleanup();
@@ -465,7 +477,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
       // Asking for audio makes the browser offer "Share tab/system audio" in its own picker (like Google Meet).
       const display: MediaStream = await (navigator.mediaDevices as any).getDisplayMedia({
         video: true,
-        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+        // restrictOwnAudio keeps Flock's own playback (the other caller's voice) out of captured
+        // system audio — otherwise they hear themselves echoed back.
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, restrictOwnAudio: true },
         systemAudio: 'include',
         selfBrowserSurface: 'exclude',
         surfaceSwitching: 'include',
@@ -482,7 +496,17 @@ export function CallProvider({ children }: { children: ReactNode }) {
       };
 
       // Mix the shared audio with the mic into the existing audio sender — no renegotiation.
-      const shared = display.getAudioTracks()[0];
+      let shared: MediaStreamTrack | undefined = display.getAudioTracks()[0];
+      let notice: string | null = null;
+      const surface = (track.getSettings() as { displaySurface?: string }).displaySurface;
+      const ownAudioExcluded = (shared?.getSettings() as { restrictOwnAudio?: boolean } | undefined)?.restrictOwnAudio === true;
+      if (shared && surface === 'monitor' && !ownAudioExcluded) {
+        // This browser can't remove the call from system audio: sharing it would echo the other
+        // person's voice back to them, so share the screen without sound.
+        shared.stop();
+        shared = undefined;
+        notice = t("Your browser can't keep the call out of system audio, so the screen is shared without sound. Share a tab to include its audio.");
+      }
       const mic = callRef.current.localStream?.getAudioTracks()[0];
       const sender = audioSender();
       let withAudio = false;
@@ -496,7 +520,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
         await sender.replaceTrack(mixed);
         withAudio = true;
       }
-      patch({ sharingScreen: true, sharingAudio: withAudio, screenStream: new MediaStream([track]), notice: null });
+      patch({ sharingScreen: true, sharingAudio: withAudio, screenStream: new MediaStream([track]), notice });
       await syncVideoSender();
     } catch {
       // User cancelled the picker.

@@ -37,7 +37,7 @@
     </style>
     <script>
       // Register the PWA service worker for built apps (skipped on the Metro dev server).
-      if ('serviceWorker' in navigator && location.port !== '8081') {
+      if ('serviceWorker' in navigator && !/^(8081|8090)$/.test(location.port)) {
         window.addEventListener('load', function () {
           navigator.serviceWorker.register('/sw.js').catch(function () {});
         });
