@@ -10,9 +10,11 @@ const SERVER_KEY = 'flock.server';
 export const isInstalledApp = Platform.OS !== 'web' || (typeof window !== 'undefined' && !!(window as any).flockDesktop);
 
 function defaultApiUrl() {
-  // Desktop (Electron) may inject a default from FLOCK_SERVER_URL / config.json.
+  // Desktop: only an explicit FLOCK_SERVER_URL / config.json (or localhost in --dev) arrives here.
   const desktop = typeof window !== 'undefined' ? (window as any).flockDesktop?.apiUrl : undefined;
   if (desktop) return String(desktop).replace(/\/$/, '');
+  // Installed clients require an explicitly saved server; public builds have no private default.
+  if (isInstalledApp) return '';
   const fromEnv = process.env.EXPO_PUBLIC_API_URL;
   if (fromEnv) return fromEnv.replace(/\/$/, '');
   if (Platform.OS === 'web' && typeof window !== 'undefined') {

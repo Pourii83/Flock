@@ -408,6 +408,7 @@ const fa: Record<string, string> = {
   'Sound output': 'خروجی صدا',
   'On phones, Bluetooth and wired communication routes pair their microphone and speaker together.':
     'در گوشی، مسیرهای بلوتوثی و سیمی میکروفون و خروجی صدای خود را با هم استفاده می‌کنند.',
+  'Participant volume': 'بلندی صدای افراد',
   'No audio devices found': 'هیچ دستگاه صوتی پیدا نشد',
   'The selected microphone is unavailable': 'میکروفون انتخاب‌شده در دسترس نیست',
   'Microphone {n}': 'میکروفون {n}',

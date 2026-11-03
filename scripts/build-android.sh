@@ -13,7 +13,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CLIENT="$ROOT/apps/client"
-API_URL="${1:-${EXPO_PUBLIC_API_URL:-https://flock.ezbug.ir}}"
+API_URL="${1:-${EXPO_PUBLIC_API_URL:-}}"
 SIGNING="${ANDROID_SIGNING:-$ROOT/.private/android-signing.properties}"
 ABIS="${ANDROID_ABIS:-arm64-v8a,armeabi-v7a}"
 
@@ -59,6 +59,7 @@ EXPO_PUBLIC_API_URL="$API_URL" NODE_ENV=production ./gradlew assembleRelease "${
   -Pandroid.injected.signing.key.password="$(prop keyPassword)"
 
 mkdir -p "$ROOT/dist"
-OUT="$ROOT/dist/flock-$VERSION.apk"
+# Allow local review builds to keep the published release artifact intact.
+OUT="${ANDROID_OUTPUT:-$ROOT/dist/flock-$VERSION.apk}"
 cp app/build/outputs/apk/release/app-release.apk "$OUT"
 echo "==> Done: $OUT"

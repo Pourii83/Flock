@@ -19,6 +19,8 @@ export type StreamFps = 60 | 30 | 15;
 
 /** Someone else in the call (one peer connection each — calls are a mesh). */
 export type CallRemote = {
+  volume?: number;
+  speaking?: boolean;
   userId: string;
   user: User | null;
   stream: MediaStream | null;
@@ -28,6 +30,7 @@ export type CallRemote = {
 };
 
 export type CallState = {
+  localSpeaking?: boolean;
   phase: CallPhase;
   callId: string | null;
   conversationId: string | null;
@@ -109,6 +112,7 @@ const IDLE: CallState = {
 };
 
 type CallApi = {
+  setParticipantVolume: (userId: string, volume: number) => void;
   call: CallState;
   startCall: (conversation: Conversation, video: boolean) => Promise<void>;
   /** Joins the call already running in a conversation (group calls). */
@@ -1025,9 +1029,62 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
   const readChat = useCallback(() => patch({ chatUnread: 0 }), [patch]);
 
+  const setParticipantVolume = useCallback((userId: string, volume: number) => {
+    if (!Number.isFinite(volume)) return;
+    setCall((current) => ({ ...current, remotes: current.remotes.map((remote) => remote.userId === userId ? { ...remote, volume: Math.max(0, Math.min(1, volume)) } : remote) }));
+  }, [setCall]);
+
+  useEffect(() => {
+    if (call.phase !== 'active') return;
+    let disposed = false;
+    let busy = false;
+    // Read existing WebRTC levels without adding an audio pipeline or remounting video views.
+    const energy = new Map<string, { energy: number; duration: number }>();
+    const lastVoice = new Map<string, number>();
+    const timer = setInterval(async () => {
+      if (busy) return;
+      busy = true;
+      try {
+        const active = new Set<string>();
+        for (const [userId, { pc }] of peers.current) {
+          const stats = await pc.getStats().catch(() => null);
+          if (!stats || disposed) continue;
+          stats.forEach((report: any) => {
+            if ((report.kind ?? report.mediaType) !== 'audio') return;
+            const local = report.type === 'media-source';
+            if (!local && report.type !== 'inbound-rtp') return;
+            const key = `${userId}:${report.id}`;
+            const previous = energy.get(key);
+            let level = report.audioLevel ?? 0;
+            if (typeof report.totalAudioEnergy === 'number' && typeof report.totalSamplesDuration === 'number') {
+              if (report.audioLevel == null && previous && report.totalSamplesDuration > previous.duration) {
+                level = Math.sqrt(Math.max(0, (report.totalAudioEnergy - previous.energy) / (report.totalSamplesDuration - previous.duration)));
+              }
+              energy.set(key, { energy: report.totalAudioEnergy, duration: report.totalSamplesDuration });
+            }
+            if (level > 0.025 && (!local || !callRef.current.micMuted)) active.add(local ? 'local' : userId);
+          });
+        }
+        if (disposed) return;
+        const now = Date.now();
+        active.forEach((id) => lastVoice.set(id, now));
+        const speaking = (id: string) => now - (lastVoice.get(id) ?? 0) < 450;
+        setCall((current) => {
+          const localSpeaking = !current.micMuted && speaking('local');
+          const remotes = current.remotes.map((remote) => !!remote.speaking === speaking(remote.userId) ? remote : { ...remote, speaking: speaking(remote.userId) });
+          if (!!current.localSpeaking === localSpeaking && remotes.every((remote, index) => remote === current.remotes[index])) return current;
+          return { ...current, localSpeaking, remotes };
+        });
+      } catch { /* A peer can close while its stats are being read. */ }
+      finally { busy = false; }
+    }, 200);
+    return () => { disposed = true; clearInterval(timer); };
+  }, [call.phase, call.callId, setCall]);
+
   const value = useMemo<CallApi>(
     () => ({
       call,
+      setParticipantVolume,
       startCall,
       joinCall,
       joinInvitedCall,
@@ -1055,6 +1112,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     }),
     [
       call,
+      setParticipantVolume,
       startCall,
       joinCall,
       joinInvitedCall,

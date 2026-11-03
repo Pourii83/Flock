@@ -2,7 +2,7 @@ import * as Clipboard from 'expo-clipboard';
 import * as DocumentPicker from 'expo-document-picker';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -666,8 +666,21 @@ function Composer({
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
   const inputRef = useRef<TextInputInstance>(null);
+  const [inputHeight, setInputHeight] = useState(50);
   const insets = useSafeAreaInsets();
   const canSend = text.trim().length > 0;
+
+  useLayoutEffect(() => {
+    if (Platform.OS !== 'web') return;
+    // scrollHeight cannot shrink below a fixed textarea height; measure it unconstrained.
+    const node = inputRef.current as unknown as HTMLTextAreaElement | null;
+    if (!node) return;
+    const previous = node.style.height;
+    node.style.height = '0px';
+    const height = node.scrollHeight;
+    node.style.height = previous;
+    setInputHeight(Math.min(140, Math.max(50, height)));
+  }, [text]);
 
   useEffect(() => {
     if (replyTo) inputRef.current?.focus();
@@ -779,7 +792,7 @@ function Composer({
           style={{
             flex: 1,
             flexDirection: 'row',
-            alignItems: 'flex-end',
+            alignItems: 'center',
             backgroundColor: colors.surface,
             borderRadius: desktop ? radius.lg : 26,
             borderWidth: 1.5,
@@ -801,6 +814,13 @@ function Composer({
             placeholder={desktop ? t('Type a message to {name}…', { name: firstName }) : t('Message {name}…', { name: firstName })}
             placeholderTextColor={colors.textMuted}
             multiline
+            numberOfLines={1}
+            onContentSizeChange={(event) => {
+              // Web sizes itself in the layout effect above: measuring here resizes the textarea,
+              // which fires this event again and locks the page in a loop.
+              if (Platform.OS === 'web') return;
+              setInputHeight(Math.min(140, Math.max(50, event.nativeEvent.contentSize.height)));
+            }}
             onKeyPress={(e: any) => {
               if (Platform.OS === 'web' && e.nativeEvent.key === 'Enter' && !e.nativeEvent.shiftKey) {
                 e.preventDefault();
@@ -817,12 +837,14 @@ function Composer({
                 paddingVertical: 14,
                 paddingHorizontal: desktop ? 8 : 0,
                 maxHeight: 140,
+                height: text ? inputHeight : 50,
+                textAlignVertical: 'center',
               },
               noOutline,
             ]}
           />
           {!desktop && (
-            <IconButton name="smile" label={t('Emoji')} onPress={() => setEmojiOpen((v) => !v)} color={emojiOpen ? colors.amber : colors.textMuted} iconSize={22} style={{ marginBottom: 6 }} />
+            <IconButton name="smile" label={t('Emoji')} onPress={() => setEmojiOpen((v) => !v)} color={emojiOpen ? colors.amber : colors.textMuted} iconSize={22} />
           )}
           {desktop && (
             <Pressable
@@ -833,7 +855,6 @@ function Composer({
                 width: 44,
                 height: 44,
                 borderRadius: 14,
-                marginBottom: 4,
                 backgroundColor: canSend ? colors.amber : colors.surfaceHigh,
                 alignItems: 'center',
                 justifyContent: 'center',

@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 
 import { api, setAuthToken, setUnauthorizedHandler } from '@/lib/api';
-import { loadServerUrl, setServerUrl } from '@/lib/config';
+import { getApiUrl, loadServerUrl, setServerUrl } from '@/lib/config';
 import { getItem, setItem } from '@/lib/storage';
 import type { User } from '@/lib/types';
 import { chatStore } from './chat-store';
@@ -45,7 +45,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     (async () => {
       await loadServerUrl();
       const saved = await getItem(TOKEN_KEY);
-      if (saved) {
+      if (saved && getApiUrl()) {
         setAuthToken(saved);
         try {
           await applySession(saved, await api.me());

@@ -14,7 +14,7 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://flock.ezbug.ir"
+        "EXPO_PUBLIC_API_URL": ""
       }
     },
     "production": {
@@ -22,7 +22,7 @@
         "buildType": "app-bundle"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://flock.ezbug.ir"
+        "EXPO_PUBLIC_API_URL": ""
       }
     }
   }

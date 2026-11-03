@@ -37,7 +37,7 @@ export function CallOverlay() {
         <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.canvas }]}>{call.phase === 'active' ? <ActiveCall /> : <RingingCall />}</View>
       )}
       {/* One persistent audio output per participant (web) — it keeps playing while minimized. */}
-      {call.phase === 'active' && call.remotes.map((r) => <RemoteAudio key={r.userId} stream={r.stream} version={call.mediaVersion} outputDeviceId={call.audioOutputId} />)}
+      {call.phase === 'active' && call.remotes.map((r) => <RemoteAudio key={r.userId} stream={r.stream} version={call.mediaVersion} outputDeviceId={call.audioOutputId} volume={r.volume ?? 1} />)}
     </View>
   );
 }
@@ -66,7 +66,7 @@ function MiniCall() {
           </View>
         ) : null}
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, paddingBottom: 6 }}>
-          {!withVideo && <Avatar user={shown?.user ?? call.peer} size={36} showPresence={false} />}
+          {!withVideo && <Avatar user={shown?.user ?? call.peer} size={36} showPresence={false} ring={shown?.speaking ? colors.amber : colors.hairline} />}
           <View style={{ flex: 1, minWidth: 0 }}>
             <T variant="labelLg" numberOfLines={1}>
               {call.title || shown?.user?.displayName}
@@ -82,7 +82,7 @@ function MiniCall() {
         <ScrollView style={{ maxHeight: 176 }} contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 6, gap: 8 }}>
           {[user, ...call.remotes.map((remote) => remote.user)].filter(Boolean).map((person) => (
             <View key={person!.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-              <Avatar user={person} size={32} showPresence={false} />
+              <Avatar user={person} size={32} showPresence={false} ring={(person!.id === user?.id ? call.localSpeaking : call.remotes.find((remote) => remote.userId === person!.id)?.speaking) ? colors.amber : colors.hairline} />
               <T variant="label" numberOfLines={1} style={{ flex: 1 }}>
                 {person!.id === user?.id ? t('You') : person!.displayName}
               </T>
@@ -422,11 +422,13 @@ function ActiveCall() {
         ) : grid ? (
           <ParticipantGrid remotes={call.remotes} version={call.mediaVersion} onFocusScreen={setFocusedScreen} />
         ) : remoteHasVideo && single ? (
-          <VideoView key={`remote-${single.userId}-${call.mediaVersion}`} stream={single.stream} contain={single.screen} />
+          <View style={{ flex: 1, borderWidth: 2, borderColor: single.speaking ? colors.amber : 'transparent' }}>
+            <VideoView key={`remote-${single.userId}-${call.mediaVersion}`} stream={single.stream} contain={single.screen} />
+          </View>
         ) : (
           <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 16 }}>
             <LinearGradient colors={['rgba(255,184,77,0.08)', 'rgba(11,14,20,0)']} style={StyleSheet.absoluteFill} />
-            <Avatar user={stageUser} size={160} ring={colors.amber} />
+            <Avatar user={stageUser} size={160} ring={single?.speaking ? colors.amber : colors.hairline} />
             <T variant="headline">{stageName}</T>
             <T variant="body" color={colors.textMuted}>
               {single?.stream ? t('Voice call') : call.isGroup && !single ? t('Waiting for others to join…') : t('Connecting…')}
@@ -481,7 +483,7 @@ function ActiveCall() {
           </View>
 
           {localPreview && (
-            <Pressable style={styles.pip} onPress={() => call.sharingScreen && setFocusedScreen('local')}>
+            <Pressable style={[styles.pip, { borderColor: call.localSpeaking ? colors.amber : colors.hairline, borderWidth: 2 }]} onPress={() => call.sharingScreen && setFocusedScreen('local')}>
               <VideoView
                 key={`local-${call.sharingScreen ? 'screen' : 'cam'}-${call.mediaVersion}`}
                 stream={localPreview}
@@ -631,7 +633,7 @@ function ParticipantGrid({ remotes, version, onFocusScreen }: { remotes: CallRem
               disabled={!r.screen}
               onPress={() => onFocusScreen(r.userId)}
               accessibilityLabel={r.screen ? t('Focus shared screen') : r.user?.displayName}
-              style={{ flex: 1, borderRadius: radius.lg, overflow: 'hidden', backgroundColor: colors.surface, borderWidth: 2, borderColor: r.user?.avatarColor ?? colors.hairline }}>
+              style={{ flex: 1, borderRadius: radius.lg, overflow: 'hidden', backgroundColor: colors.surface, borderWidth: 2, borderColor: r.speaking ? colors.amber : colors.hairline }}>
               {video ? (
                 <VideoView key={`tile-${r.userId}-${version}`} stream={r.stream} contain={r.screen} />
               ) : (
@@ -675,9 +677,11 @@ function ScreenStage({
   version: number;
   onClose: () => void;
 }) {
+  const { call } = useCalls();
+  const isSpeaking = (id: string | undefined) => id === localUser?.id ? call.localSpeaking : remotes.find((remote) => remote.userId === id)?.speaking;
   return (
-    <View style={{ flex: 1, flexDirection: 'row', paddingTop: 88, paddingBottom: 150, paddingHorizontal: 10, gap: 10 }}>
-      <View style={{ flex: 1, borderRadius: radius.lg, overflow: 'hidden', backgroundColor: '#05070A', borderWidth: 1, borderColor: colors.hairline }}>
+    <View style={{ flex: 1, minHeight: 0, flexDirection: 'row', direction: 'ltr', paddingTop: 88, paddingBottom: 150, paddingHorizontal: 10, gap: 10 }}>
+      <View style={{ flex: 1, minWidth: 0, borderRadius: radius.lg, overflow: 'hidden', backgroundColor: '#05070A', borderWidth: 2, borderColor: isSpeaking(owner?.id) ? colors.amber : colors.hairline }}>
         {!!stream && <VideoView key={`focused-screen-${owner?.id}-${version}`} stream={stream} contain />}
         <Pressable
           onPress={onClose}
@@ -690,13 +694,13 @@ function ScreenStage({
         </View>
       </View>
       <ScrollView
-        style={{ width: 76 }}
+        style={{ width: 76, flexGrow: 0, flexShrink: 0, flexBasis: 76 }}
         contentContainerStyle={{ alignItems: 'center', gap: 12, paddingVertical: 4 }}
         showsVerticalScrollIndicator={false}>
         {[localUser, ...remotes.map((remote) => remote.user)].filter((person) => person && person.id !== owner?.id).map((person) => (
           <View
             key={person!.id}
-            style={{ width: 64, height: 64, borderRadius: 32, borderWidth: 2, borderColor: person!.avatarColor ?? colors.hairline, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' }}>
+            style={{ width: 64, height: 64, borderRadius: 32, borderWidth: 2, borderColor: isSpeaking(person!.id) ? colors.amber : colors.hairline, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' }}>
             <Avatar user={person} size={56} showPresence={false} />
           </View>
         ))}
@@ -794,13 +798,17 @@ function DeviceSection({
 }
 
 function AudioDevicePanel({ onClose }: { onClose: () => void }) {
-  const { call, refreshAudioDevices, selectAudioInput, selectAudioOutput } = useCalls();
+  const { call, refreshAudioDevices, selectAudioInput, selectAudioOutput, setParticipantVolume } = useCalls();
   useEffect(() => { void refreshAudioDevices(); }, [refreshAudioDevices]);
   const inputs = call.audioDevices.filter((device) => device.kind === 'input');
   const outputs = call.audioDevices.filter((device) => device.kind === 'output');
   return (
     <PanelShell title={t('Audio devices')} onClose={onClose}>
       <ScrollView style={{ maxHeight: 430 }} contentContainerStyle={{ gap: 20 }}>
+        {call.remotes.length > 0 && <T variant="labelLg">{t('Participant volume')}</T>}
+        {call.remotes.map((remote) => (
+          <ChoiceRow key={remote.userId} values={[0, 0.25, 0.5, 0.75, 1]} value={remote.volume ?? 1} label={remote.user?.displayName ?? t('Someone')} display={(value) => `${Math.round(value * 100)}%`} onChange={(value) => setParticipantVolume(remote.userId, value)} />
+        ))}
         <DeviceSection title={t('Microphone input')} icon="mic" devices={inputs} selected={call.audioInputId} onSelect={selectAudioInput} />
         <DeviceSection title={t('Sound output')} icon="volume-2" devices={outputs} selected={call.audioOutputId} onSelect={selectAudioOutput} />
         {Platform.OS !== 'web' && (

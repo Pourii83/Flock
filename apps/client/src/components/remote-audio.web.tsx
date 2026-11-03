@@ -10,10 +10,11 @@ import { Icon, T } from './ui';
  * independent of the video views (which come and go when camera/screen toggles).
  * If the browser blocks autoplay, shows a button to start playback.
  */
-export function RemoteAudio({ stream, version, outputDeviceId = 'default' }: { stream: MediaStream | null; version: number; outputDeviceId?: string }) {
+export function RemoteAudio({ stream, version, outputDeviceId = 'default', volume = 1 }: { stream: MediaStream | null; version: number; outputDeviceId?: string; volume?: number }) {
   const ref = useRef<HTMLAudioElement | null>(null);
   const trackIds = useRef('');
   const [blocked, setBlocked] = useState(false);
+  useEffect(() => { if (ref.current) ref.current.volume = volume; }, [volume]);
 
   useEffect(() => {
     const el = ref.current;
