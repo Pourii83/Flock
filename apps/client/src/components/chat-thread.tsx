@@ -1,4 +1,6 @@
 import * as Clipboard from 'expo-clipboard';
+import * as DocumentPicker from 'expo-document-picker';
+import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -14,6 +16,8 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { clock, dayDivider, lastSeenLabel, sameDay } from '@/lib/format';
+import { attachmentSource, openAttachment } from '@/lib/attachments';
+import { api } from '@/lib/api';
 import { systemText } from '@/lib/system-message';
 import type { Conversation, Message } from '@/lib/types';
 import { useAuth } from '@/state/auth';
@@ -84,6 +88,9 @@ export function ChatThread({
 
   const rows = useMemo(() => buildRows(messages), [messages]);
   const desktop = variant === 'desktop';
+  // Android edge-to-edge windows can report the IME without resizing the React tree,
+  // so adjust this screen's height explicitly to keep the composer above the keyboard.
+  const keyboardBehavior = Platform.select({ ios: 'padding' as const, android: 'height' as const });
 
   if (!conversation) {
     return (
@@ -94,7 +101,7 @@ export function ChatThread({
   }
 
   return (
-    <KeyboardAvoidingView style={{ flex: 1, backgroundColor: colors.canvas }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <KeyboardAvoidingView style={{ flex: 1, backgroundColor: colors.canvas }} behavior={keyboardBehavior}>
       <ThreadHeader conversation={conversation} desktop={desktop} onBack={onBack} detailsOpen={detailsOpen} onToggleDetails={onToggleDetails} />
       <JoinCallBanner conversation={conversation} />
       {loadError ? (
@@ -455,14 +462,20 @@ function Bubble({
               </View>
             </View>
           )}
-          <T variant="bodyLg" color={fg} style={{ fontSize: 16, lineHeight: 24 }} selectable={desktop}>
-            {m.body}
-          </T>
+          {m.kind === 'file' ? (
+            <AttachmentCard message={m} mine={mine} />
+          ) : m.kind === 'call_invite' ? (
+            <CallInviteCard message={m} mine={mine} />
+          ) : (
+            <T variant="bodyLg" color={fg} style={{ fontSize: 16, lineHeight: 24 }} selectable={desktop}>
+              {m.body}
+            </T>
+          )}
         </Pressable>
         {actionsOpen && (
           <View style={{ flexDirection: 'row', gap: 8 }}>
             <ActionChip icon="corner-up-left" label={t('Reply')} onPress={onReply} />
-            <ActionChip icon="copy" label={t('Copy')} onPress={copy} />
+            {m.kind === 'text' && <ActionChip icon="copy" label={t('Copy')} onPress={copy} />}
           </View>
         )}
         {last && (mine || !desktop) && (
@@ -475,6 +488,111 @@ function Bubble({
         )}
       </View>
       {!mine && hoverReply}
+    </View>
+  );
+}
+
+function bytesLabel(size: number) {
+  if (size >= 1024 * 1024) return `${(size / 1024 / 1024).toFixed(size >= 10 * 1024 * 1024 ? 0 : 1)} MB`;
+  if (size >= 1024) return `${Math.ceil(size / 1024)} KB`;
+  return `${size} B`;
+}
+
+function AttachmentCard({ message, mine }: { message: Message; mine: boolean }) {
+  const attachment = message.attachment;
+  const [opening, setOpening] = useState(false);
+  const [error, setError] = useState('');
+  if (!attachment) return <T color={mine ? colors.onAmber : colors.textMuted}>{t('File unavailable')}</T>;
+  const expired = attachment.expired || !attachment.url;
+  const image = attachment.mimeType.startsWith('image/');
+  const open = async () => {
+    if (!attachment.url) return;
+    setOpening(true);
+    setError('');
+    try {
+      await openAttachment(attachment.url, attachment.name, attachment.mimeType);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : t('Could not download file'));
+    } finally {
+      setOpening(false);
+    }
+  };
+  return (
+    <Pressable onPress={() => void open()} disabled={expired || opening} style={{ minWidth: 210, maxWidth: 320, gap: 10 }}>
+      {image && !expired && attachment.url && (
+        <Image source={attachmentSource(attachment.url)} style={{ width: '100%', aspectRatio: 4 / 3, borderRadius: 12, backgroundColor: colors.surface }} contentFit="cover" />
+      )}
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+        <View style={{ width: 42, height: 42, borderRadius: 13, alignItems: 'center', justifyContent: 'center', backgroundColor: mine ? 'rgba(61,38,0,0.10)' : colors.surface }}>
+          {opening ? <ActivityIndicator color={mine ? colors.onAmber : colors.amber} /> : <Icon name={expired ? 'clock' : image ? 'image' : 'file'} size={20} color={mine ? colors.onAmber : colors.amber} />}
+        </View>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <T variant="labelLg" color={mine ? colors.onAmber : colors.text} numberOfLines={2}>{attachment.name}</T>
+          <T variant="bodySm" color={mine ? '#72521B' : colors.textMuted}>
+            {expired ? t('File expired') : `${bytesLabel(attachment.size)} · ${t('Original quality')}`}
+          </T>
+        </View>
+        {!expired && <Icon name="download" size={18} color={mine ? colors.onAmber : colors.amber} />}
+      </View>
+      {!!error && <T variant="bodySm" color={colors.danger}>{error}</T>}
+    </Pressable>
+  );
+}
+
+function CallInviteCard({ message, mine }: { message: Message; mine: boolean }) {
+  const { call, joinInvitedCall } = useCalls();
+  let data: { callId?: string; title?: string; inviter?: string } = {};
+  try { data = JSON.parse(message.body); } catch { /* Older malformed invite: render as ended. */ }
+  const [active, setActive] = useState<boolean | null>(() => data.callId ? null : false);
+  const [joining, setJoining] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let mounted = true;
+    if (!data.callId) return;
+    api.invitedCall(data.callId).then(() => mounted && setActive(true)).catch(() => mounted && setActive(false));
+    return () => { mounted = false; };
+  }, [data.callId]);
+
+  const join = async () => {
+    if (!data.callId) return;
+    setJoining(true);
+    setError('');
+    try {
+      await joinInvitedCall(data.callId);
+    } catch (e) {
+      setActive(false);
+      setError(e instanceof Error ? e.message : t('This call has ended'));
+    } finally {
+      setJoining(false);
+    }
+  };
+
+  return (
+    <View style={{ minWidth: 230, gap: 10 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+        <View style={{ width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: mine ? 'rgba(61,38,0,0.10)' : colors.tealTint }}>
+          <Icon name="phone-call" size={20} color={mine ? colors.onAmber : colors.teal} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <T variant="labelLg" color={mine ? colors.onAmber : colors.text}>{t('Group call invitation')}</T>
+          <T variant="bodySm" color={mine ? '#72521B' : colors.textMuted} numberOfLines={1}>{data.title ?? t('Group call')}</T>
+        </View>
+      </View>
+      {active === false ? (
+        <T variant="bodySm" color={mine ? '#72521B' : colors.textMuted}>{t('This call has ended')}</T>
+      ) : (
+        <Button
+          title={active === null ? t('Checking call…') : t('Join call')}
+          icon="phone-call"
+          size="sm"
+          variant={mine ? 'ghost' : 'primary'}
+          disabled={active !== true || call.phase !== 'idle'}
+          loading={joining}
+          onPress={() => void join()}
+        />
+      )}
+      {!!error && <T variant="bodySm" color={colors.danger}>{error}</T>}
     </View>
   );
 }
@@ -545,6 +663,8 @@ function Composer({
 }) {
   const [text, setText] = useState('');
   const [emojiOpen, setEmojiOpen] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState('');
   const inputRef = useRef<TextInputInstance>(null);
   const insets = useSafeAreaInsets();
   const canSend = text.trim().length > 0;
@@ -567,6 +687,26 @@ function Composer({
   const onChange = (t: string) => {
     setText(t);
     chatStore.notifyTyping(conversation.id, t.length > 0);
+  };
+
+  const pickFile = async () => {
+    setUploadError('');
+    const picked = await DocumentPicker.getDocumentAsync({ type: '*/*', copyToCacheDirectory: true, multiple: false, base64: false });
+    if (picked.canceled) return;
+    const asset = picked.assets[0];
+    if ((asset.size ?? 0) > 100 * 1024 * 1024) {
+      setUploadError(t('Files can be up to 100 MB'));
+      return;
+    }
+    setUploading(true);
+    try {
+      await chatStore.sendFile(conversation.id, asset, replyTo);
+      onClearReply();
+    } catch (e) {
+      setUploadError(e instanceof Error ? e.message : t('Could not upload file'));
+    } finally {
+      setUploading(false);
+    }
   };
 
   const firstName = conversation.type === 'direct' ? conversation.name.split(' ')[0] : conversation.name;
@@ -622,12 +762,14 @@ function Composer({
           </T>
         </View>
       )}
+      {!!uploadError && <T variant="bodySm" color={colors.danger}>{uploadError}</T>}
       <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 10 }}>
         {!desktop && (
           <IconButton
-            name={emojiOpen ? 'x' : 'plus'}
-            label={t('More')}
-            onPress={() => setEmojiOpen((v) => !v)}
+            name="plus"
+            label={t('Upload file')}
+            onPress={() => void pickFile()}
+            disabled={uploading}
             size={52}
             iconSize={24}
             bg={colors.surface}
@@ -647,7 +789,10 @@ function Composer({
             minHeight: 52,
           }}>
           {desktop && (
-            <IconButton name="smile" label={t('Emoji')} onPress={() => setEmojiOpen((v) => !v)} color={emojiOpen ? colors.amber : colors.textMuted} />
+            <>
+              <IconButton name="paperclip" label={t('Upload file')} onPress={() => void pickFile()} disabled={uploading} color={colors.textMuted} />
+              <IconButton name="smile" label={t('Emoji')} onPress={() => setEmojiOpen((v) => !v)} color={emojiOpen ? colors.amber : colors.textMuted} />
+            </>
           )}
           <TextInput
             ref={inputRef}

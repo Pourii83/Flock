@@ -127,7 +127,8 @@ server {
     ssl_certificate     /etc/letsencrypt/live/chat.example.com/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/chat.example.com/privkey.pem;
     ssl_protocols TLSv1.2 TLSv1.3;
-    client_max_body_size 10m;
+    # Flock accepts files up to 100 MiB; leave room for multipart headers.
+    client_max_body_size 105m;
 
     location / {
         proxy_pass http://127.0.0.1:4000;

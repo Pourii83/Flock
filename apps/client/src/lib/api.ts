@@ -1,3 +1,5 @@
+import type { DocumentPickerAsset } from 'expo-document-picker';
+
 import { getApiUrl } from './config';
 import type { ActiveCall, CallLog, Conversation, Message, User } from './types';
 import { t } from '@/lib/i18n';
@@ -21,6 +23,18 @@ export const setUnauthorizedHandler = (fn: (() => void) | null) => {
   onUnauthorized = fn;
 };
 
+export const getAuthHeaders = (): Record<string, string> => (authToken ? { Authorization: `Bearer ${authToken}` } : {});
+
+async function readResponse<T>(res: Response): Promise<T> {
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    if (res.status === 401 && authToken) onUnauthorized?.();
+    // Server messages are English; translate the known ones.
+    throw new ApiError((data as any).error ? t((data as any).error) : t('Request failed ({status})', { status: res.status }), res.status);
+  }
+  return data as T;
+}
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   let res: Response;
   try {
@@ -28,20 +42,32 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
       method,
       headers: {
         'Content-Type': 'application/json',
-        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+        ...getAuthHeaders(),
       },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch {
     throw new ApiError(t("Can't reach the Flock server. Check your connection."), 0);
   }
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    if (res.status === 401 && authToken) onUnauthorized?.();
-    // Server messages are English; translate the known ones.
-    throw new ApiError(data.error ? t(data.error) : t('Request failed ({status})', { status: res.status }), res.status);
+  return readResponse<T>(res);
+}
+
+async function uploadFile(conversationId: string, asset: DocumentPickerAsset, replyToId?: string): Promise<Message> {
+  const form = new FormData();
+  const part = asset.file ?? ({ uri: asset.uri, name: asset.name, type: asset.mimeType || 'application/octet-stream' } as any);
+  form.append('file', part);
+  if (replyToId) form.append('replyToId', replyToId);
+  let res: Response;
+  try {
+    res = await fetch(`${getApiUrl()}/api/conversations/${conversationId}/files`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: form,
+    });
+  } catch {
+    throw new ApiError(t("Can't reach the Flock server. Check your connection."), 0);
   }
-  return data as T;
+  return readResponse<Message>(res);
 }
 
 type AuthResponse = { token: string; user: User };
@@ -69,6 +95,7 @@ export const api = {
   setMemberRole: (id: string, userId: string, role: 'admin' | 'member' | 'owner') =>
     request<Conversation>('PATCH', `/conversations/${id}/members/${userId}`, { role }),
   activeCalls: () => request<ActiveCall[]>('GET', '/calls/active'),
+  invitedCall: (callId: string) => request<ActiveCall>('GET', `/calls/${callId}/active`),
   createConversation: (userIds: string[], name?: string) =>
     request<Conversation>('POST', '/conversations', { userIds, name }),
   updateConversation: (id: string, patch: { pinned?: boolean; muted?: boolean }) =>
@@ -77,6 +104,7 @@ export const api = {
     request<Message[]>('GET', `/conversations/${id}/messages${before ? `?before=${before}` : ''}`),
   sendMessage: (id: string, body: string, replyToId?: string) =>
     request<Message>('POST', `/conversations/${id}/messages`, { body, replyToId }),
+  uploadFile,
   markRead: (id: string) => request<{ readAt: number }>('POST', `/conversations/${id}/read`),
   calls: () => request<CallLog[]>('GET', '/calls'),
   ice: () => request<{ iceServers: RTCIceServer[]; iceTransportPolicy?: RTCIceTransportPolicy }>('GET', '/ice'),

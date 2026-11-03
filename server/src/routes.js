@@ -2,6 +2,7 @@ import { Router } from 'express';
 import crypto from 'node:crypto';
 import { checkPassword, hashPassword, requireAuth, signToken } from './auth.js';
 import { deleteAvatar, saveAvatar } from './avatars.js';
+import { deleteStoredFile, receiveFile, safeMimeType, storedFilePath } from './files.js';
 import * as repo from './repo.js';
 
 const USERNAME_RE = /^[a-zA-Z0-9_.]{3,24}$/;
@@ -135,6 +136,49 @@ export function createRouter(realtime) {
     const message = await repo.addMessage(req.params.id, req.userId, { body, replyToId: req.body?.replyToId });
     await realtime.notifyMessage(message);
     res.status(201).json(message);
+  });
+
+  r.post('/conversations/:id/files', member, receiveFile, async (req, res) => {
+    if (!req.file) return res.status(400).json({ error: 'Choose a file to upload' });
+    const retention = Math.max(1, Number.parseInt(process.env.FILE_RETENTION_DAYS || '7', 10) || 7);
+    try {
+      const message = await repo.addMessage(req.params.id, req.userId, {
+        kind: 'file',
+        body: req.file.originalname.slice(0, 255) || 'File',
+        replyToId: req.body?.replyToId,
+        attachment: {
+          name: req.file.originalname.slice(0, 255) || 'File',
+          mimeType: safeMimeType(req.file.mimetype),
+          size: req.file.size,
+          path: req.file.filename,
+          expiresAt: Date.now() + retention * 24 * 60 * 60 * 1000,
+        },
+      });
+      await realtime.notifyMessage(message);
+      res.status(201).json(message);
+    } catch (error) {
+      await deleteStoredFile(req.file.filename);
+      throw error;
+    }
+  });
+
+  r.get('/files/:messageId', async (req, res) => {
+    const attachment = await repo.getAttachment(req.params.messageId, req.userId);
+    if (!attachment) return res.status(404).json({ error: 'File not found' });
+    if (!attachment.attachment_path || attachment.attachment_expires_at <= Date.now()) {
+      if (attachment.attachment_path) await deleteStoredFile(attachment.attachment_path);
+      return res.status(410).json({ error: 'File expired' });
+    }
+    const file = storedFilePath(attachment.attachment_path);
+    if (!file) return res.status(404).json({ error: 'File not found' });
+    res.setHeader('Content-Type', attachment.attachment_mime || 'application/octet-stream');
+    res.setHeader('Content-Length', String(attachment.attachment_size));
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    // Uploaded HTML/SVG must never run as the app's origin, even when opened directly.
+    res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
+    res.setHeader('Cache-Control', 'private, max-age=300');
+    res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(attachment.attachment_name)}`);
+    res.sendFile(file);
   });
 
   r.post('/conversations/:id/read', member, async (req, res) => {
@@ -279,6 +323,11 @@ export function createRouter(realtime) {
 
   r.get('/calls', async (req, res) => res.json(await repo.listCalls(req.userId)));
   r.get('/calls/active', async (req, res) => res.json(await realtime.activeCalls(req.userId)));
+  r.get('/calls/:callId/active', async (req, res) => {
+    const call = await realtime.invitedCall(req.userId, req.params.callId);
+    if (!call) return res.status(404).json({ error: 'Call is no longer available' });
+    res.json(call);
+  });
 
   return r;
 }

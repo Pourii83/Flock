@@ -15,8 +15,17 @@ export type Message = {
   id: string;
   conversationId: string;
   senderId: string;
-  kind: 'text' | 'system';
+  kind: 'text' | 'system' | 'file' | 'call_invite';
   body: string;
+  attachment: {
+    name: string;
+    mimeType: string;
+    size: number;
+    expiresAt: number;
+    expired: boolean;
+    /** Authenticated server-relative URL, null after expiry. */
+    url: string | null;
+  } | null;
   replyTo: { id: string; body: string; senderId: string; senderName: string } | null;
   createdAt: number;
   /** Client-only: optimistic message not yet confirmed by the server. */
@@ -52,6 +61,8 @@ export type ActiveCall = {
   video: boolean;
   startedAt: number;
   participants: string[];
+  title?: string;
+  isGroup?: boolean;
 };
 
 export type CallLog = {

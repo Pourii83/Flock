@@ -27,6 +27,7 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-flock}:${POSTGRES_PASSWORD:-flock}@db:5432/${POSTGRES_DB:-flock}
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env (see .env.example)}
       CORS_ORIGIN: ${CORS_ORIGIN:-*}
+      FILE_RETENTION_DAYS: ${FILE_RETENTION_DAYS:-7}
       TURN_URLS: ${TURN_URLS:-}
       TURN_SECRET: ${TURN_SECRET:-}
     volumes:

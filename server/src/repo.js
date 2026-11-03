@@ -50,6 +50,12 @@ export async function searchUsers(meId, q) {
   return rows.map(publicUser);
 }
 
+export async function getPublicUsers(ids) {
+  const valid = [...new Set(ids)].filter(isUuid);
+  if (!valid.length) return [];
+  return (await query('SELECT * FROM users WHERE id = ANY($1::uuid[])', [valid])).map(publicUser);
+}
+
 // ---------- conversations ----------
 
 export const memberIds = async (conversationId) =>
@@ -107,6 +113,16 @@ function serializeMessage(row) {
     senderId: row.sender_id,
     kind: row.kind,
     body: row.body,
+    attachment: row.attachment_name
+      ? {
+          name: row.attachment_name,
+          mimeType: row.attachment_mime || 'application/octet-stream',
+          size: Number(row.attachment_size || 0),
+          expiresAt: row.attachment_expires_at,
+          expired: !row.attachment_path || row.attachment_expires_at <= now(),
+          url: row.attachment_path && row.attachment_expires_at > now() ? `/api/files/${row.id}` : null,
+        }
+      : null,
     replyTo: row.reply_to_id
       ? { id: row.reply_to_id, body: row.reply_body, senderId: row.reply_sender_id, senderName: row.reply_sender_name }
       : null,
@@ -205,18 +221,64 @@ export async function listMessages(conversationId, { before, limit = 50 } = {}) 
   return rows.reverse().map(serializeMessage);
 }
 
-export async function addMessage(conversationId, senderId, { body, replyToId, kind = 'text' }) {
+export async function addMessage(conversationId, senderId, { body, replyToId, kind = 'text', attachment = null }) {
   const id = newId();
   const t = now();
   const reply =
     isUuid(replyToId) &&
     (await one('SELECT id FROM messages WHERE id = $1 AND conversation_id = $2', [replyToId, conversationId]))?.id;
   await query(
-    'INSERT INTO messages (id, conversation_id, sender_id, kind, body, reply_to_id, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7)',
-    [id, conversationId, senderId, kind, body, reply || null, t],
+    `INSERT INTO messages
+       (id, conversation_id, sender_id, kind, body, reply_to_id, created_at,
+        attachment_name, attachment_mime, attachment_size, attachment_path, attachment_expires_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+    [
+      id,
+      conversationId,
+      senderId,
+      kind,
+      body,
+      reply || null,
+      t,
+      attachment?.name ?? null,
+      attachment?.mimeType ?? null,
+      attachment?.size ?? null,
+      attachment?.path ?? null,
+      attachment?.expiresAt ?? null,
+    ],
   );
   await query('UPDATE members SET last_read_at = $3 WHERE conversation_id = $1 AND user_id = $2', [conversationId, senderId, t]);
   return serializeMessage(await one(`${MESSAGE_SELECT} WHERE m.id = $1`, [id]));
+}
+
+/** Returns an attachment only when the requesting user can read its conversation. */
+export const getAttachment = (messageId, userId) =>
+  isUuid(messageId)
+    ? one(
+        `SELECT m.attachment_name, m.attachment_mime, m.attachment_size, m.attachment_path, m.attachment_expires_at
+         FROM messages m
+         JOIN members x ON x.conversation_id = m.conversation_id AND x.user_id = $2
+         WHERE m.id = $1 AND m.attachment_name IS NOT NULL`,
+        [messageId, userId],
+      )
+    : null;
+
+/** Detaches expired files atomically; the caller removes the returned paths from disk. */
+export async function detachExpiredFiles(at = now()) {
+  const rows = await query(
+    `WITH expired AS (
+       SELECT id, attachment_path
+       FROM messages
+       WHERE attachment_path IS NOT NULL AND attachment_expires_at <= $1
+       FOR UPDATE
+     )
+     UPDATE messages m SET attachment_path = NULL
+     FROM expired e
+     WHERE m.id = e.id
+     RETURNING e.attachment_path`,
+    [at],
+  );
+  return rows.map((row) => row.attachment_path);
 }
 
 // ---------- calls ----------

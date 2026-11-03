@@ -31,6 +31,12 @@ CI=1 npx expo prebuild --platform android --no-install
 [ -f android/gradlew ] || { echo "Prebuild didn't produce android/"; exit 1; }
 printf 'sdk.dir=%s\n' "$(echo "$ANDROID_HOME" | sed 's#\\#/#g')" > android/local.properties
 
+# Upstream captures Android displays at 30 FPS. Capture at 60, then cap the RTP
+# sender to the in-call 15/30/60 FPS choice without maintaining a native fork.
+SCREEN_CAPTURE="$CLIENT/node_modules/react-native-webrtc/android/src/main/java/com/oney/WebRTCModule/ScreenCaptureController.java"
+sed -i 's/private static final int DEFAULT_FPS = 30;/private static final int DEFAULT_FPS = 60;/' "$SCREEN_CAPTURE"
+grep -q 'DEFAULT_FPS = 60' "$SCREEN_CAPTURE" || { echo "Could not enable 60 FPS screen capture"; exit 1; }
+
 # Java ignores HTTPS_PROXY: hand the proxy to Gradle (Google's Maven isn't reachable everywhere).
 PROXY_ARGS=()
 PROXY="${HTTPS_PROXY:-${https_proxy:-${HTTP_PROXY:-${http_proxy:-}}}}"

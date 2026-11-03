@@ -2,7 +2,7 @@
   "expo": {
     "name": "Flock",
     "slug": "flock",
-    "version": "1.5.1",
+    "version": "1.6.0",
     "orientation": "default",
     "icon": "./assets/images/icon.png",
     "scheme": "flock",
@@ -15,7 +15,8 @@
     },
     "android": {
       "package": "app.flock.messenger",
-      "versionCode": 10501,
+      "versionCode": 10600,
+      "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "backgroundColor": "#0B0B0B",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -30,7 +31,10 @@
         "android.permission.ACCESS_NETWORK_STATE",
         "android.permission.INTERNET",
         "android.permission.SYSTEM_ALERT_WINDOW",
-        "android.permission.BLUETOOTH"
+        "android.permission.BLUETOOTH",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION",
+        "android.permission.POST_NOTIFICATIONS"
       ],
       "predictiveBackGestureEnabled": false
     },
@@ -70,7 +74,9 @@
           "microphonePermission": "Flock uses the microphone for voice and video calls."
         }
       ],
-      "expo-localization"
+      "./plugins/with-webrtc-screen-share",
+      "expo-localization",
+      "expo-sharing"
     ],
     "experiments": {
       "typedRoutes": true,

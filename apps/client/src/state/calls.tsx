@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Platform } from 'react-native';
+import { Dimensions, PixelRatio, Platform } from 'react-native';
 
-import { callAudio, switchCamera } from '@/lib/native-media';
+import { callAudio, switchCamera, type AudioDeviceChoice } from '@/lib/native-media';
 import { api } from '@/lib/api';
 import { getNoisePreference, micConstraints, processMic, strongNoiseSupported, type NoiseMode } from '@/lib/noise';
 import { createPeer, getCameraTrack, getLocalMedia, loadIceConfig, rtcSupported } from '@/lib/rtc';
@@ -13,6 +13,9 @@ import { t } from '@/lib/i18n';
 export type CallPhase = 'idle' | 'outgoing' | 'incoming' | 'active';
 
 export type CallChatMessage = { id: string; mine: boolean; text: string; at: number; author?: string };
+export type VoiceBitrate = 160 | 320;
+export type StreamQuality = '2k' | '1080p' | '720p' | '480p';
+export type StreamFps = 60 | 30 | 15;
 
 /** Someone else in the call (one peer connection each — calls are a mesh). */
 export type CallRemote = {
@@ -59,6 +62,15 @@ export type CallState = {
   chatUnread: number;
   notice: string | null;
   reaction: { emoji: string; key: number } | null;
+  /** Sender controls, changed from the in-call quality panel. */
+  voiceBitrate: VoiceBitrate;
+  streamQuality: StreamQuality;
+  streamFps: StreamFps;
+  /** True for a non-member admitted only for the lifetime of this group call. */
+  guest: boolean;
+  audioDevices: AudioDeviceChoice[];
+  audioInputId: string;
+  audioOutputId: string;
 };
 
 const IDLE: CallState = {
@@ -87,6 +99,13 @@ const IDLE: CallState = {
   chatUnread: 0,
   notice: null,
   reaction: null,
+  voiceBitrate: 160,
+  streamQuality: '1080p',
+  streamFps: 30,
+  guest: false,
+  audioDevices: [],
+  audioInputId: 'default',
+  audioOutputId: 'default',
 };
 
 type CallApi = {
@@ -94,6 +113,9 @@ type CallApi = {
   startCall: (conversation: Conversation, video: boolean) => Promise<void>;
   /** Joins the call already running in a conversation (group calls). */
   joinCall: (conversationId: string) => Promise<void>;
+  /** Joins a group call from a private temporary invitation. */
+  joinInvitedCall: (callId: string) => Promise<void>;
+  inviteGuests: (userIds: string[]) => Promise<User[]>;
   accept: (audioOnly?: boolean) => Promise<void>;
   decline: (quickReply?: string) => void;
   hangUp: () => void;
@@ -111,6 +133,12 @@ type CallApi = {
   sendChat: (text: string) => void;
   /** Marks the in-call chat as read (panel opened). */
   readChat: () => void;
+  setVoiceBitrate: (bitrate: VoiceBitrate) => Promise<void>;
+  setStreamQuality: (quality: StreamQuality) => Promise<void>;
+  setStreamFps: (fps: StreamFps) => Promise<void>;
+  refreshAudioDevices: () => Promise<void>;
+  selectAudioInput: (deviceId: string) => Promise<void>;
+  selectAudioOutput: (deviceId: string) => Promise<void>;
   /** Bumped when the call log should refresh (a call just finished). */
   historyVersion: number;
 };
@@ -120,6 +148,13 @@ type Peer = { pc: RTCPeerConnection; pending: RTCIceCandidateInit[]; offerer: bo
 const CallContext = createContext<CallApi | null>(null);
 
 const NATIVE_NOTICE = 'Audio/video needs the installed Flock app — Expo Go only supports call signaling.';
+
+export const STREAM_PRESETS: Record<StreamQuality, { width: number; height: number; maxBitrate: number }> = {
+  '2k': { width: 2560, height: 1440, maxBitrate: 8_000_000 },
+  '1080p': { width: 1920, height: 1080, maxBitrate: 5_000_000 },
+  '720p': { width: 1280, height: 720, maxBitrate: 2_500_000 },
+  '480p': { width: 854, height: 480, maxBitrate: 1_200_000 },
+};
 
 const memberOf = (conversationId: string | null, userId: string) =>
   chatStore.state.conversations.find((c) => c.id === conversationId)?.members.find((m) => m.id === userId) ?? null;
@@ -190,6 +225,45 @@ export function CallProvider({ children }: { children: ReactNode }) {
     await Promise.all(jobs);
   }, []);
 
+  /** Applies Opus and screen-share limits without renegotiating the call. */
+  const applySenderQuality = useCallback(
+    async (overrides: Partial<Pick<CallState, 'voiceBitrate' | 'streamQuality' | 'streamFps'>> = {}) => {
+      const c = { ...callRef.current, ...overrides };
+      const screen = !!screenTrack.current;
+      const preset = STREAM_PRESETS[c.streamQuality];
+      const screenSettings = screenTrack.current?.getSettings();
+      const sourceLongEdge = Math.max(screenSettings?.width ?? 0, screenSettings?.height ?? 0);
+      const targetLongEdge = Math.max(preset.width, preset.height);
+      const jobs: Promise<void>[] = [];
+      for (const { pc } of peers.current.values()) {
+        for (const sender of pc.getSenders()) {
+          const kind = sender.track?.kind;
+          if (kind !== 'audio' && kind !== 'video') continue;
+          const params: any = sender.getParameters();
+          if (!params.encodings?.length) continue;
+          for (const encoding of params.encodings) {
+            if (kind === 'audio') encoding.maxBitrate = c.voiceBitrate * 1000;
+            if (kind === 'video') {
+              if (screen) {
+                encoding.maxBitrate = preset.maxBitrate;
+                encoding.maxFramerate = c.streamFps;
+                if (Platform.OS === 'android' && sourceLongEdge) encoding.scaleResolutionDownBy = Math.max(1, sourceLongEdge / targetLongEdge);
+                else delete encoding.scaleResolutionDownBy;
+              } else {
+                delete encoding.maxBitrate;
+                delete encoding.maxFramerate;
+                delete encoding.scaleResolutionDownBy;
+              }
+            }
+          }
+          jobs.push(sender.setParameters(params).catch(() => {}));
+        }
+      }
+      await Promise.all(jobs);
+    },
+    [],
+  );
+
   /** Stops mixing shared-screen audio and puts the plain mic back on the call. */
   const stopScreenAudio = useCallback(() => {
     const mix = screenAudio.current;
@@ -200,6 +274,23 @@ export function CallProvider({ children }: { children: ReactNode }) {
     mix.mixed.stop();
     mix.ctx.close().catch(() => {});
   }, [setSenders]);
+
+  const refreshAudioDevices = useCallback(async () => {
+    const status = await callAudio.devices();
+    setCall((current) => {
+      const inputs = status.devices.filter((device) => device.kind === 'input');
+      const outputs = status.devices.filter((device) => device.kind === 'output');
+      const keepInput = inputs.some((device) => device.id === current.audioInputId);
+      const keepOutput = outputs.some((device) => device.id === current.audioOutputId);
+      return {
+        ...current,
+        audioDevices: status.devices,
+        audioInputId: Platform.OS === 'web' && keepInput ? current.audioInputId : status.selectedInputId,
+        audioOutputId: Platform.OS === 'web' && keepOutput ? current.audioOutputId : status.selectedOutputId,
+        speakerOn: (Platform.OS === 'web' && keepOutput ? current.audioOutputId : status.selectedOutputId) === 'SPEAKER_PHONE',
+      };
+    });
+  }, [setCall]);
 
   const cleanup = useCallback(() => {
     for (const { pc } of peers.current.values()) pc.close();
@@ -238,8 +329,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
   const syncVideoSender = useCallback(async () => {
     await setSenders('video', outgoingVideo());
+    await applySenderQuality();
     announceMedia();
-  }, [setSenders, outgoingVideo, announceMedia]);
+  }, [setSenders, outgoingVideo, applySenderQuality, announceMedia]);
 
   /** Opens mic (and camera for video calls) once per call; false when media is unavailable. */
   const prepareMedia = useCallback(
@@ -326,9 +418,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
       }
       const offer = await entry.pc.createOffer();
       await entry.pc.setLocalDescription(offer);
+      await applySenderQuality();
       signal({ type: 'offer', sdp: offer.sdp }, userId);
     },
-    [makePeer, signal, upsertRemote],
+    [makePeer, signal, upsertRemote, applySenderQuality],
   );
 
   /** Becomes a participant: the server answers with who is already in, and we connect to each. */
@@ -340,11 +433,16 @@ export function CallProvider({ children }: { children: ReactNode }) {
           return;
         }
         if (callRef.current.callId !== callId) return;
-        patch({ isGroup: !!res.isGroup });
+        patch({
+          isGroup: !!res.isGroup,
+          conversationId: res.conversationId ?? callRef.current.conversationId,
+          title: res.title ?? callRef.current.title,
+          guest: !!res.guest,
+        });
         const ready = await mediaReady.current;
-        for (const uid of (res.participants ?? []) as string[]) {
-          if (!ready) upsertRemote(uid);
-          else await offerTo(uid).catch((e) => console.warn('[flock] offer failed', e));
+        for (const participant of (res.participants ?? []) as User[]) {
+          upsertRemote(participant.id, { user: participant });
+          if (ready) await offerTo(participant.id).catch((e) => console.warn('[flock] offer failed', e));
         }
       });
     },
@@ -358,7 +456,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
         return;
       }
       if (data?.type === 'chat' && typeof data.text === 'string') {
-        const author = callRef.current.isGroup ? memberOf(callRef.current.conversationId, from)?.displayName : undefined;
+        const author = callRef.current.isGroup
+          ? memberOf(callRef.current.conversationId, from)?.displayName ?? callRef.current.remotes.find((r) => r.userId === from)?.user?.displayName
+          : undefined;
         const msg: CallChatMessage = { id: String(data.id ?? Date.now()), mine: false, text: data.text.slice(0, 2000), at: Date.now(), author };
         setCall((c) => ({ ...c, chat: [...c.chat, msg], chatUnread: c.chatUnread + 1 }));
         return;
@@ -385,6 +485,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
         entry.pending = [];
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
+        await applySenderQuality();
         signal({ type: 'answer', sdp: answer.sdp }, from);
         announceMedia(from);
         return;
@@ -401,7 +502,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
         else entry.pending.push(data.candidate);
       }
     },
-    [patch, setCall, upsertRemote, makePeer, outgoingAudio, outgoingVideo, signal, announceMedia],
+    [patch, setCall, upsertRemote, makePeer, outgoingAudio, outgoingVideo, signal, announceMedia, applySenderQuality],
   );
 
   // ---------- socket events ----------
@@ -444,11 +545,11 @@ export function CallProvider({ children }: { children: ReactNode }) {
       toActive();
     };
 
-    const onJoined = ({ callId, userId }: { callId: string; userId: string }) => {
+    const onJoined = ({ callId, userId, user: joinedUser }: { callId: string; userId: string; user?: User }) => {
       if (callRef.current.callId !== callId || userId === user.id) return;
       // Re-joined from another device: the old connection is dead, the new device will offer.
       if (peers.current.has(userId)) closePeer(userId);
-      upsertRemote(userId);
+      upsertRemote(userId, { user: joinedUser ?? memberOf(callRef.current.conversationId, userId) });
       toActive();
     };
 
@@ -530,6 +631,14 @@ export function CallProvider({ children }: { children: ReactNode }) {
     return () => clearInterval(id);
   }, [call.phase, patch]);
 
+  // Keep the in-call picker synchronized when a headset, AirPods, USB mic or
+  // browser audio device is connected/disconnected.
+  useEffect(() => {
+    if (call.phase !== 'active') return;
+    void refreshAudioDevices();
+    return callAudio.watchDevices(() => void refreshAudioDevices());
+  }, [call.phase, refreshAudioDevices]);
+
   // Closing/reloading the tab ends the call right away (the server also ends it when the socket drops).
   useEffect(() => {
     if (Platform.OS !== 'web' || typeof window === 'undefined') return;
@@ -556,6 +665,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       acceptedHere.current = true;
       const video = c.video && !audioOnly;
       patch({ phase: 'active', answeredAt: Date.now(), video, speakerOn: video });
+      await callAudio.prepare();
       callAudio.start(video);
       mediaReady.current = prepareMedia(video);
       await mediaReady.current;
@@ -585,6 +695,36 @@ export function CallProvider({ children }: { children: ReactNode }) {
     [setCall, accept, user],
   );
 
+  const joinInvitedCall = useCallback(
+    async (callId: string) => {
+      if (callRef.current.phase !== 'idle') return;
+      const running = await api.invitedCall(callId);
+      setCall({
+        ...IDLE,
+        phase: 'incoming',
+        callId,
+        conversationId: running.conversationId,
+        isGroup: true,
+        video: running.video,
+        title: running.title ?? t('Group call'),
+        guest: true,
+      });
+      await accept(true);
+    },
+    [accept, setCall],
+  );
+
+  const inviteGuests = useCallback(async (userIds: string[]) => {
+    const callId = callRef.current.callId;
+    if (!callId || !chatStore.socket || !userIds.length) return [];
+    return new Promise<User[]>((resolve, reject) => {
+      chatStore.socket?.emit('call:invite-guests', { callId, userIds }, (res: any) => {
+        if (!res?.ok) reject(new Error(t(res?.error || 'Could not send invitation')));
+        else resolve((res.invited ?? []) as User[]);
+      });
+    });
+  }, []);
+
   const startCall = useCallback(
     async (conversation: Conversation, video: boolean) => {
       if (callRef.current.phase !== 'idle' || !chatStore.socket) return;
@@ -592,6 +732,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       const isGroup = conversation.type === 'group';
       const peer = isGroup ? null : (conversation.members.find((m) => m.id !== user?.id) ?? null);
       setCall({ ...IDLE, phase: 'outgoing', conversationId: conversation.id, isGroup, video, peer, title: conversation.name, speakerOn: video });
+      await callAudio.prepare();
       callAudio.start(video);
       callAudio.startRingback();
       mediaReady.current = prepareMedia(video);
@@ -631,16 +772,18 @@ export function CallProvider({ children }: { children: ReactNode }) {
     cleanup();
   }, [cleanup]);
 
-  const setNoiseMode = useCallback(
-    async (mode: NoiseMode) => {
+  const replaceMicrophone = useCallback(
+    async (mode: NoiseMode, deviceId = callRef.current.audioInputId) => {
       const c = callRef.current;
       if (mode === 'strong' && !strongNoiseSupported()) mode = 'standard';
       if (!c.localStream) return;
       let raw: MediaStreamTrack;
       try {
-        raw = (await navigator.mediaDevices.getUserMedia({ audio: micConstraints(mode) })).getAudioTracks()[0]!;
+        const base = micConstraints(mode);
+        const constraints = Platform.OS === 'web' && deviceId && deviceId !== 'default' ? { ...base, deviceId: { exact: deviceId } } : base;
+        raw = (await navigator.mediaDevices.getUserMedia({ audio: constraints })).getAudioTracks()[0]!;
       } catch {
-        patch({ notice: t('Microphone access was blocked') });
+        patch({ notice: t('The selected microphone is unavailable') });
         return;
       }
       const chain = await processMic(raw, mode);
@@ -662,9 +805,36 @@ export function CallProvider({ children }: { children: ReactNode }) {
       c.localStream.addTrack(chain.track);
       micDispose.current?.();
       micDispose.current = chain.dispose;
-      setCall((s) => ({ ...s, noiseMode: applied, mediaVersion: s.mediaVersion + 1 }));
+      setCall((s) => ({ ...s, noiseMode: applied, audioInputId: deviceId || 'default', notice: null, mediaVersion: s.mediaVersion + 1 }));
     },
     [patch, setCall, setSenders],
+  );
+
+  const setNoiseMode = useCallback((mode: NoiseMode) => replaceMicrophone(mode), [replaceMicrophone]);
+
+  const selectAudioInput = useCallback(
+    async (deviceId: string) => {
+      if (Platform.OS === 'web') {
+        await replaceMicrophone(callRef.current.noiseMode, deviceId);
+        await refreshAudioDevices();
+        return;
+      }
+      await callAudio.selectRoute(deviceId);
+      await refreshAudioDevices();
+    },
+    [refreshAudioDevices, replaceMicrophone],
+  );
+
+  const selectAudioOutput = useCallback(
+    async (deviceId: string) => {
+      if (Platform.OS === 'web') {
+        patch({ audioOutputId: deviceId });
+        return;
+      }
+      await callAudio.selectRoute(deviceId);
+      await refreshAudioDevices();
+    },
+    [patch, refreshAudioDevices],
   );
 
   const toggleMic = useCallback(() => {
@@ -697,10 +867,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
       cameraTrack.current = cam;
       c.localStream.addTrack(cam);
       setCall((s) => ({ ...s, cameraOff: false, frontCamera: true, notice: null, mediaVersion: s.mediaVersion + 1 }));
-      if (!c.speakerOn) {
-        callAudio.setSpeaker(true);
-        patch({ speakerOn: true });
-      }
       await syncVideoSender();
     } catch (e: any) {
       patch({ notice: e.message });
@@ -719,17 +885,36 @@ export function CallProvider({ children }: { children: ReactNode }) {
       return;
     }
     try {
-      // Asking for audio makes the browser offer "Share tab/system audio" in its own picker (like Google Meet).
-      const display: MediaStream = await (navigator.mediaDevices as any).getDisplayMedia({
-        video: true,
-        // restrictOwnAudio keeps Flock's own playback (the other callers' voices) out of captured
-        // system audio — otherwise they hear themselves echoed back.
-        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, restrictOwnAudio: true },
-        systemAudio: 'include',
-        selfBrowserSurface: 'exclude',
-        surfaceSwitching: 'include',
-      });
+      const preset = STREAM_PRESETS[callRef.current.streamQuality];
+      const fps = callRef.current.streamFps;
+      let display: MediaStream;
+      if (Platform.OS === 'android') {
+        const screen = Dimensions.get('screen');
+        const physicalLongEdge = Math.max(screen.width, screen.height) * PixelRatio.get();
+        // Capture up to 2K once; sender scaling applies the live 1080p/720p/480p choice
+        // without showing Android's MediaProjection permission dialog again.
+        const resolutionScale = Math.min(1, Math.max(STREAM_PRESETS['2k'].width, STREAM_PRESETS['2k'].height) / physicalLongEdge);
+        display = await (navigator.mediaDevices as any).getDisplayMedia({
+          android: { createConfigForDefaultDisplay: true, resolutionScale },
+        });
+      } else {
+        // Asking for audio makes the browser offer "Share tab/system audio" in its own picker (like Google Meet).
+        display = await (navigator.mediaDevices as any).getDisplayMedia({
+          video: {
+            width: { ideal: preset.width, max: preset.width },
+            height: { ideal: preset.height, max: preset.height },
+            frameRate: { ideal: fps, max: fps },
+          },
+          // restrictOwnAudio keeps Flock's own playback (the other callers' voices) out of captured
+          // system audio — otherwise they hear themselves echoed back.
+          audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, restrictOwnAudio: true },
+          systemAudio: 'include',
+          selfBrowserSurface: 'exclude',
+          surfaceSwitching: 'include',
+        });
+      }
       const track = display.getVideoTracks()[0]!;
+      if ('contentHint' in track) track.contentHint = 'detail';
       screenTrack.current = track;
       // The browser's own "Stop sharing" button ends the track.
       track.onended = () => {
@@ -741,7 +926,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       };
 
       // Mix the shared audio with the mic into the existing audio senders — no renegotiation.
-      let shared: MediaStreamTrack | undefined = display.getAudioTracks()[0];
+      let shared: MediaStreamTrack | undefined = Platform.OS === 'web' ? display.getAudioTracks()[0] : undefined;
       let notice: string | null = null;
       const surface = (track.getSettings() as { displaySurface?: string }).displaySurface;
       const ownAudioExcluded = (shared?.getSettings() as { restrictOwnAudio?: boolean } | undefined)?.restrictOwnAudio === true;
@@ -772,11 +957,43 @@ export function CallProvider({ children }: { children: ReactNode }) {
     }
   }, [patch, syncVideoSender, setSenders, stopScreenAudio]);
 
+  const setVoiceBitrate = useCallback(
+    async (voiceBitrate: VoiceBitrate) => {
+      patch({ voiceBitrate });
+      await applySenderQuality({ voiceBitrate });
+    },
+    [applySenderQuality, patch],
+  );
+
+  const setStreamQuality = useCallback(
+    async (streamQuality: StreamQuality) => {
+      patch({ streamQuality });
+      const track = screenTrack.current;
+      if (Platform.OS === 'web' && track) {
+        const preset = STREAM_PRESETS[streamQuality];
+        await track
+          .applyConstraints({ width: { ideal: preset.width, max: preset.width }, height: { ideal: preset.height, max: preset.height } })
+          .catch(() => {});
+      }
+      await applySenderQuality({ streamQuality });
+    },
+    [applySenderQuality, patch],
+  );
+
+  const setStreamFps = useCallback(
+    async (streamFps: StreamFps) => {
+      patch({ streamFps });
+      if (Platform.OS === 'web' && screenTrack.current) {
+        await screenTrack.current.applyConstraints({ frameRate: { ideal: streamFps, max: streamFps } }).catch(() => {});
+      }
+      await applySenderQuality({ streamFps });
+    },
+    [applySenderQuality, patch],
+  );
+
   const toggleSpeaker = useCallback(() => {
-    const on = !callRef.current.speakerOn;
-    callAudio.setSpeaker(on);
-    patch({ speakerOn: on });
-  }, [patch]);
+    void selectAudioOutput(callRef.current.speakerOn ? 'AUTOMATIC' : 'SPEAKER_PHONE');
+  }, [selectAudioOutput]);
 
   const flipCamera = useCallback(() => {
     if (Platform.OS === 'web') return;
@@ -813,6 +1030,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
       call,
       startCall,
       joinCall,
+      joinInvitedCall,
+      inviteGuests,
       accept,
       decline,
       hangUp,
@@ -826,9 +1045,41 @@ export function CallProvider({ children }: { children: ReactNode }) {
       sendReaction,
       sendChat,
       readChat,
+      setVoiceBitrate,
+      setStreamQuality,
+      setStreamFps,
+      refreshAudioDevices,
+      selectAudioInput,
+      selectAudioOutput,
       historyVersion,
     }),
-    [call, startCall, joinCall, accept, decline, hangUp, toggleMic, toggleCamera, toggleScreenShare, toggleSpeaker, setNoiseMode, flipCamera, setMinimized, sendReaction, sendChat, readChat, historyVersion],
+    [
+      call,
+      startCall,
+      joinCall,
+      joinInvitedCall,
+      inviteGuests,
+      accept,
+      decline,
+      hangUp,
+      toggleMic,
+      toggleCamera,
+      toggleScreenShare,
+      toggleSpeaker,
+      setNoiseMode,
+      flipCamera,
+      setMinimized,
+      sendReaction,
+      sendChat,
+      readChat,
+      setVoiceBitrate,
+      setStreamQuality,
+      setStreamFps,
+      refreshAudioDevices,
+      selectAudioInput,
+      selectAudioOutput,
+      historyVersion,
+    ],
   );
 
   return <CallContext.Provider value={value}>{children}</CallContext.Provider>;

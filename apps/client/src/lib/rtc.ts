@@ -14,9 +14,9 @@ export const rtcSupported = () => {
   );
 };
 
-// Native screen capture needs a foreground MediaProjection service; web/desktop only for now.
+// Android uses react-native-webrtc's foreground MediaProjection service; iOS needs a broadcast extension.
 export const screenShareSupported = () =>
-  Platform.OS === 'web' && !!(globalThis as any).navigator?.mediaDevices?.getDisplayMedia;
+  (Platform.OS === 'web' || Platform.OS === 'android') && !!(globalThis as any).navigator?.mediaDevices?.getDisplayMedia;
 
 const FALLBACK_ICE: RTCConfiguration = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 

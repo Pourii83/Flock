@@ -13,8 +13,8 @@ export function createRealtime(httpServer, corsOrigin) {
    * Live calls. A call is a mesh: every participant connects to every other one.
    * Direct calls end when either side leaves; group calls stay open while anyone is in them,
    * and members can join late.
-   * callId -> { conversationId, isGroup, video, startedAt, participants: Map<userId, socketId>,
-   *             ringing: Set<userId>, timer }
+   * callId -> { conversationId, isGroup, title, video, startedAt,
+   *             participants: Map<userId, socketId>, invited: Set<userId>, ringing: Set<userId>, timer }
    */
   const live = new Map();
 
@@ -42,6 +42,11 @@ export function createRealtime(httpServer, corsOrigin) {
     participants: [...c.participants.keys()],
   });
 
+  async function toCallAudience(c, event, payload) {
+    await toMembers(c.conversationId, event, payload);
+    for (const uid of c.invited) io.to(userRoom(uid)).emit(event, payload);
+  }
+
   /** Tells every member which call (if any) is running in the conversation — drives "Join call". */
   const publishState = (callId, c) => toMembers(c.conversationId, 'call:state', callState(callId, c));
 
@@ -54,7 +59,7 @@ export function createRealtime(httpServer, corsOrigin) {
     if (!row || (row.status !== 'ringing' && row.status !== 'active')) return;
     const finalStatus = row.status === 'active' ? 'completed' : status;
     await repo.setCallStatus(callId, finalStatus);
-    await toMembers(c.conversationId, 'call:ended', { callId, status: finalStatus, by: actorId });
+    await toCallAudience(c, 'call:ended', { callId, status: finalStatus, by: actorId });
     await toMembers(c.conversationId, 'call:state', { conversationId: c.conversationId, callId: null, participants: [] });
   }
 
@@ -113,9 +118,11 @@ export function createRealtime(httpServer, corsOrigin) {
         const c = {
           conversationId,
           isGroup: conversation.type === 'group',
+          title: conversation.name,
           video: !!video,
           startedAt: Date.now(),
           participants: new Map([[me, socket.id]]),
+          invited: new Set(),
           ringing: new Set(others),
           timer: null,
         };
@@ -146,12 +153,40 @@ export function createRealtime(httpServer, corsOrigin) {
       }),
     );
 
+    // Invite non-members through a private conversation. Access exists only in this live call.
+    socket.on(
+      'call:invite-guests',
+      guard(async ({ callId, userIds }) => {
+        const c = live.get(callId);
+        if (!c?.isGroup || c.participants.get(me) !== socket.id) throw new Error('not in this group call');
+        const groupMembers = new Set(await repo.memberIds(c.conversationId));
+        const candidates = (await repo.getPublicUsers(Array.isArray(userIds) ? userIds : [])).filter(
+          (target) => target.id !== me && !groupMembers.has(target.id) && !c.participants.has(target.id) && !c.invited.has(target.id),
+        );
+        const inviter = repo.publicUser(await repo.getUserRow(me));
+        for (const target of candidates) {
+          c.invited.add(target.id);
+          const { id: directId, created } = await repo.createConversation(me, [target.id]);
+          if (created) {
+            for (const uid of [me, target.id]) io.to(userRoom(uid)).emit('conversation:new', await repo.getConversation(directId, uid));
+          }
+          const message = await repo.addMessage(directId, me, {
+            kind: 'call_invite',
+            body: JSON.stringify({ callId, title: c.title, inviter: inviter.displayName }),
+          });
+          await toMembers(directId, 'message:new', message);
+        }
+        return { invited: candidates };
+      }),
+    );
+
     // Answer a ringing call, or join a group call that is already running.
     socket.on(
       'call:accept',
       guard(async ({ callId }) => {
         const c = live.get(callId);
-        if (!c || !(await repo.isMember(c.conversationId, me))) throw new Error('call is no longer available');
+        const member = c && (await repo.isMember(c.conversationId, me));
+        if (!c || (!member && !c.invited.has(me))) throw new Error('call is no longer available');
         if (!c.isGroup && c.participants.size >= 2 && !c.participants.has(me)) throw new Error('call is no longer available');
         // Already in it from another device: that device hangs up.
         const previous = c.participants.get(me);
@@ -165,12 +200,21 @@ export function createRealtime(httpServer, corsOrigin) {
         }
         await toMembers(c.conversationId, 'call:accepted', { callId, by: me, socketId: socket.id });
         if (previous && previous !== socket.id) io.to(previous).emit('call:ended', { callId, status: 'moved', by: me });
+        const joinedUser = repo.publicUser(await repo.getUserRow(me));
         for (const [uid, sid] of c.participants) {
-          if (uid !== me) io.to(sid).emit('call:participant-joined', { callId, userId: me });
+          if (uid !== me) io.to(sid).emit('call:participant-joined', { callId, userId: me, user: joinedUser });
         }
         await publishState(callId, c);
         // The newcomer opens a connection to everyone already in the call.
-        return { participants: [...c.participants.keys()].filter((id) => id !== me), video: c.video, isGroup: c.isGroup };
+        const participantIds = [...c.participants.keys()].filter((id) => id !== me);
+        return {
+          participants: await repo.getPublicUsers(participantIds),
+          video: c.video,
+          isGroup: c.isGroup,
+          conversationId: c.conversationId,
+          title: c.title,
+          guest: !member,
+        };
       }),
     );
 
@@ -228,6 +272,11 @@ export function createRealtime(httpServer, corsOrigin) {
         if (await repo.isMember(c.conversationId, userId)) out.push(callState(callId, c));
       }
       return out;
+    },
+    async invitedCall(userId, callId) {
+      const c = live.get(callId);
+      if (!c || (!c.invited.has(userId) && !(await repo.isMember(c.conversationId, userId)))) return null;
+      return { ...callState(callId, c), title: c.title, isGroup: c.isGroup };
     },
     async notifyMessage(message) {
       await toMembers(message.conversationId, 'message:new', message);

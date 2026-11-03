@@ -1,0 +1,42 @@
+import crypto from 'node:crypto';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import multer from 'multer';
+
+import { UPLOAD_DIR } from './avatars.js';
+
+export const FILE_DIR = path.join(UPLOAD_DIR, 'files');
+export const MAX_FILE_BYTES = 100 * 1024 * 1024;
+export const safeMimeType = (value) => (/^[a-z0-9][a-z0-9.+-]*\/[a-z0-9][a-z0-9.+-]*$/i.test(String(value || '')) ? value : 'application/octet-stream');
+
+await fs.mkdir(FILE_DIR, { recursive: true });
+
+const safeExtension = (name) => {
+  const ext = path.extname(String(name || '')).toLowerCase();
+  return /^\.[a-z0-9]{1,12}$/.test(ext) ? ext : '';
+};
+
+const storage = multer.diskStorage({
+  destination: (_req, _file, done) => done(null, FILE_DIR),
+  // Keep the original bytes, but never trust a client-provided path or file name on disk.
+  filename: (_req, file, done) => done(null, `${crypto.randomUUID()}${safeExtension(file.originalname)}`),
+});
+
+const upload = multer({ storage, limits: { fileSize: MAX_FILE_BYTES, files: 1 } }).single('file');
+
+/** Multer middleware with stable user-facing errors for size and malformed uploads. */
+export function receiveFile(req, res, next) {
+  upload(req, res, (error) => {
+    if (!error) return next();
+    const tooLarge = error.code === 'LIMIT_FILE_SIZE';
+    res.status(tooLarge ? 413 : 400).json({ error: tooLarge ? 'File is too large (max 100 MB)' : 'File upload failed' });
+  });
+}
+
+export async function deleteStoredFile(file) {
+  if (!file || path.basename(file) !== file) return;
+  await fs.rm(path.join(FILE_DIR, file), { force: true });
+}
+
+export const storedFilePath = (file) => (file && path.basename(file) === file ? path.join(FILE_DIR, file) : null);
+

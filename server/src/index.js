@@ -5,8 +5,10 @@ import http from 'node:http';
 import path from 'node:path';
 import { AVATAR_DIR } from './avatars.js';
 import { migrate, pool } from './db.js';
+import { deleteStoredFile } from './files.js';
 import { createRealtime } from './realtime.js';
 import { createRouter } from './routes.js';
+import * as repo from './repo.js';
 
 const PORT = Number(process.env.PORT || 4000);
 const HOST = process.env.HOST || '0.0.0.0';
@@ -31,6 +33,14 @@ const server = http.createServer(app);
 const realtime = createRealtime(server, CORS_ORIGIN);
 
 app.use('/api', createRouter(realtime));
+
+// Expired attachment bytes are removed, while their chat messages remain as history.
+const cleanExpiredFiles = async () => {
+  for (const file of await repo.detachExpiredFiles()) await deleteStoredFile(file);
+};
+await cleanExpiredFiles();
+const cleanupTimer = setInterval(() => cleanExpiredFiles().catch(console.error), 60 * 60 * 1000);
+cleanupTimer.unref();
 
 if (WEB_DIR && fs.existsSync(path.join(WEB_DIR, 'index.html'))) {
   app.use(
@@ -60,6 +70,7 @@ app.use((err, _req, res, _next) => {
 server.listen(PORT, HOST, () => console.log(`[flock] server listening on ${HOST}:${PORT}`));
 
 const shutdown = () => {
+  clearInterval(cleanupTimer);
   server.close();
   realtime.io.close();
   pool.end().finally(() => process.exit(0));

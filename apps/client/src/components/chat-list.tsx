@@ -25,7 +25,7 @@ function useFilteredConversations(query: string, filter: Filter) {
       return (
         c.name.toLowerCase().includes(q) ||
         c.members.some((m) => m.username.toLowerCase().includes(q)) ||
-        c.lastMessage?.body.toLowerCase().includes(q)
+        (c.lastMessage?.kind === 'file' ? c.lastMessage.attachment?.name : c.lastMessage?.kind === 'text' ? c.lastMessage.body : '')?.toLowerCase().includes(q)
       );
     });
   }, [conversations, query, filter]);
@@ -51,6 +51,7 @@ function Preview({ c, meId, typing }: { c: Conversation; meId?: string; typing: 
         {systemText(m.body)}
       </T>
     );
+  const preview = m.kind === 'file' ? t('File: {name}', { name: m.attachment?.name ?? t('File') }) : m.kind === 'call_invite' ? t('Group call invitation') : m.body;
   const mine = m.senderId === meId;
   const read = mine && c.othersReadAt >= m.createdAt;
   const sender = c.type === 'group' && !mine ? `${c.members.find((u) => u.id === m.senderId)?.displayName.split(' ')[0]}: ` : '';
@@ -59,7 +60,7 @@ function Preview({ c, meId, typing }: { c: Conversation; meId?: string; typing: 
       {mine && <Icon name={read ? 'check-circle' : 'check'} size={14} color={read ? colors.teal : colors.textMuted} />}
       <T variant="body" color={c.unreadCount ? colors.text : colors.textMuted} numberOfLines={1} style={{ flex: 1, fontSize: 15 }}>
         {sender}
-        {m.body}
+        {preview}
       </T>
     </View>
   );

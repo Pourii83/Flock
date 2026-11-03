@@ -211,6 +211,7 @@ DATABASE_URL=$DB_URL
 JWT_SECRET=$(random 64)
 WEB_DIR=$PREFIX/web
 CORS_ORIGIN=*
+FILE_RETENTION_DAYS=7
 CONF
   chown root:flock "$ENV_FILE"
   chmod 640 "$ENV_FILE"
@@ -248,7 +249,8 @@ server {
     listen 80;
     listen [::]:80;
     server_name $DOMAIN;
-    client_max_body_size 10m;
+    # The app accepts files up to 100 MiB; leave room for multipart headers.
+    client_max_body_size 105m;
 
     location / {
         proxy_pass http://127.0.0.1:$PORT;

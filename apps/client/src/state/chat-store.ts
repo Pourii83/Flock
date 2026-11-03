@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import { io, type Socket } from 'socket.io-client';
+import type { DocumentPickerAsset } from 'expo-document-picker';
 
 import { api } from '@/lib/api';
 import { getApiUrl } from '@/lib/config';
@@ -238,6 +239,7 @@ class ChatStore {
       senderId: me.id,
       kind: 'text',
       body,
+      attachment: null,
       replyTo: replyTo
         ? {
             id: replyTo.id,
@@ -264,6 +266,13 @@ class ChatStore {
     } catch {
       replace((list) => list.map((x) => (x.id === tempId ? { ...x, pending: false, failed: true } : x)));
     }
+  }
+
+  async sendFile(conversationId: string, asset: DocumentPickerAsset, replyTo?: Message | null) {
+    const saved = await api.uploadFile(conversationId, asset, replyTo?.id);
+    // Socket delivery and the HTTP response can race; receiveMessage de-duplicates by id.
+    this.receiveMessage(saved);
+    return saved;
   }
 
   async retry(m: Message) {

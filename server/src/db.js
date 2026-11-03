@@ -74,6 +74,15 @@ export async function migrate() {
     ALTER TABLE conversations ADD COLUMN IF NOT EXISTS description TEXT NOT NULL DEFAULT '';
     ALTER TABLE conversations ADD COLUMN IF NOT EXISTS avatar_path TEXT;
     ALTER TABLE members ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'member';
+
+    -- Original, temporary chat attachments. The message remains after the bytes expire.
+    ALTER TABLE messages ADD COLUMN IF NOT EXISTS attachment_name TEXT;
+    ALTER TABLE messages ADD COLUMN IF NOT EXISTS attachment_mime TEXT;
+    ALTER TABLE messages ADD COLUMN IF NOT EXISTS attachment_size BIGINT;
+    ALTER TABLE messages ADD COLUMN IF NOT EXISTS attachment_path TEXT;
+    ALTER TABLE messages ADD COLUMN IF NOT EXISTS attachment_expires_at BIGINT;
+    CREATE INDEX IF NOT EXISTS messages_attachment_expiry
+      ON messages (attachment_expires_at) WHERE attachment_path IS NOT NULL;
     -- Existing groups: the creator (or, if they left, the earliest member) becomes the owner.
     UPDATE members m SET role = 'owner'
     FROM (
