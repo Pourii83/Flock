@@ -43,10 +43,13 @@ function configurePermissions() {
     callback(trusted(details.requestingUrl || wc.getURL()) && allowed.includes(permission));
   });
   ses.setPermissionCheckHandler((wc, permission, origin) => trusted(origin) && ['media', 'notifications'].includes(permission));
-  // getDisplayMedia(): share the primary screen.
-  ses.setDisplayMediaRequestHandler(async (_request, callback) => {
+  // getDisplayMedia(): share the primary screen, plus system audio when the call asks for it
+  // (loopback capture is supported on Windows; elsewhere the share is video-only).
+  ses.setDisplayMediaRequestHandler(async (request, callback) => {
     const sources = await desktopCapturer.getSources({ types: ['screen'] });
-    callback(sources[0] ? { video: sources[0] } : {});
+    if (!sources[0]) return callback({});
+    const withAudio = request.audioRequested && process.platform === 'win32';
+    callback(withAudio ? { video: sources[0], audio: 'loopback' } : { video: sources[0] });
   });
 }
 

@@ -1,14 +1,21 @@
-// Web/Electron: the browser already provides WebRTC and handles audio routing,
-// so these are no-ops. The native implementation lives in native-media.native.ts.
+// Web/Electron: the browser provides WebRTC and audio routing; call tones come from Web Audio.
+// The native implementation lives in native-media.native.ts.
+import { startRingback, startRingtone, stopTones } from './ringer';
 
 export const initNativeWebRTC = () => false;
 
 export const callAudio = {
-  start(_video: boolean) {},
-  stop() {},
+  start(_video: boolean) {
+    stopTones();
+  },
+  stop() {
+    stopTones();
+  },
   setSpeaker(_on: boolean) {},
-  startRingtone() {},
-  stopRingtone() {},
+  startRingtone,
+  stopRingtone: stopTones,
+  startRingback,
+  stopRingback: stopTones,
 };
 
 export const canSwitchCamera = false;

@@ -9,7 +9,8 @@ import { screenShareSupported } from '@/lib/rtc';
 import { useCalls } from '@/state/calls';
 import { colors, radius } from '@/theme';
 import { Avatar } from './avatar';
-import { Icon, T, type IconName } from './ui';
+import { Icon, T, type IconName, UnreadBadge } from './ui';
+import { CallChatPanel } from './call-chat';
 import { RemoteAudio } from './remote-audio';
 import { VideoView } from './video-view';
 import { t } from '@/lib/i18n';
@@ -231,6 +232,15 @@ function useElapsed(since: number | null) {
 /** Stitch "Active Video Call": full-bleed remote, PiP self view, glass control dock. */
 function ActiveCall() {
   const { call, hangUp, toggleMic, toggleCamera, toggleScreenShare, toggleSpeaker, flipCamera, sendReaction } = useCalls();
+  // Tap the stage to hide the controls (less visual noise), tap again to bring them back.
+  const [controlsHidden, setControlsHidden] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
+  // Plain opacity (+ a CSS fade on web); Animated's JS driver doesn't apply reliably on web here.
+  const chrome = {
+    opacity: controlsHidden ? 0 : 1,
+    ...(Platform.OS === 'web' ? ({ transitionProperty: 'opacity', transitionDuration: '220ms' } as object) : {}),
+  };
+  const chromePointer = controlsHidden ? 'none' : 'box-none';
   const elapsed = useElapsed(call.answeredAt);
   // The other side announces when its video slot carries camera or screen.
   const remoteHasVideo = call.remoteVideo && !!call.remoteStream?.getVideoTracks().length;
@@ -248,8 +258,12 @@ function ActiveCall() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.canvas }}>
-      {/* Remote stage */}
-      <View style={StyleSheet.absoluteFill}>
+      {/* Remote stage — tap toggles the controls */}
+      <Pressable
+        style={StyleSheet.absoluteFill}
+        onPress={() => setControlsHidden((h) => !h)}
+        accessibilityLabel={t('Show or hide controls')}
+        {...(Platform.OS === 'web' ? { tabIndex: -1 } : {})}>
         {remoteHasVideo ? (
           <VideoView key={`remote-${call.mediaVersion}`} stream={call.remoteStream} contain={call.remoteScreen} />
         ) : (
@@ -262,14 +276,14 @@ function ActiveCall() {
             </T>
           </View>
         )}
-      </View>
+      </Pressable>
       {/* One persistent audio output for the whole call (web); video views are muted. */}
       <RemoteAudio stream={call.remoteStream} version={call.mediaVersion} />
 
       <SafeAreaView style={{ flex: 1, justifyContent: 'space-between' }} pointerEvents="box-none">
         {/* Top status */}
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', padding: 16 }} pointerEvents="box-none">
-          <View style={{ gap: 8 }}>
+          <View style={[{ gap: 8 }, chrome]} pointerEvents={chromePointer}>
             <View style={[styles.glass, { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingVertical: 8 }]}>
               <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: colors.amber }} />
               <T variant="labelLg" style={{ fontSize: 16, fontVariant: ['tabular-nums'] }}>
@@ -309,7 +323,7 @@ function ActiveCall() {
                 overlay
               />
               <T variant="label" style={{ position: 'absolute', start: 10, bottom: 8 }}>
-                {call.sharingScreen ? t('Your screen') : t('You')}
+                {call.sharingScreen ? (call.sharingAudio ? t('Your screen + audio') : t('Your screen')) : t('You')}
               </T>
             </View>
           )}
@@ -332,7 +346,7 @@ function ActiveCall() {
         )}
 
         {/* Bottom controls */}
-        <View style={{ padding: 16, gap: 12, alignItems: 'center' }}>
+        <View style={[{ padding: 16, gap: 12, alignItems: 'center' }, chrome]} pointerEvents={chromePointer}>
           {!!call.notice && (
             <View style={[styles.glass, { paddingHorizontal: 14, paddingVertical: 8 }]}>
               <Notice text={call.notice} />
@@ -358,6 +372,7 @@ function ActiveCall() {
           </View>
           <View style={[styles.glass, { flexDirection: 'row', gap: 12, padding: 10, borderRadius: radius.pill }]}>
             <DockButton icon={call.micMuted ? 'mic-off' : 'mic'} active={!call.micMuted} onPress={toggleMic} label={t('Microphone')} />
+            <DockButton icon="message-square" active={chatOpen} onPress={() => setChatOpen((o) => !o)} label={t('Call chat')} badge={chatOpen ? 0 : call.chatUnread} />
             <DockButton icon={call.cameraOff ? 'video-off' : 'video'} active={!call.cameraOff} onPress={toggleCamera} label={t('Camera')} />
             {canSwitchCamera && !call.cameraOff && (
               <DockButton icon="refresh-ccw" active={false} onPress={flipCamera} label={t('Switch camera')} />
@@ -387,11 +402,12 @@ function ActiveCall() {
           </View>
         </View>
       </SafeAreaView>
+      {chatOpen && <CallChatPanel onClose={() => setChatOpen(false)} />}
     </View>
   );
 }
 
-function DockButton({ icon, active, onPress, label }: { icon: IconName; active: boolean; onPress: () => void; label: string }) {
+function DockButton({ icon, active, onPress, label, badge = 0 }: { icon: IconName; active: boolean; onPress: () => void; label: string; badge?: number }) {
   return (
     <Pressable
       accessibilityLabel={label}
@@ -405,6 +421,7 @@ function DockButton({ icon, active, onPress, label }: { icon: IconName; active: 
         justifyContent: 'center',
       })}>
       <Icon name={icon} size={22} color={active ? colors.amber : colors.text} />
+      {badge > 0 && <UnreadBadge count={badge} style={{ position: 'absolute', top: 2, end: 2 }} />}
     </Pressable>
   );
 }

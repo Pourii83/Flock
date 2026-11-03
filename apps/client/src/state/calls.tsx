@@ -11,6 +11,8 @@ import { t } from '@/lib/i18n';
 
 export type CallPhase = 'idle' | 'outgoing' | 'incoming' | 'active';
 
+export type CallChatMessage = { id: string; mine: boolean; text: string; at: number };
+
 export type CallState = {
   phase: CallPhase;
   callId: string | null;
@@ -36,6 +38,11 @@ export type CallState = {
   mediaVersion: number;
   /** Detected from WebRTC stats: our audio isn't leaving, or theirs isn't arriving. */
   audioIssue: 'send' | 'receive' | null;
+  /** Screen share also carries the shared tab/system audio. */
+  sharingAudio: boolean;
+  /** Temporary chat for this call only (never stored). */
+  chat: CallChatMessage[];
+  chatUnread: number;
   notice: string | null;
   reaction: { emoji: string; key: number } | null;
 };
@@ -60,6 +67,9 @@ const IDLE: CallState = {
   remoteScreen: false,
   mediaVersion: 0,
   audioIssue: null,
+  sharingAudio: false,
+  chat: [],
+  chatUnread: 0,
   notice: null,
   reaction: null,
 };
@@ -78,6 +88,9 @@ type CallApi = {
   toggleSpeaker: () => void;
   flipCamera: () => void;
   sendReaction: (emoji: string) => void;
+  sendChat: (text: string) => void;
+  /** Marks the in-call chat as read (panel opened). */
+  readChat: () => void;
   /** Bumped when the call log should refresh (a call just finished). */
   historyVersion: number;
 };
@@ -103,10 +116,29 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const acceptedHere = useRef(false);
   const cameraTrack = useRef<MediaStreamTrack | null>(null);
   const screenTrack = useRef<MediaStreamTrack | null>(null);
+  const screenAudio = useRef<{ track: MediaStreamTrack; ctx: AudioContext; mixed: MediaStreamTrack } | null>(null);
   // The caller's peer may still be waiting on mic/camera permission when the callee answers.
   const peerReady = useRef<Promise<RTCPeerConnection | null> | null>(null);
 
   const patch = useCallback((p: Partial<CallState>) => setCall((c) => ({ ...c, ...p })), [setCall]);
+
+  /** The audio sender (mic, or mic + shared screen audio while sharing). */
+  const audioSender = useCallback(
+    () => pcRef.current?.getTransceivers().find((t) => t.receiver.track?.kind === 'audio')?.sender ?? null,
+    [],
+  );
+
+  /** Stops mixing shared-screen audio and puts the plain mic back on the call. */
+  const stopScreenAudio = useCallback(() => {
+    const mix = screenAudio.current;
+    if (!mix) return;
+    screenAudio.current = null;
+    const mic = callRef.current.localStream?.getAudioTracks()[0] ?? null;
+    audioSender()?.replaceTrack(mic).catch(() => {});
+    mix.track.stop();
+    mix.mixed.stop();
+    mix.ctx.close().catch(() => {});
+  }, [audioSender]);
 
   const cleanup = useCallback(() => {
     pcRef.current?.close();
@@ -120,10 +152,11 @@ export function CallProvider({ children }: { children: ReactNode }) {
     screenTrack.current?.stop();
     cameraTrack.current = null;
     screenTrack.current = null;
+    stopScreenAudio();
     callAudio.stop();
     setCall(IDLE);
     setHistoryVersion((v) => v + 1);
-  }, [setCall]);
+  }, [setCall, stopScreenAudio]);
 
   const signal = useCallback((data: unknown) => {
     const { callId } = callRef.current;
@@ -214,6 +247,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
         return;
       }
       if (c.phase !== 'outgoing') return;
+      callAudio.stopRingback();
       patch({ phase: 'active', answeredAt: Date.now() });
       // If our mic/camera prompt is still open, wait for the peer instead of never sending the offer.
       const pc = pcRef.current ?? (await peerReady.current);
@@ -228,6 +262,11 @@ export function CallProvider({ children }: { children: ReactNode }) {
       if (callRef.current.callId !== callId) return;
       if (data?.type === 'reaction') {
         patch({ reaction: { emoji: data.emoji, key: Date.now() } });
+        return;
+      }
+      if (data?.type === 'chat' && typeof data.text === 'string') {
+        const msg: CallChatMessage = { id: String(data.id ?? Date.now()), mine: false, text: data.text.slice(0, 2000), at: Date.now() };
+        setCall((c) => ({ ...c, chat: [...c.chat, msg], chatUnread: c.chatUnread + 1 }));
         return;
       }
       if (data?.type === 'media') {
@@ -325,6 +364,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       const peer = conversation.members.find((m) => m.id !== user?.id) ?? null;
       setCall({ ...IDLE, phase: 'outgoing', conversationId: conversation.id, video, peer, title: conversation.name, speakerOn: video });
       callAudio.start(video);
+      callAudio.startRingback();
       chatStore.socket.emit('call:invite', { conversationId: conversation.id, video }, (res: any) => {
         if (!res?.ok) {
           cleanup();
@@ -416,27 +456,52 @@ export function CallProvider({ children }: { children: ReactNode }) {
       const t = screenTrack.current;
       screenTrack.current = null;
       t.stop();
-      patch({ sharingScreen: false, screenStream: null });
+      stopScreenAudio();
+      patch({ sharingScreen: false, sharingAudio: false, screenStream: null });
       await syncVideoSender();
       return;
     }
     try {
-      const display: MediaStream = await (navigator.mediaDevices as any).getDisplayMedia({ video: true, audio: false });
+      // Asking for audio makes the browser offer "Share tab/system audio" in its own picker (like Google Meet).
+      const display: MediaStream = await (navigator.mediaDevices as any).getDisplayMedia({
+        video: true,
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+        systemAudio: 'include',
+        selfBrowserSurface: 'exclude',
+        surfaceSwitching: 'include',
+      });
       const track = display.getVideoTracks()[0]!;
       screenTrack.current = track;
       // The browser's own "Stop sharing" button ends the track.
       track.onended = () => {
         if (screenTrack.current !== track) return;
         screenTrack.current = null;
-        patch({ sharingScreen: false, screenStream: null });
+        stopScreenAudio();
+        patch({ sharingScreen: false, sharingAudio: false, screenStream: null });
         syncVideoSender();
       };
-      patch({ sharingScreen: true, screenStream: display, notice: null });
+
+      // Mix the shared audio with the mic into the existing audio sender — no renegotiation.
+      const shared = display.getAudioTracks()[0];
+      const mic = callRef.current.localStream?.getAudioTracks()[0];
+      const sender = audioSender();
+      let withAudio = false;
+      if (shared && mic && sender) {
+        const ctx = new AudioContext();
+        const out = ctx.createMediaStreamDestination();
+        ctx.createMediaStreamSource(new MediaStream([mic])).connect(out);
+        ctx.createMediaStreamSource(new MediaStream([shared])).connect(out);
+        const mixed = out.stream.getAudioTracks()[0]!;
+        screenAudio.current = { track: shared, ctx, mixed };
+        await sender.replaceTrack(mixed);
+        withAudio = true;
+      }
+      patch({ sharingScreen: true, sharingAudio: withAudio, screenStream: new MediaStream([track]), notice: null });
       await syncVideoSender();
     } catch {
       // User cancelled the picker.
     }
-  }, [patch, syncVideoSender]);
+  }, [patch, syncVideoSender, audioSender, stopScreenAudio]);
 
   const toggleSpeaker = useCallback(() => {
     const on = !callRef.current.speakerOn;
@@ -459,6 +524,19 @@ export function CallProvider({ children }: { children: ReactNode }) {
     [signal, patch],
   );
 
+  const sendChat = useCallback(
+    (text: string) => {
+      const body = text.trim().slice(0, 2000);
+      if (!body) return;
+      const msg: CallChatMessage = { id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, mine: true, text: body, at: Date.now() };
+      signal({ type: 'chat', id: msg.id, text: body });
+      setCall((c) => ({ ...c, chat: [...c.chat, msg] }));
+    },
+    [signal, setCall],
+  );
+
+  const readChat = useCallback(() => patch({ chatUnread: 0 }), [patch]);
+
   const value = useMemo<CallApi>(
     () => ({
       call,
@@ -472,9 +550,11 @@ export function CallProvider({ children }: { children: ReactNode }) {
       toggleSpeaker,
       flipCamera,
       sendReaction,
+      sendChat,
+      readChat,
       historyVersion,
     }),
-    [call, startCall, accept, decline, hangUp, toggleMic, toggleCamera, toggleScreenShare, toggleSpeaker, flipCamera, sendReaction, historyVersion],
+    [call, startCall, accept, decline, hangUp, toggleMic, toggleCamera, toggleScreenShare, toggleSpeaker, flipCamera, sendReaction, sendChat, readChat, historyVersion],
   );
 
   return <CallContext.Provider value={value}>{children}</CallContext.Provider>;

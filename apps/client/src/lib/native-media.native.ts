@@ -47,6 +47,7 @@ export const callAudio = {
     const m = inCallManager();
     if (!m) return;
     m.stopRingtone();
+    m.stopRingback();
     m.setKeepScreenOn(false);
     m.setForceSpeakerphoneOn(false);
     m.stop();
@@ -59,6 +60,13 @@ export const callAudio = {
   },
   stopRingtone() {
     inCallManager()?.stopRingtone();
+  },
+  /** Caller hears a ringback tone until the other side answers. */
+  startRingback() {
+    inCallManager()?.startRingback('_DTMF_');
+  },
+  stopRingback() {
+    inCallManager()?.stopRingback();
   },
 };
 
