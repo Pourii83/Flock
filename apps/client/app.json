@@ -2,7 +2,7 @@
   "expo": {
     "name": "Flock",
     "slug": "flock",
-    "version": "1.6.0",
+    "version": "1.6.1",
     "orientation": "default",
     "icon": "./assets/images/icon.png",
     "scheme": "flock",
@@ -15,7 +15,7 @@
     },
     "android": {
       "package": "app.flock.messenger",
-      "versionCode": 10600,
+      "versionCode": 10601,
       "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "backgroundColor": "#0B0B0B",
