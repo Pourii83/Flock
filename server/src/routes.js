@@ -260,14 +260,20 @@ export function createRouter(realtime) {
   // "use-auth-secret"), so the shared secret never reaches clients.
   r.get('/ice', (req, res) => {
     const iceServers = [{ urls: process.env.STUN_URLS?.split(',') ?? ['stun:stun.l.google.com:19302'] }];
-    const turnUrls = process.env.TURN_URLS?.split(',').map((u) => u.trim()).filter(Boolean);
-    if (turnUrls?.length && process.env.TURN_SECRET) {
+    // TURN_EXTRA_URLS: other relays sharing the secret (e.g. eturnal on another server), tried first.
+    const turnUrls = [process.env.TURN_EXTRA_URLS, process.env.TURN_URLS]
+      .flatMap((v) => v?.split(',') ?? [])
+      .map((u) => u.trim())
+      .filter(Boolean);
+    if (turnUrls.length && process.env.TURN_SECRET) {
       const ttl = 12 * 3600;
       const username = `${Math.floor(Date.now() / 1000) + ttl}:${req.userId}`;
       const credential = crypto.createHmac('sha1', process.env.TURN_SECRET).update(username).digest('base64');
       iceServers.push({ urls: turnUrls, username, credential });
     }
-    res.json({ iceServers });
+    // TURN_RELAY_ONLY=1 sends all call media through the relay (hides users' IPs, steadier calls).
+    const relayOnly = process.env.TURN_RELAY_ONLY === '1' && iceServers.length > 1;
+    res.json({ iceServers, ...(relayOnly ? { iceTransportPolicy: 'relay' } : {}) });
   });
 
 

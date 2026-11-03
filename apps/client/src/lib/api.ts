@@ -79,5 +79,5 @@ export const api = {
     request<Message>('POST', `/conversations/${id}/messages`, { body, replyToId }),
   markRead: (id: string) => request<{ readAt: number }>('POST', `/conversations/${id}/read`),
   calls: () => request<CallLog[]>('GET', '/calls'),
-  ice: () => request<{ iceServers: RTCIceServer[] }>('GET', '/ice'),
+  ice: () => request<{ iceServers: RTCIceServer[]; iceTransportPolicy?: RTCIceTransportPolicy }>('GET', '/ice'),
 };

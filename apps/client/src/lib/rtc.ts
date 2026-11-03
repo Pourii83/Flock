@@ -18,13 +18,14 @@ export const rtcSupported = () => {
 export const screenShareSupported = () =>
   Platform.OS === 'web' && !!(globalThis as any).navigator?.mediaDevices?.getDisplayMedia;
 
-const FALLBACK_ICE: RTCIceServer[] = [{ urls: 'stun:stun.l.google.com:19302' }];
+const FALLBACK_ICE: RTCConfiguration = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 
-/** STUN/TURN servers from the Flock server (TURN credentials are short-lived). */
-export async function loadIceServers(fetchIce: () => Promise<{ iceServers: RTCIceServer[] }>) {
+/** STUN/TURN servers from the Flock server (TURN credentials are short-lived), and whether media must go through the relay. */
+export async function loadIceConfig(fetchIce: () => Promise<{ iceServers: RTCIceServer[]; iceTransportPolicy?: RTCIceTransportPolicy }>) {
   try {
-    const { iceServers } = await fetchIce();
-    return iceServers?.length ? iceServers : FALLBACK_ICE;
+    const { iceServers, iceTransportPolicy } = await fetchIce();
+    if (!iceServers?.length) return FALLBACK_ICE;
+    return { iceServers, ...(iceTransportPolicy === 'relay' ? { iceTransportPolicy } : {}) } as RTCConfiguration;
   } catch {
     return FALLBACK_ICE;
   }
@@ -35,11 +36,11 @@ export async function loadIceServers(fetchIce: () => Promise<{ iceServers: RTCIc
  * because a transceiver negotiated without a stream delivers tracks with no `streams`.
  */
 export function createPeer(
-  iceServers: RTCIceServer[],
+  config: RTCConfiguration,
   onSignal: (data: unknown) => void,
   onRemoteStream: (s: MediaStream) => void,
 ) {
-  const pc = new RTCPeerConnection({ iceServers });
+  const pc = new RTCPeerConnection(config);
   const remote = new MediaStream();
   pc.onicecandidate = (e) => {
     if (e.candidate) onSignal({ type: 'candidate', candidate: e.candidate.toJSON() });

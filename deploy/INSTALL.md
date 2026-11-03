@@ -169,3 +169,5 @@ This installs **coturn** with:
 - relaying to private/internal addresses blocked, and per-user quotas
 
 Open those ports in your hosting provider's firewall as well. The installer sets `TURN_URLS` and `TURN_SECRET` in `/etc/flock/flock.env`. For an existing coturn, set them yourself (`static-auth-secret` must equal `TURN_SECRET`).
+
+A relay on another machine (for example [eturnal](https://eturnal.net), which also runs on Windows) goes in `TURN_EXTRA_URLS`. The installer never overwrites that setting, and those relays are tried first. Set its shared secret to `TURN_SECRET`. To send all call media through the relay, which hides users' IP addresses from each other, add `TURN_RELAY_ONLY=1`. Restart Flock after changing these.

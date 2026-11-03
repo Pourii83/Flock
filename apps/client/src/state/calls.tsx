@@ -4,7 +4,7 @@ import { Platform } from 'react-native';
 import { callAudio, switchCamera } from '@/lib/native-media';
 import { api } from '@/lib/api';
 import { getNoisePreference, micConstraints, processMic, strongNoiseSupported, type NoiseMode } from '@/lib/noise';
-import { createPeer, getCameraTrack, getLocalMedia, loadIceServers, rtcSupported } from '@/lib/rtc';
+import { createPeer, getCameraTrack, getLocalMedia, loadIceConfig, rtcSupported } from '@/lib/rtc';
 import type { Conversation, User } from '@/lib/types';
 import { useAuth } from './auth';
 import { chatStore, useChat } from './chat-store';
@@ -140,7 +140,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const peers = useRef(new Map<string, Peer>());
   // Signaling from each participant is handled strictly in order (offer before its candidates).
   const queues = useRef(new Map<string, Promise<void>>());
-  const iceServers = useRef<RTCIceServer[] | null>(null);
+  const iceConfig = useRef<RTCConfiguration | null>(null);
   const acceptedHere = useRef(false);
   const cameraTrack = useRef<MediaStreamTrack | null>(null);
   const screenTrack = useRef<MediaStreamTrack | null>(null);
@@ -250,7 +250,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       }
       let stream: MediaStream;
       try {
-        [stream, iceServers.current] = await Promise.all([getLocalMedia(video, micConstraints(getNoisePreference())), loadIceServers(api.ice)]);
+        [stream, iceConfig.current] = await Promise.all([getLocalMedia(video, micConstraints(getNoisePreference())), loadIceConfig(api.ice)]);
       } catch (e: any) {
         patch({ notice: e.message });
         return false;
@@ -283,9 +283,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const makePeer = useCallback(
     (userId: string, offerer: boolean) => {
       const local = callRef.current.localStream;
-      if (!local || !iceServers.current) return null;
+      if (!local || !iceConfig.current) return null;
       const pc = createPeer(
-        iceServers.current,
+        iceConfig.current,
         (d) => signal(d, userId),
         (remote) => upsertRemote(userId, { stream: remote }),
       );
