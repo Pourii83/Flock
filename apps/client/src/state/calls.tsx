@@ -4,7 +4,7 @@ import { Platform } from 'react-native';
 import { callAudio, switchCamera } from '@/lib/native-media';
 import { api } from '@/lib/api';
 import { getNoisePreference, micConstraints, processMic, strongNoiseSupported, type NoiseMode } from '@/lib/noise';
-import { createPeer, getCameraTrack, getLocalMedia, loadIceServers, rtcSupported, videoTransceiver } from '@/lib/rtc';
+import { createPeer, getCameraTrack, getLocalMedia, loadIceServers, rtcSupported } from '@/lib/rtc';
 import type { Conversation, User } from '@/lib/types';
 import { useAuth } from './auth';
 import { chatStore, useChat } from './chat-store';
@@ -12,14 +12,26 @@ import { t } from '@/lib/i18n';
 
 export type CallPhase = 'idle' | 'outgoing' | 'incoming' | 'active';
 
-export type CallChatMessage = { id: string; mine: boolean; text: string; at: number };
+export type CallChatMessage = { id: string; mine: boolean; text: string; at: number; author?: string };
+
+/** Someone else in the call (one peer connection each — calls are a mesh). */
+export type CallRemote = {
+  userId: string;
+  user: User | null;
+  stream: MediaStream | null;
+  /** What they are sending, as announced over signaling. */
+  video: boolean;
+  screen: boolean;
+};
 
 export type CallState = {
   phase: CallPhase;
   callId: string | null;
   conversationId: string | null;
+  isGroup: boolean;
   /** The call was started as a video call (ringing UI and initial camera). */
   video: boolean;
+  /** Direct calls: the other person. Incoming group calls: who is calling. */
   peer: User | null;
   title: string;
   answeredAt: number | null;
@@ -31,18 +43,17 @@ export type CallState = {
   frontCamera: boolean;
   localStream: MediaStream | null;
   screenStream: MediaStream | null;
-  remoteStream: MediaStream | null;
-  /** What the other side is currently sending, as announced over signaling. */
-  remoteVideo: boolean;
-  remoteScreen: boolean;
+  remotes: CallRemote[];
   /** Bumped when tracks inside a stream change, so video views re-render. */
   mediaVersion: number;
-  /** Detected from WebRTC stats: our audio isn't leaving, or theirs isn't arriving. */
+  /** Detected from WebRTC stats: our audio isn't leaving, or nobody's is arriving. */
   audioIssue: 'send' | 'receive' | null;
   /** Screen share also carries the shared tab/system audio. */
   sharingAudio: boolean;
   /** Noise cancellation currently applied to the mic. */
   noiseMode: NoiseMode;
+  /** The call shrank to a floating window so the rest of the app can be used. */
+  minimized: boolean;
   /** Temporary chat for this call only (never stored). */
   chat: CallChatMessage[];
   chatUnread: number;
@@ -54,6 +65,7 @@ const IDLE: CallState = {
   phase: 'idle',
   callId: null,
   conversationId: null,
+  isGroup: false,
   video: true,
   peer: null,
   title: '',
@@ -65,13 +77,12 @@ const IDLE: CallState = {
   frontCamera: true,
   localStream: null,
   screenStream: null,
-  remoteStream: null,
-  remoteVideo: false,
-  remoteScreen: false,
+  remotes: [],
   mediaVersion: 0,
   audioIssue: null,
   sharingAudio: false,
   noiseMode: 'standard',
+  minimized: false,
   chat: [],
   chatUnread: 0,
   notice: null,
@@ -81,6 +92,8 @@ const IDLE: CallState = {
 type CallApi = {
   call: CallState;
   startCall: (conversation: Conversation, video: boolean) => Promise<void>;
+  /** Joins the call already running in a conversation (group calls). */
+  joinCall: (conversationId: string) => Promise<void>;
   accept: (audioOnly?: boolean) => Promise<void>;
   decline: (quickReply?: string) => void;
   hangUp: () => void;
@@ -93,6 +106,7 @@ type CallApi = {
   /** Switches the mic's noise cancellation live (off / standard / strong AI). */
   setNoiseMode: (mode: NoiseMode) => Promise<void>;
   flipCamera: () => void;
+  setMinimized: (minimized: boolean) => void;
   sendReaction: (emoji: string) => void;
   sendChat: (text: string) => void;
   /** Marks the in-call chat as read (panel opened). */
@@ -101,9 +115,14 @@ type CallApi = {
   historyVersion: number;
 };
 
+type Peer = { pc: RTCPeerConnection; pending: RTCIceCandidateInit[]; offerer: boolean };
+
 const CallContext = createContext<CallApi | null>(null);
 
 const NATIVE_NOTICE = 'Audio/video needs the installed Flock app — Expo Go only supports call signaling.';
+
+const memberOf = (conversationId: string | null, userId: string) =>
+  chatStore.state.conversations.find((c) => c.id === conversationId)?.members.find((m) => m.id === userId) ?? null;
 
 export function CallProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
@@ -117,43 +136,77 @@ export function CallProvider({ children }: { children: ReactNode }) {
     setCallState(callRef.current);
   }, []);
 
-  const pcRef = useRef<RTCPeerConnection | null>(null);
-  const pendingCandidates = useRef<RTCIceCandidateInit[]>([]);
+  // One peer connection per other participant, keyed by user id.
+  const peers = useRef(new Map<string, Peer>());
+  // Signaling from each participant is handled strictly in order (offer before its candidates).
+  const queues = useRef(new Map<string, Promise<void>>());
+  const iceServers = useRef<RTCIceServer[] | null>(null);
   const acceptedHere = useRef(false);
   const cameraTrack = useRef<MediaStreamTrack | null>(null);
   const screenTrack = useRef<MediaStreamTrack | null>(null);
   const screenAudio = useRef<{ track: MediaStreamTrack; ctx: AudioContext; mixed: MediaStreamTrack; out: MediaStreamAudioDestinationNode; micInput: AudioNode } | null>(null);
   // Releases the current mic pipeline (raw track, plus the RNNoise graph in strong mode).
   const micDispose = useRef<(() => void) | null>(null);
-  // The caller's peer may still be waiting on mic/camera permission when the callee answers.
-  const peerReady = useRef<Promise<RTCPeerConnection | null> | null>(null);
+  // Mic/camera may still be waiting on permission when the first offer arrives.
+  const mediaReady = useRef<Promise<boolean> | null>(null);
 
   const patch = useCallback((p: Partial<CallState>) => setCall((c) => ({ ...c, ...p })), [setCall]);
 
-  /** The audio sender (mic, or mic + shared screen audio while sharing). */
-  const audioSender = useCallback(
-    () => pcRef.current?.getTransceivers().find((t) => t.receiver.track?.kind === 'audio')?.sender ?? null,
-    [],
+  const upsertRemote = useCallback(
+    (userId: string, p: Partial<CallRemote> = {}) =>
+      setCall((c) => {
+        const i = c.remotes.findIndex((r) => r.userId === userId);
+        const remotes =
+          i < 0
+            ? [...c.remotes, { userId, user: memberOf(c.conversationId, userId), stream: null, video: false, screen: false, ...p }]
+            : c.remotes.map((r, j) => (j === i ? { ...r, ...p } : r));
+        return { ...c, remotes, mediaVersion: c.mediaVersion + 1 };
+      }),
+    [setCall],
   );
+
+  const closePeer = useCallback(
+    (userId: string) => {
+      peers.current.get(userId)?.pc.close();
+      peers.current.delete(userId);
+      queues.current.delete(userId);
+      setCall((c) => ({ ...c, remotes: c.remotes.filter((r) => r.userId !== userId), mediaVersion: c.mediaVersion + 1 }));
+    },
+    [setCall],
+  );
+
+  /** What we send: mic (or mic + shared screen audio), and screen > camera > nothing. */
+  const outgoingAudio = useCallback(() => screenAudio.current?.mixed ?? callRef.current.localStream?.getAudioTracks()[0] ?? null, []);
+  const outgoingVideo = useCallback(() => screenTrack.current ?? (!callRef.current.cameraOff ? cameraTrack.current : null), []);
+
+  /** Swaps the track of one kind on every connection — no renegotiation needed. */
+  const setSenders = useCallback(async (kind: 'audio' | 'video', track: MediaStreamTrack | null) => {
+    const jobs: Promise<void>[] = [];
+    for (const { pc } of peers.current.values()) {
+      for (const tr of pc.getTransceivers()) {
+        if (tr.receiver.track?.kind === kind && tr.sender.track !== track) jobs.push(tr.sender.replaceTrack(track).catch(() => {}));
+      }
+    }
+    await Promise.all(jobs);
+  }, []);
 
   /** Stops mixing shared-screen audio and puts the plain mic back on the call. */
   const stopScreenAudio = useCallback(() => {
     const mix = screenAudio.current;
     if (!mix) return;
     screenAudio.current = null;
-    const mic = callRef.current.localStream?.getAudioTracks()[0] ?? null;
-    audioSender()?.replaceTrack(mic).catch(() => {});
+    setSenders('audio', callRef.current.localStream?.getAudioTracks()[0] ?? null);
     mix.track.stop();
     mix.mixed.stop();
     mix.ctx.close().catch(() => {});
-  }, [audioSender]);
+  }, [setSenders]);
 
   const cleanup = useCallback(() => {
-    pcRef.current?.close();
-    pcRef.current = null;
-    pendingCandidates.current = [];
+    for (const { pc } of peers.current.values()) pc.close();
+    peers.current.clear();
+    queues.current.clear();
     acceptedHere.current = false;
-    peerReady.current = null;
+    mediaReady.current = null;
     const { localStream } = callRef.current;
     localStream?.getTracks().forEach((t) => t.stop());
     cameraTrack.current?.stop();
@@ -168,55 +221,45 @@ export function CallProvider({ children }: { children: ReactNode }) {
     setHistoryVersion((v) => v + 1);
   }, [setCall, stopScreenAudio]);
 
-  const signal = useCallback((data: unknown) => {
+  /** Signaling to one participant, or to everyone else in the call when `to` is omitted. */
+  const signal = useCallback((data: unknown, to?: string) => {
     const { callId } = callRef.current;
-    if (callId) chatStore.socket?.emit('call:signal', { callId, data });
+    if (callId) chatStore.socket?.emit('call:signal', { callId, to, data });
   }, []);
 
-  /** Tells the other side whether our video slot carries the camera or the screen. */
-  const announceMedia = useCallback(() => {
-    const c = callRef.current;
-    signal({ type: 'media', video: !!screenTrack.current || !c.cameraOff, screen: !!screenTrack.current });
-  }, [signal]);
+  /** Tells the others (or one newcomer) whether our video slot carries the camera or the screen. */
+  const announceMedia = useCallback(
+    (to?: string) => {
+      const c = callRef.current;
+      signal({ type: 'media', video: !!screenTrack.current || !c.cameraOff, screen: !!screenTrack.current }, to);
+    },
+    [signal],
+  );
 
-  /** Puts the right track in the video slot: screen > camera > nothing. */
   const syncVideoSender = useCallback(async () => {
-    const pc = pcRef.current;
-    const t = pc && videoTransceiver(pc);
-    if (!t) return;
-    const c = callRef.current;
-    const track = screenTrack.current ?? (!c.cameraOff ? cameraTrack.current : null);
-    await t.sender.replaceTrack(track);
+    await setSenders('video', outgoingVideo());
     announceMedia();
-  }, [announceMedia]);
+  }, [setSenders, outgoingVideo, announceMedia]);
 
-  const preparePeer = useCallback(
-    async (video: boolean, isCaller: boolean) => {
+  /** Opens mic (and camera for video calls) once per call; false when media is unavailable. */
+  const prepareMedia = useCallback(
+    async (video: boolean) => {
       if (!rtcSupported()) {
         patch({ notice: t(NATIVE_NOTICE) });
-        return null;
+        return false;
       }
       let stream: MediaStream;
-      let iceServers: RTCIceServer[];
       try {
-        [stream, iceServers] = await Promise.all([getLocalMedia(video, micConstraints(getNoisePreference())), loadIceServers(api.ice)]);
+        [stream, iceServers.current] = await Promise.all([getLocalMedia(video, micConstraints(getNoisePreference())), loadIceServers(api.ice)]);
       } catch (e: any) {
         patch({ notice: e.message });
-        return null;
+        return false;
       }
-      const pc = createPeer(iceServers, signal, (remote) =>
-        setCall((c) => ({ ...c, remoteStream: remote, mediaVersion: c.mediaVersion + 1 })),
-      );
-      pc.oniceconnectionstatechange = async () => {
-        // Network changed (Wi-Fi ↔ mobile data…): the caller renegotiates new ICE paths.
-        if (pc.iceConnectionState === 'failed' && isCaller && pcRef.current === pc) {
-          try {
-            const offer = await pc.createOffer({ iceRestart: true });
-            await pc.setLocalDescription(offer);
-            signal({ type: 'offer', sdp: offer.sdp });
-          } catch {}
-        }
-      };
+      if (callRef.current.phase === 'idle') {
+        // Hung up while the permission prompt was open.
+        stream.getTracks().forEach((tr) => tr.stop());
+        return false;
+      }
       // Run the mic through the preferred noise cancellation before it is sent.
       const rawMic = stream.getAudioTracks()[0];
       let noiseMode = getNoisePreference();
@@ -228,21 +271,137 @@ export function CallProvider({ children }: { children: ReactNode }) {
         } else if (noiseMode === 'strong') noiseMode = 'standard';
         micDispose.current = chain.dispose;
       }
-      patch({ noiseMode });
-      stream.getAudioTracks().forEach((t) => pc.addTrack(t, stream));
       const cam = stream.getVideoTracks()[0] ?? null;
       cameraTrack.current = cam;
-      if (cam) pc.addTrack(cam, stream);
-      // Voice calls still negotiate a video slot so camera/screen can be added mid-call
-      // with replaceTrack() — no renegotiation needed. The callee gets it from the offer.
-      else if (isCaller) pc.addTransceiver('video', { direction: 'sendrecv', streams: [stream] });
-      pcRef.current = pc;
-      // Dev-only hook for call diagnostics (e2e tests read WebRTC stats through it).
-      if (__DEV__) (globalThis as any).__flockPc = pc;
-      patch({ localStream: stream, cameraOff: !cam });
-      return pc;
+      patch({ localStream: stream, cameraOff: !cam, noiseMode });
+      return true;
     },
-    [patch, signal, setCall],
+    [patch],
+  );
+
+  /** A connection to one participant. The newcomer of the pair is the offerer. */
+  const makePeer = useCallback(
+    (userId: string, offerer: boolean) => {
+      const local = callRef.current.localStream;
+      if (!local || !iceServers.current) return null;
+      const pc = createPeer(
+        iceServers.current,
+        (d) => signal(d, userId),
+        (remote) => upsertRemote(userId, { stream: remote }),
+      );
+      const entry: Peer = { pc, pending: [], offerer };
+      peers.current.set(userId, entry);
+      pc.oniceconnectionstatechange = async () => {
+        // Network changed (Wi-Fi ↔ mobile data…): the offerer renegotiates new ICE paths.
+        if (pc.iceConnectionState === 'failed' && offerer && peers.current.get(userId)?.pc === pc) {
+          try {
+            const offer = await pc.createOffer({ iceRestart: true });
+            await pc.setLocalDescription(offer);
+            signal({ type: 'offer', sdp: offer.sdp }, userId);
+          } catch {}
+        }
+      };
+      if (offerer) {
+        // Always negotiate a video slot, so camera/screen can be added mid-call with replaceTrack().
+        pc.addTransceiver(outgoingAudio() ?? 'audio', { direction: 'sendrecv', streams: [local] });
+        pc.addTransceiver(outgoingVideo() ?? 'video', { direction: 'sendrecv', streams: [local] });
+      }
+      // Dev-only hooks for call diagnostics (e2e tests read WebRTC stats through them).
+      if (__DEV__) {
+        (globalThis as any).__flockPc = pc;
+        (globalThis as any).__flockPeers = peers.current;
+      }
+      upsertRemote(userId);
+      return entry;
+    },
+    [signal, upsertRemote, outgoingAudio, outgoingVideo],
+  );
+
+  const offerTo = useCallback(
+    async (userId: string) => {
+      const entry = peers.current.get(userId) ?? makePeer(userId, true);
+      if (!entry) {
+        upsertRemote(userId);
+        return;
+      }
+      const offer = await entry.pc.createOffer();
+      await entry.pc.setLocalDescription(offer);
+      signal({ type: 'offer', sdp: offer.sdp }, userId);
+    },
+    [makePeer, signal, upsertRemote],
+  );
+
+  /** Becomes a participant: the server answers with who is already in, and we connect to each. */
+  const join = useCallback(
+    (callId: string) => {
+      chatStore.socket?.emit('call:accept', { callId }, async (res: any) => {
+        if (!res?.ok) {
+          cleanup();
+          return;
+        }
+        if (callRef.current.callId !== callId) return;
+        patch({ isGroup: !!res.isGroup });
+        const ready = await mediaReady.current;
+        for (const uid of (res.participants ?? []) as string[]) {
+          if (!ready) upsertRemote(uid);
+          else await offerTo(uid).catch((e) => console.warn('[flock] offer failed', e));
+        }
+      });
+    },
+    [cleanup, patch, offerTo, upsertRemote],
+  );
+
+  const handleSignal = useCallback(
+    async (from: string, data: any) => {
+      if (data?.type === 'reaction') {
+        patch({ reaction: { emoji: data.emoji, key: Date.now() } });
+        return;
+      }
+      if (data?.type === 'chat' && typeof data.text === 'string') {
+        const author = callRef.current.isGroup ? memberOf(callRef.current.conversationId, from)?.displayName : undefined;
+        const msg: CallChatMessage = { id: String(data.id ?? Date.now()), mine: false, text: data.text.slice(0, 2000), at: Date.now(), author };
+        setCall((c) => ({ ...c, chat: [...c.chat, msg], chatUnread: c.chatUnread + 1 }));
+        return;
+      }
+      if (data?.type === 'media') {
+        upsertRemote(from, { video: !!data.video, screen: !!data.screen });
+        return;
+      }
+      if (data?.type === 'offer') {
+        if (!(await mediaReady.current)) return;
+        const entry = peers.current.get(from) ?? makePeer(from, false);
+        if (!entry) return;
+        const { pc } = entry;
+        await pc.setRemoteDescription({ type: 'offer', sdp: data.sdp });
+        // Send our mic and current video back on the slots the offer created.
+        for (const tr of pc.getTransceivers()) {
+          const kind = tr.receiver.track?.kind;
+          if (kind !== 'audio' && kind !== 'video') continue;
+          tr.direction = 'sendrecv';
+          const track = kind === 'audio' ? outgoingAudio() : outgoingVideo();
+          if (tr.sender.track !== track) await tr.sender.replaceTrack(track).catch(() => {});
+        }
+        for (const cand of entry.pending) await pc.addIceCandidate(cand).catch(() => {});
+        entry.pending = [];
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        signal({ type: 'answer', sdp: answer.sdp }, from);
+        announceMedia(from);
+        return;
+      }
+      const entry = peers.current.get(from);
+      if (!entry) return;
+      if (data?.type === 'answer') {
+        await entry.pc.setRemoteDescription({ type: 'answer', sdp: data.sdp });
+        for (const cand of entry.pending) await entry.pc.addIceCandidate(cand).catch(() => {});
+        entry.pending = [];
+        announceMedia(from);
+      } else if (data?.type === 'candidate') {
+        if (entry.pc.remoteDescription) await entry.pc.addIceCandidate(data.candidate).catch(() => {});
+        else entry.pending.push(data.candidate);
+      }
+    },
+    [patch, setCall, upsertRemote, makePeer, outgoingAudio, outgoingVideo, signal, announceMedia],
   );
 
   // ---------- socket events ----------
@@ -251,75 +410,63 @@ export function CallProvider({ children }: { children: ReactNode }) {
     const socket = chatStore.socket;
     if (!socket || !user) return;
 
-    const onIncoming = (p: { callId: string; conversationId: string; video: boolean; caller: User; title: string }) => {
+    const toActive = () => {
+      if (callRef.current.phase !== 'outgoing') return;
+      callAudio.stopRingback();
+      patch({ phase: 'active', answeredAt: Date.now() });
+    };
+
+    const onIncoming = (p: { callId: string; conversationId: string; video: boolean; caller: User; title: string; isGroup?: boolean }) => {
       if (callRef.current.phase !== 'idle') {
-        socket.emit('call:decline', { callId: p.callId });
+        if (callRef.current.callId !== p.callId) socket.emit('call:decline', { callId: p.callId });
         return;
       }
-      setCall({ ...IDLE, phase: 'incoming', callId: p.callId, conversationId: p.conversationId, video: p.video, peer: p.caller, title: p.title });
+      setCall({
+        ...IDLE,
+        phase: 'incoming',
+        callId: p.callId,
+        conversationId: p.conversationId,
+        isGroup: !!p.isGroup,
+        video: p.video,
+        peer: p.caller,
+        title: p.title,
+      });
       callAudio.startRingtone();
     };
 
-    const onAccepted = async ({ callId, by }: { callId: string; by: string }) => {
-      const c = callRef.current;
-      if (c.callId !== callId) return;
+    const onAccepted = ({ callId, by }: { callId: string; by: string }) => {
+      if (callRef.current.callId !== callId) return;
       if (by === user.id) {
         // Answered on another of my devices.
         if (!acceptedHere.current) cleanup();
         return;
       }
-      if (c.phase !== 'outgoing') return;
-      callAudio.stopRingback();
-      patch({ phase: 'active', answeredAt: Date.now() });
-      // If our mic/camera prompt is still open, wait for the peer instead of never sending the offer.
-      const pc = pcRef.current ?? (await peerReady.current);
-      if (pc && callRef.current.callId === callId) {
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        signal({ type: 'offer', sdp: offer.sdp });
-      }
+      toActive();
     };
 
-    const onSignal = async ({ callId, data }: { callId: string; data: any }) => {
-      if (callRef.current.callId !== callId) return;
-      if (data?.type === 'reaction') {
-        patch({ reaction: { emoji: data.emoji, key: Date.now() } });
-        return;
-      }
-      if (data?.type === 'chat' && typeof data.text === 'string') {
-        const msg: CallChatMessage = { id: String(data.id ?? Date.now()), mine: false, text: data.text.slice(0, 2000), at: Date.now() };
-        setCall((c) => ({ ...c, chat: [...c.chat, msg], chatUnread: c.chatUnread + 1 }));
-        return;
-      }
-      if (data?.type === 'media') {
-        setCall((c) => ({ ...c, remoteVideo: !!data.video, remoteScreen: !!data.screen, mediaVersion: c.mediaVersion + 1 }));
-        return;
-      }
-      const pc = pcRef.current;
-      if (!pc) return;
-      if (data.type === 'offer') {
-        await pc.setRemoteDescription({ type: 'offer', sdp: data.sdp });
-        // Make our side of the video slot sendable too, then fill it if the camera is on.
-        const t = videoTransceiver(pc);
-        if (t) {
-          t.direction = 'sendrecv';
-          if (cameraTrack.current && !t.sender.track) await t.sender.replaceTrack(cameraTrack.current);
-        }
-        for (const cand of pendingCandidates.current) await pc.addIceCandidate(cand).catch(() => {});
-        pendingCandidates.current = [];
-        const answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
-        signal({ type: 'answer', sdp: answer.sdp });
-        announceMedia();
-      } else if (data.type === 'answer') {
-        await pc.setRemoteDescription({ type: 'answer', sdp: data.sdp });
-        for (const cand of pendingCandidates.current) await pc.addIceCandidate(cand).catch(() => {});
-        pendingCandidates.current = [];
-        announceMedia();
-      } else if (data.type === 'candidate') {
-        if (pc.remoteDescription) await pc.addIceCandidate(data.candidate).catch(() => {});
-        else pendingCandidates.current.push(data.candidate);
-      }
+    const onJoined = ({ callId, userId }: { callId: string; userId: string }) => {
+      if (callRef.current.callId !== callId || userId === user.id) return;
+      // Re-joined from another device: the old connection is dead, the new device will offer.
+      if (peers.current.has(userId)) closePeer(userId);
+      upsertRemote(userId);
+      toActive();
+    };
+
+    const onLeft = ({ callId, userId }: { callId: string; userId: string }) => {
+      if (callRef.current.callId === callId) closePeer(userId);
+    };
+
+    const onRingStop = ({ callId }: { callId: string }) => {
+      const c = callRef.current;
+      if (c.callId === callId && c.phase === 'incoming') cleanup();
+    };
+
+    const onSignal = ({ callId, from, data }: { callId: string; from: string; data: any }) => {
+      if (callRef.current.callId !== callId || !from) return;
+      const next = (queues.current.get(from) ?? Promise.resolve())
+        .then(() => handleSignal(from, data))
+        .catch((e) => console.warn('[flock] call signal failed', e));
+      queues.current.set(from, next);
     };
 
     const onEnded = ({ callId }: { callId: string }) => {
@@ -328,15 +475,21 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
     socket.on('call:incoming', onIncoming);
     socket.on('call:accepted', onAccepted);
+    socket.on('call:participant-joined', onJoined);
+    socket.on('call:participant-left', onLeft);
+    socket.on('call:ring-stop', onRingStop);
     socket.on('call:signal', onSignal);
     socket.on('call:ended', onEnded);
     return () => {
       socket.off('call:incoming', onIncoming);
       socket.off('call:accepted', onAccepted);
+      socket.off('call:participant-joined', onJoined);
+      socket.off('call:participant-left', onLeft);
+      socket.off('call:ring-stop', onRingStop);
       socket.off('call:signal', onSignal);
       socket.off('call:ended', onEnded);
     };
-  }, [user, connected, cleanup, patch, signal, setCall, announceMedia]);
+  }, [user, connected, cleanup, patch, setCall, closePeer, upsertRemote, handleSignal]);
 
   // Watch real audio flow: video can work while audio silently doesn't (muted device, blocked playback…).
   useEffect(() => {
@@ -346,20 +499,24 @@ export function CallProvider({ children }: { children: ReactNode }) {
     let stuckSend = 0;
     let stuckReceive = 0;
     const id = setInterval(async () => {
-      const pc = pcRef.current;
-      if (!pc || !['connected', 'completed'].includes(pc.iceConnectionState)) return;
+      const live = [...peers.current.values()].filter(({ pc }) => ['connected', 'completed'].includes(pc.iceConnectionState));
+      if (!live.length) return;
       let sent = 0;
       let received = 0;
       try {
-        const stats = await pc.getStats();
-        stats.forEach((r: any) => {
-          const kind = r.kind ?? r.mediaType;
-          if (r.type === 'outbound-rtp' && kind === 'audio') sent += r.bytesSent ?? 0;
-          if (r.type === 'inbound-rtp' && kind === 'audio') received += r.bytesReceived ?? 0;
-        });
+        for (const { pc } of live) {
+          const stats = await pc.getStats();
+          stats.forEach((r: any) => {
+            const kind = r.kind ?? r.mediaType;
+            if (r.type === 'outbound-rtp' && kind === 'audio') sent += r.bytesSent ?? 0;
+            if (r.type === 'inbound-rtp' && kind === 'audio') received += r.bytesReceived ?? 0;
+          });
+        }
       } catch {
         return;
       }
+      // Someone joining or leaving changes the totals: start counting again.
+      if (sent < lastSent || received < lastReceived) lastSent = lastReceived = -1;
       stuckSend = lastSent >= 0 && sent <= lastSent && !callRef.current.micMuted ? stuckSend + 1 : 0;
       stuckReceive = lastReceived >= 0 && received <= lastReceived ? stuckReceive + 1 : 0;
       lastSent = sent;
@@ -392,26 +549,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
   // ---------- actions ----------
 
-  const startCall = useCallback(
-    async (conversation: Conversation, video: boolean) => {
-      if (callRef.current.phase !== 'idle' || !chatStore.socket) return;
-      const peer = conversation.members.find((m) => m.id !== user?.id) ?? null;
-      setCall({ ...IDLE, phase: 'outgoing', conversationId: conversation.id, video, peer, title: conversation.name, speakerOn: video });
-      callAudio.start(video);
-      callAudio.startRingback();
-      chatStore.socket.emit('call:invite', { conversationId: conversation.id, video }, (res: any) => {
-        if (!res?.ok) {
-          cleanup();
-          return;
-        }
-        patch({ callId: res.callId });
-      });
-      peerReady.current = preparePeer(video, true);
-      await peerReady.current;
-    },
-    [user, cleanup, patch, preparePeer, setCall],
-  );
-
   const accept = useCallback(
     async (audioOnly?: boolean) => {
       const c = callRef.current;
@@ -420,12 +557,62 @@ export function CallProvider({ children }: { children: ReactNode }) {
       const video = c.video && !audioOnly;
       patch({ phase: 'active', answeredAt: Date.now(), video, speakerOn: video });
       callAudio.start(video);
-      await preparePeer(video, false);
-      chatStore.socket?.emit('call:accept', { callId: c.callId }, (res: any) => {
-        if (!res?.ok) cleanup();
-      });
+      mediaReady.current = prepareMedia(video);
+      await mediaReady.current;
+      if (callRef.current.callId === c.callId) join(c.callId);
     },
-    [patch, preparePeer, cleanup],
+    [patch, prepareMedia, join],
+  );
+
+  const joinCall = useCallback(
+    async (conversationId: string) => {
+      const running = chatStore.state.activeCalls[conversationId];
+      const conversation = chatStore.state.conversations.find((c) => c.id === conversationId);
+      if (!running || !conversation || callRef.current.phase !== 'idle') return;
+      setCall({
+        ...IDLE,
+        phase: 'incoming',
+        callId: running.callId,
+        conversationId,
+        isGroup: conversation.type === 'group',
+        video: running.video,
+        peer: conversation.type === 'direct' ? (conversation.members.find((m) => m.id !== user?.id) ?? null) : null,
+        title: conversation.name,
+      });
+      // Join with the camera off; it can be turned on from the dock.
+      await accept(true);
+    },
+    [setCall, accept, user],
+  );
+
+  const startCall = useCallback(
+    async (conversation: Conversation, video: boolean) => {
+      if (callRef.current.phase !== 'idle' || !chatStore.socket) return;
+      if (chatStore.state.activeCalls[conversation.id]) return joinCall(conversation.id);
+      const isGroup = conversation.type === 'group';
+      const peer = isGroup ? null : (conversation.members.find((m) => m.id !== user?.id) ?? null);
+      setCall({ ...IDLE, phase: 'outgoing', conversationId: conversation.id, isGroup, video, peer, title: conversation.name, speakerOn: video });
+      callAudio.start(video);
+      callAudio.startRingback();
+      mediaReady.current = prepareMedia(video);
+      chatStore.socket.emit('call:invite', { conversationId: conversation.id, video }, async (res: any) => {
+        if (!res?.ok) {
+          cleanup();
+          return;
+        }
+        patch({ callId: res.callId });
+        if (res.alreadyRunning) {
+          // Someone started a call here at the same moment: join theirs instead.
+          acceptedHere.current = true;
+          callAudio.stopRingback();
+          patch({ phase: 'active', answeredAt: Date.now() });
+          await mediaReady.current;
+          if (callRef.current.callId === res.callId) join(res.callId);
+        }
+      });
+      await mediaReady.current;
+    },
+    [user, cleanup, patch, prepareMedia, setCall, joinCall, join],
   );
 
   const decline = useCallback(
@@ -448,7 +635,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     async (mode: NoiseMode) => {
       const c = callRef.current;
       if (mode === 'strong' && !strongNoiseSupported()) mode = 'standard';
-      if (!c.localStream || !pcRef.current) return;
+      if (!c.localStream) return;
       let raw: MediaStreamTrack;
       try {
         raw = (await navigator.mediaDevices.getUserMedia({ audio: micConstraints(mode) })).getAudioTracks()[0]!;
@@ -460,7 +647,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       const applied: NoiseMode = mode === 'strong' && chain.track === raw ? 'standard' : mode;
       chain.track.enabled = !c.micMuted;
       raw.enabled = !c.micMuted;
-      // Swap the mic everywhere it is used: the live screen-audio mix, or the call's audio sender.
+      // Swap the mic everywhere it is used: the live screen-audio mix, or the call's audio senders.
       const mix = screenAudio.current;
       if (mix) {
         const input = mix.ctx.createMediaStreamSource(new MediaStream([chain.track]));
@@ -468,7 +655,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
         mix.micInput.disconnect();
         mix.micInput = input;
       } else {
-        await audioSender()?.replaceTrack(chain.track);
+        await setSenders('audio', chain.track);
       }
       const old = c.localStream.getAudioTracks()[0];
       if (old) c.localStream.removeTrack(old);
@@ -477,7 +664,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       micDispose.current = chain.dispose;
       setCall((s) => ({ ...s, noiseMode: applied, mediaVersion: s.mediaVersion + 1 }));
     },
-    [patch, setCall, audioSender],
+    [patch, setCall, setSenders],
   );
 
   const toggleMic = useCallback(() => {
@@ -489,7 +676,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
   const toggleCamera = useCallback(async () => {
     const c = callRef.current;
-    if (!pcRef.current || !c.localStream) {
+    if (!c.localStream) {
       if (!rtcSupported()) patch({ notice: t(NATIVE_NOTICE) });
       return;
     }
@@ -521,7 +708,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
   }, [patch, setCall, syncVideoSender]);
 
   const toggleScreenShare = useCallback(async () => {
-    if (!pcRef.current) return;
+    if (!callRef.current.localStream) return;
     if (screenTrack.current) {
       const t = screenTrack.current;
       screenTrack.current = null;
@@ -535,7 +722,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       // Asking for audio makes the browser offer "Share tab/system audio" in its own picker (like Google Meet).
       const display: MediaStream = await (navigator.mediaDevices as any).getDisplayMedia({
         video: true,
-        // restrictOwnAudio keeps Flock's own playback (the other caller's voice) out of captured
+        // restrictOwnAudio keeps Flock's own playback (the other callers' voices) out of captured
         // system audio — otherwise they hear themselves echoed back.
         audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, restrictOwnAudio: true },
         systemAudio: 'include',
@@ -553,22 +740,21 @@ export function CallProvider({ children }: { children: ReactNode }) {
         syncVideoSender();
       };
 
-      // Mix the shared audio with the mic into the existing audio sender — no renegotiation.
+      // Mix the shared audio with the mic into the existing audio senders — no renegotiation.
       let shared: MediaStreamTrack | undefined = display.getAudioTracks()[0];
       let notice: string | null = null;
       const surface = (track.getSettings() as { displaySurface?: string }).displaySurface;
       const ownAudioExcluded = (shared?.getSettings() as { restrictOwnAudio?: boolean } | undefined)?.restrictOwnAudio === true;
       if (shared && surface === 'monitor' && !ownAudioExcluded) {
         // This browser can't remove the call from system audio: sharing it would echo the other
-        // person's voice back to them, so share the screen without sound.
+        // callers' voices back to them, so share the screen without sound.
         shared.stop();
         shared = undefined;
         notice = t("Your browser can't keep the call out of system audio, so the screen is shared without sound. Share a tab to include its audio.");
       }
       const mic = callRef.current.localStream?.getAudioTracks()[0];
-      const sender = audioSender();
       let withAudio = false;
-      if (shared && mic && sender) {
+      if (shared && mic) {
         const ctx = new AudioContext();
         const out = ctx.createMediaStreamDestination();
         const micInput = ctx.createMediaStreamSource(new MediaStream([mic]));
@@ -576,7 +762,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
         ctx.createMediaStreamSource(new MediaStream([shared])).connect(out);
         const mixed = out.stream.getAudioTracks()[0]!;
         screenAudio.current = { track: shared, ctx, mixed, out, micInput };
-        await sender.replaceTrack(mixed);
+        await setSenders('audio', mixed);
         withAudio = true;
       }
       patch({ sharingScreen: true, sharingAudio: withAudio, screenStream: new MediaStream([track]), notice });
@@ -584,7 +770,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     } catch {
       // User cancelled the picker.
     }
-  }, [patch, syncVideoSender, audioSender, stopScreenAudio]);
+  }, [patch, syncVideoSender, setSenders, stopScreenAudio]);
 
   const toggleSpeaker = useCallback(() => {
     const on = !callRef.current.speakerOn;
@@ -598,6 +784,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
     switchCamera(c.localStream);
     patch({ frontCamera: !c.frontCamera });
   }, [patch]);
+
+  const setMinimized = useCallback((minimized: boolean) => patch({ minimized }), [patch]);
 
   const sendReaction = useCallback(
     (emoji: string) => {
@@ -624,6 +812,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     () => ({
       call,
       startCall,
+      joinCall,
       accept,
       decline,
       hangUp,
@@ -633,12 +822,13 @@ export function CallProvider({ children }: { children: ReactNode }) {
       toggleSpeaker,
       setNoiseMode,
       flipCamera,
+      setMinimized,
       sendReaction,
       sendChat,
       readChat,
       historyVersion,
     }),
-    [call, startCall, accept, decline, hangUp, toggleMic, toggleCamera, toggleScreenShare, toggleSpeaker, setNoiseMode, flipCamera, sendReaction, sendChat, readChat, historyVersion],
+    [call, startCall, joinCall, accept, decline, hangUp, toggleMic, toggleCamera, toggleScreenShare, toggleSpeaker, setNoiseMode, flipCamera, setMinimized, sendReaction, sendChat, readChat, historyVersion],
   );
 
   return <CallContext.Provider value={value}>{children}</CallContext.Provider>;

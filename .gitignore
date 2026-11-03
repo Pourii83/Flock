@@ -9,6 +9,7 @@ apps/desktop/release/
 
 # server local data
 server/data/
+/data/
 
 # local tooling
 .claude/

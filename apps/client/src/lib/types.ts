@@ -24,11 +24,18 @@ export type Message = {
   failed?: boolean;
 };
 
+export type GroupRole = 'owner' | 'admin' | 'member';
+
 export type Conversation = {
   id: string;
   type: 'direct' | 'group';
   name: string;
-  members: User[];
+  /** Members carry their group role (groups only). */
+  members: (User & { role?: GroupRole })[];
+  description: string;
+  /** Group photo (server-relative), or null. */
+  avatarUrl: string | null;
+  myRole: GroupRole | null;
   lastMessage: Message | null;
   unreadCount: number;
   pinned: boolean;
@@ -36,6 +43,15 @@ export type Conversation = {
   othersReadAt: number;
   createdAt: number;
   updatedAt: number;
+};
+
+/** A call currently running in a conversation (for "Join call"). */
+export type ActiveCall = {
+  conversationId: string;
+  callId: string;
+  video: boolean;
+  startedAt: number;
+  participants: string[];
 };
 
 export type CallLog = {

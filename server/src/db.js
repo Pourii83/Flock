@@ -69,6 +69,20 @@ export async function migrate() {
     );
     CREATE INDEX IF NOT EXISTS calls_conv ON calls (conversation_id, started_at DESC);
     ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_path TEXT;
+
+    -- Groups: profile and roles (owner = "mother admin", admin, member)
+    ALTER TABLE conversations ADD COLUMN IF NOT EXISTS description TEXT NOT NULL DEFAULT '';
+    ALTER TABLE conversations ADD COLUMN IF NOT EXISTS avatar_path TEXT;
+    ALTER TABLE members ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'member';
+    -- Existing groups: the creator (or, if they left, the earliest member) becomes the owner.
+    UPDATE members m SET role = 'owner'
+    FROM (
+      SELECT DISTINCT ON (c.id) c.id AS conversation_id, mm.user_id
+      FROM conversations c JOIN members mm ON mm.conversation_id = c.id
+      WHERE c.type = 'group' AND NOT EXISTS (SELECT 1 FROM members o WHERE o.conversation_id = c.id AND o.role = 'owner')
+      ORDER BY c.id, (mm.user_id = c.created_by) DESC, mm.joined_at
+    ) pick
+    WHERE m.conversation_id = pick.conversation_id AND m.user_id = pick.user_id;
   `);
 }
 

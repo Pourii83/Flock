@@ -1,5 +1,5 @@
 import { getApiUrl } from './config';
-import type { CallLog, Conversation, Message, User } from './types';
+import type { ActiveCall, CallLog, Conversation, Message, User } from './types';
 import { t } from '@/lib/i18n';
 
 export class ApiError extends Error {
@@ -57,6 +57,18 @@ export const api = {
   users: (q = '') => request<User[]>('GET', `/users?q=${encodeURIComponent(q)}`),
   conversations: () => request<Conversation[]>('GET', '/conversations'),
   conversation: (id: string) => request<Conversation>('GET', `/conversations/${id}`),
+  createGroup: (userIds: string[], name: string, description: string) =>
+    request<Conversation>('POST', '/conversations', { userIds, name, description }),
+  updateGroupInfo: (id: string, patch: { name?: string; description?: string }) =>
+    request<Conversation>('PATCH', `/conversations/${id}/info`, patch),
+  setGroupAvatar: (id: string, base64: string) => request<Conversation>('PUT', `/conversations/${id}/avatar`, { data: base64 }),
+  removeGroupAvatar: (id: string) => request<Conversation>('DELETE', `/conversations/${id}/avatar`),
+  addMembers: (id: string, userIds: string[]) => request<Conversation>('POST', `/conversations/${id}/members`, { userIds }),
+  /** Removes a member, or leaves when `userId` is yourself. */
+  removeMember: (id: string, userId: string) => request<{ ok: true }>('DELETE', `/conversations/${id}/members/${userId}`),
+  setMemberRole: (id: string, userId: string, role: 'admin' | 'member' | 'owner') =>
+    request<Conversation>('PATCH', `/conversations/${id}/members/${userId}`, { role }),
+  activeCalls: () => request<ActiveCall[]>('GET', '/calls/active'),
   createConversation: (userIds: string[], name?: string) =>
     request<Conversation>('POST', '/conversations', { userIds, name }),
   updateConversation: (id: string, patch: { pinned?: boolean; muted?: boolean }) =>

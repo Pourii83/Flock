@@ -3,7 +3,7 @@ import { io, type Socket } from 'socket.io-client';
 
 import { api } from '@/lib/api';
 import { getApiUrl } from '@/lib/config';
-import type { Conversation, Message, User } from '@/lib/types';
+import type { Conversation, Message, User, ActiveCall } from '@/lib/types';
 import { t } from '@/lib/i18n';
 
 type State = {
@@ -14,6 +14,8 @@ type State = {
   hasMore: Record<string, boolean>;
   /** conversationId -> userIds currently typing */
   typing: Record<string, string[]>;
+  /** conversationId -> call running there (group calls can be joined late). */
+  activeCalls: Record<string, ActiveCall>;
 };
 
 const initialState = (): State => ({
@@ -23,6 +25,7 @@ const initialState = (): State => ({
   messages: {},
   hasMore: {},
   typing: {},
+  activeCalls: {},
 });
 
 const sortConversations = (list: Conversation[]) =>
@@ -67,7 +70,16 @@ class ChatStore {
     });
     socket.on('disconnect', () => this.set({ connected: false }));
     socket.on('message:new', (m: Message) => this.receiveMessage(m));
-    socket.on('conversation:new', (c: Conversation) => this.upsertConversation(c));
+    socket.on('conversation:new', (c: Conversation) => c && this.upsertConversation(c));
+    socket.on('conversation:removed', ({ conversationId }: { conversationId: string }) => this.dropConversation(conversationId));
+    socket.on('call:state', (c: ActiveCall & { callId: string | null }) =>
+      this.set((s) => {
+        const activeCalls = { ...s.activeCalls };
+        if (c.callId) activeCalls[c.conversationId] = c;
+        else delete activeCalls[c.conversationId];
+        return { activeCalls };
+      }),
+    );
     socket.on('conversation:read', ({ conversationId, userId, readAt }) => {
       if (userId === this.me?.id) return;
       this.patchConversation(conversationId, (c) => ({
@@ -94,11 +106,24 @@ class ChatStore {
 
   async refreshConversations() {
     try {
-      const list = await api.conversations();
-      this.set({ conversations: sortConversations(list), loaded: true });
+      const [list, calls] = await Promise.all([api.conversations(), api.activeCalls().catch(() => [])]);
+      this.set({
+        conversations: sortConversations(list),
+        activeCalls: Object.fromEntries(calls.map((c) => [c.conversationId, c])),
+        loaded: true,
+      });
     } catch {
       this.set({ loaded: true });
     }
+  }
+
+  /** Removed from a group (or left): forget it locally. */
+  dropConversation(id: string) {
+    this.set((s) => {
+      const messages = { ...s.messages };
+      delete messages[id];
+      return { conversations: s.conversations.filter((c) => c.id !== id), messages };
+    });
   }
 
   upsertConversation(c: Conversation) {

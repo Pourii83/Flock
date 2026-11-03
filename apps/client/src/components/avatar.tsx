@@ -100,6 +100,16 @@ export function ConversationAvatar({
 }) {
   const others = conversation.members.filter((m) => m.id !== meId);
   if (conversation.type === 'direct') return <Avatar user={others[0]} size={size} ringBg={ringBg} />;
+  if (conversation.avatarUrl)
+    return (
+      <Image
+        source={{ uri: `${getApiUrl()}${conversation.avatarUrl}` }}
+        style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: colors.surfaceHigh }}
+        contentFit="cover"
+        transition={150}
+        accessibilityLabel={conversation.name}
+      />
+    );
   if (others.length >= 2) {
     const small = size * 0.68;
     return (

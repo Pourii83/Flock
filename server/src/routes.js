@@ -94,10 +94,14 @@ export function createRouter(realtime) {
   r.get('/conversations', async (req, res) => res.json(await repo.listConversations(req.userId)));
 
   r.post('/conversations', async (req, res) => {
-    const { userIds = [], name } = req.body || {};
+    const { userIds = [], name, description } = req.body || {};
     try {
-      const { id, created } = await repo.createConversation(req.userId, userIds, name?.trim());
-      if (created) await realtime.notifyConversation(id);
+      const groupName = typeof name === 'string' ? name.trim().slice(0, 80) : undefined;
+      const { id, created } = await repo.createConversation(req.userId, userIds, groupName, typeof description === 'string' ? description.trim() : '');
+      if (created) {
+        await realtime.notifyConversation(id);
+        if (groupName) await systemMessage(id, req.userId, { e: 'created', name: groupName });
+      }
       res.status(created ? 201 : 200).json(await repo.getConversation(id, req.userId));
     } catch (e) {
       res.status(400).json({ error: e.message });
@@ -139,6 +143,117 @@ export function createRouter(realtime) {
     res.json({ readAt });
   });
 
+  // ---------- groups: profile, members, roles ----------
+
+  /** Writes a system message (rendered/translated by the clients) and pushes it live. */
+  async function systemMessage(conversationId, actorId, payload) {
+    const actor = await repo.getUserRow(actorId);
+    const message = await repo.addMessage(conversationId, actorId, {
+      kind: 'system',
+      body: JSON.stringify({ ...payload, actor: actor?.display_name ?? '' }),
+    });
+    await realtime.notifyMessage(message);
+  }
+
+  /** Loads the group and the caller's role; rejects DMs, non-members and too-low roles. */
+  const group = (minRole) => async (req, res, next) => {
+    const conv = await repo.getConversationRow(req.params.id);
+    const role = conv && (await repo.getRole(conv.id, req.userId));
+    if (!conv || !role) return res.status(404).json({ error: 'Conversation not found' });
+    if (conv.type !== 'group') return res.status(400).json({ error: 'Only groups have members to manage' });
+    if (repo.ROLE_RANK[role] < repo.ROLE_RANK[minRole]) return res.status(403).json({ error: 'Only group admins can do that' });
+    req.group = conv;
+    req.role = role;
+    next();
+  };
+
+  r.patch('/conversations/:id/info', group('admin'), async (req, res) => {
+    const { name, description } = req.body || {};
+    const nextName = typeof name === 'string' ? name.trim().slice(0, 80) : undefined;
+    if (nextName === '') return res.status(400).json({ error: 'Group name cannot be empty' });
+    const nextDesc = typeof description === 'string' ? description.trim().slice(0, 500) : undefined;
+    await repo.updateGroupInfo(req.group.id, { name: nextName, description: nextDesc });
+    if (nextName && nextName !== req.group.name) await systemMessage(req.group.id, req.userId, { e: 'renamed', name: nextName });
+    if (nextDesc !== undefined && nextDesc !== req.group.description) await systemMessage(req.group.id, req.userId, { e: 'description' });
+    await realtime.notifyConversation(req.group.id);
+    res.json(await repo.getConversation(req.group.id, req.userId));
+  });
+
+  r.put('/conversations/:id/avatar', group('admin'), async (req, res) => {
+    let file;
+    try {
+      file = await saveAvatar(`g-${req.group.id}`, req.body?.data);
+    } catch (e) {
+      return res.status(400).json({ error: e.message });
+    }
+    await repo.setGroupAvatar(req.group.id, file);
+    await deleteAvatar(req.group.avatar_path);
+    await systemMessage(req.group.id, req.userId, { e: 'photo' });
+    await realtime.notifyConversation(req.group.id);
+    res.json(await repo.getConversation(req.group.id, req.userId));
+  });
+
+  r.delete('/conversations/:id/avatar', group('admin'), async (req, res) => {
+    await repo.setGroupAvatar(req.group.id, null);
+    await deleteAvatar(req.group.avatar_path);
+    await realtime.notifyConversation(req.group.id);
+    res.json(await repo.getConversation(req.group.id, req.userId));
+  });
+
+  r.post('/conversations/:id/members', group('admin'), async (req, res) => {
+    const added = await repo.addMembers(req.group.id, Array.isArray(req.body?.userIds) ? req.body.userIds : []);
+    if (!added.length) return res.status(400).json({ error: 'Those people are already in the group' });
+    await systemMessage(req.group.id, req.userId, { e: 'added', targets: added.map((u) => u.display_name) });
+    await realtime.notifyConversation(req.group.id);
+    res.json(await repo.getConversation(req.group.id, req.userId));
+  });
+
+  // Remove someone (admins) or leave (anyone, with your own id).
+  r.delete('/conversations/:id/members/:userId', group('member'), async (req, res) => {
+    const targetId = req.params.userId;
+    const leaving = targetId === req.userId;
+    const targetRole = await repo.getRole(req.group.id, targetId);
+    if (!targetRole) return res.status(404).json({ error: 'Not a member' });
+    if (!leaving) {
+      // Admins remove members; only the owner removes admins; nobody removes the owner.
+      if (targetRole === 'owner' || repo.ROLE_RANK[req.role] <= repo.ROLE_RANK[targetRole] || req.role === 'member')
+        return res.status(403).json({ error: 'You can’t remove this member' });
+    }
+    const target = await repo.getUserRow(targetId);
+    await repo.removeMember(req.group.id, targetId);
+    realtime.notifyRemoved(req.group.id, targetId);
+    const stillExists = await repo.getConversationRow(req.group.id);
+    if (stillExists) {
+      await systemMessage(req.group.id, req.userId, leaving ? { e: 'left' } : { e: 'removed', targets: [target?.display_name ?? ''] });
+      if (targetRole === 'owner') {
+        const owner = await repo.ensureOwner(req.group.id);
+        if (owner) await systemMessage(req.group.id, owner.id, { e: 'owner' });
+      }
+      await realtime.notifyConversation(req.group.id);
+    }
+    res.json({ ok: true });
+  });
+
+  // Owner only: make admin, back to member, or hand over ownership.
+  r.patch('/conversations/:id/members/:userId', group('owner'), async (req, res) => {
+    const { role } = req.body || {};
+    const targetId = req.params.userId;
+    if (!['admin', 'member', 'owner'].includes(role)) return res.status(400).json({ error: 'Unknown role' });
+    if (targetId === req.userId) return res.status(400).json({ error: 'You can’t change your own role' });
+    if (!(await repo.getRole(req.group.id, targetId))) return res.status(404).json({ error: 'Not a member' });
+    const target = await repo.getUserRow(targetId);
+    if (role === 'owner') {
+      await repo.setRole(req.group.id, targetId, 'owner');
+      await repo.setRole(req.group.id, req.userId, 'admin');
+      await systemMessage(req.group.id, req.userId, { e: 'transferred', targets: [target.display_name] });
+    } else {
+      await repo.setRole(req.group.id, targetId, role);
+      await systemMessage(req.group.id, req.userId, { e: role === 'admin' ? 'promoted' : 'demoted', targets: [target.display_name] });
+    }
+    await realtime.notifyConversation(req.group.id);
+    res.json(await repo.getConversation(req.group.id, req.userId));
+  });
+
   // ---------- calls ----------
 
   // ICE servers for WebRTC. TURN credentials are short-lived (TURN REST API, coturn
@@ -157,6 +272,7 @@ export function createRouter(realtime) {
 
 
   r.get('/calls', async (req, res) => res.json(await repo.listCalls(req.userId)));
+  r.get('/calls/active', async (req, res) => res.json(await realtime.activeCalls(req.userId)));
 
   return r;
 }

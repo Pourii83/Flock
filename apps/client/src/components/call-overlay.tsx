@@ -3,28 +3,111 @@ import { useEffect, useState } from 'react';
 import { Animated, Easing, Platform, Pressable, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { useIsWide } from '@/hooks/use-layout';
 import { timer } from '@/lib/format';
 import { canSwitchCamera } from '@/lib/native-media';
 import { getNoisePreference, strongNoiseSupported } from '@/lib/noise';
 import { screenShareSupported } from '@/lib/rtc';
-import { useCalls } from '@/state/calls';
+import { useAuth } from '@/state/auth';
+import { useCalls, type CallRemote } from '@/state/calls';
+import { useConversation } from '@/state/chat-store';
 import { colors, radius } from '@/theme';
-import { Avatar } from './avatar';
+import { Avatar, ConversationAvatar } from './avatar';
 import { Icon, T, type IconName, UnreadBadge } from './ui';
 import { CallChatPanel } from './call-chat';
 import { RemoteAudio } from './remote-audio';
 import { VideoView } from './video-view';
-import { t } from '@/lib/i18n';
+import { num, t } from '@/lib/i18n';
 
 const REACTIONS = ['❤️', '👏', '💡', '🔥'];
 
 export function CallOverlay() {
   const { call } = useCalls();
   if (call.phase === 'idle') return null;
+  const minimized = call.phase === 'active' && call.minimized;
   return (
-    <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.canvas, zIndex: 100 }]}>
-      {call.phase === 'active' ? <ActiveCall /> : <RingingCall />}
+    <View style={[StyleSheet.absoluteFill, { zIndex: 100 }]} pointerEvents="box-none">
+      {minimized ? (
+        <MiniCall />
+      ) : (
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.canvas }]}>{call.phase === 'active' ? <ActiveCall /> : <RingingCall />}</View>
+      )}
+      {/* One persistent audio output per participant (web) — it keeps playing while minimized. */}
+      {call.phase === 'active' && call.remotes.map((r) => <RemoteAudio key={r.userId} stream={r.stream} version={call.mediaVersion} />)}
     </View>
+  );
+}
+
+/** Floating call window: the app stays usable underneath and the call keeps running. */
+function MiniCall() {
+  const { call, toggleMic, hangUp, setMinimized } = useCalls();
+  const wide = useIsWide();
+  const elapsed = useElapsed(call.answeredAt);
+  const withVideo = call.remotes.find((r) => r.video && r.stream?.getVideoTracks().length);
+  const shown = withVideo ?? call.remotes[0];
+  return (
+    <View
+      style={[
+        styles.mini,
+        // Above the message composer (desktop) and the tab bar / composer (phones).
+        { width: wide ? 280 : 240, bottom: wide ? 104 : 150 },
+        Platform.OS === 'web' ? ({ boxShadow: '0 12px 36px rgba(0,0,0,0.45)' } as object) : {},
+      ]}>
+      <Pressable onPress={() => setMinimized(false)} accessibilityLabel={t('Return to call')}>
+        {withVideo ? (
+          <View style={{ height: wide ? 158 : 135, backgroundColor: colors.rail }}>
+            <VideoView key={`mini-${withVideo.userId}-${call.mediaVersion}`} stream={withVideo.stream} contain={withVideo.screen} overlay />
+          </View>
+        ) : null}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, paddingBottom: 6 }}>
+          {!withVideo && <Avatar user={shown?.user ?? call.peer} size={36} showPresence={false} />}
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <T variant="labelLg" numberOfLines={1}>
+              {call.title || shown?.user?.displayName}
+            </T>
+            <T variant="bodySm" color={colors.amber} style={{ fontVariant: ['tabular-nums'] }}>
+              {timer(elapsed)}
+              {call.isGroup ? ` · ${t('{n} in call', { n: num(call.remotes.length + 1) })}` : ''}
+            </T>
+          </View>
+        </View>
+      </Pressable>
+      <View style={{ flexDirection: 'row', gap: 8, padding: 12, paddingTop: 6, justifyContent: 'flex-end' }}>
+        <MiniButton icon={call.micMuted ? 'mic-off' : 'mic'} active={!call.micMuted} onPress={toggleMic} label={t('Microphone')} />
+        <MiniButton icon="maximize-2" active={false} onPress={() => setMinimized(false)} label={t('Return to call')} />
+        <Pressable
+          accessibilityLabel={t('Hang up')}
+          onPress={hangUp}
+          style={({ pressed }) => ({
+            width: 52,
+            height: 40,
+            borderRadius: 20,
+            backgroundColor: pressed ? '#B91C1C' : colors.dangerDeep,
+            alignItems: 'center',
+            justifyContent: 'center',
+          })}>
+          <Icon name="phone-off" size={18} color="#FF8A80" />
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+function MiniButton({ icon, active, onPress, label }: { icon: IconName; active: boolean; onPress: () => void; label: string }) {
+  return (
+    <Pressable
+      accessibilityLabel={label}
+      onPress={onPress}
+      style={({ pressed }) => ({
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        backgroundColor: active ? 'rgba(255,184,77,0.22)' : pressed ? colors.surfaceHighest : colors.surfaceHigh,
+        alignItems: 'center',
+        justifyContent: 'center',
+      })}>
+      <Icon name={icon} size={18} color={active ? colors.amber : colors.text} />
+    </Pressable>
   );
 }
 
@@ -91,6 +174,8 @@ function RoundAction({
 /** Incoming (Stitch "Incoming Video Call") and outgoing ringing screen. */
 function RingingCall() {
   const { call, accept, decline, hangUp } = useCalls();
+  const { user } = useAuth();
+  const conversation = useConversation(call.conversationId ?? undefined);
   const pulse = usePulse();
   const incoming = call.phase === 'incoming';
   const ringScale = pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.25] });
@@ -133,18 +218,28 @@ function RingingCall() {
               }}
             />
             <View style={{ position: 'absolute', width: 230, height: 230, borderRadius: 115, borderWidth: 14, borderColor: 'rgba(255,184,77,0.22)' }} />
-            <Avatar user={call.peer} size={180} ring={colors.teal} ringBg={colors.canvas} />
+            {call.isGroup && conversation ? (
+              <ConversationAvatar conversation={conversation} meId={user?.id} size={180} />
+            ) : (
+              <Avatar user={call.peer} size={180} ring={colors.teal} ringBg={colors.canvas} />
+            )}
           </View>
           <T variant="display" style={{ fontSize: 40, textAlign: 'center' }}>
             {call.title || call.peer?.displayName}
           </T>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <T variant="bodyLg" color={colors.amberSoft} style={{ fontSize: 18 }}>
-              {incoming ? (call.video ? t('Flock Video Calling') : t('Flock Voice Calling')) : t('Ringing…')}
+            <T variant="bodyLg" color={colors.amberSoft} style={{ fontSize: 18, textAlign: 'center' }}>
+              {incoming
+                ? call.isGroup && call.peer
+                  ? t('{name} is calling the group', { name: call.peer.displayName })
+                  : call.video
+                    ? t('Flock Video Calling')
+                    : t('Flock Voice Calling')
+                : t('Ringing…')}
             </T>
             <Icon name="bar-chart-2" size={18} color={colors.amber} />
           </View>
-          {!!call.peer?.title && (
+          {!call.isGroup && !!call.peer?.title && (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.surface, borderRadius: radius.pill, paddingHorizontal: 14, paddingVertical: 6 }}>
               <Icon name="briefcase" size={14} color={colors.textMuted} />
               <T variant="body" color={colors.amberSoft}>
@@ -232,7 +327,7 @@ function useElapsed(since: number | null) {
 
 /** Stitch "Active Video Call": full-bleed remote, PiP self view, glass control dock. */
 function ActiveCall() {
-  const { call, hangUp, toggleMic, toggleCamera, toggleScreenShare, toggleSpeaker, flipCamera, sendReaction, setNoiseMode } = useCalls();
+  const { call, hangUp, toggleMic, toggleCamera, toggleScreenShare, toggleSpeaker, flipCamera, sendReaction, setNoiseMode, setMinimized } = useCalls();
   // Dock toggle: off ↔ the user's preferred level (strong AI filter where available).
   const toggleNoise = () => {
     const preferred = getNoisePreference();
@@ -248,12 +343,17 @@ function ActiveCall() {
   };
   const chromePointer = controlsHidden ? 'none' : 'box-none';
   const elapsed = useElapsed(call.answeredAt);
-  // The other side announces when its video slot carries camera or screen.
-  const remoteHasVideo = call.remoteVideo && !!call.remoteStream?.getVideoTracks().length;
+  // Each participant announces when their video slot carries camera or screen.
+  const hasVideo = (r: CallRemote) => r.video && !!r.stream?.getVideoTracks().length;
+  const single = call.remotes.length <= 1 ? call.remotes[0] : undefined;
+  const grid = call.remotes.length > 1;
+  const remoteHasVideo = !!single && hasVideo(single);
   // Local preview: the shared screen wins over the camera.
   const localPreview = call.sharingScreen ? call.screenStream : !call.cameraOff ? call.localStream : null;
-  const anyVideo = remoteHasVideo || !!localPreview;
-  const peerName = call.title || call.peer?.displayName;
+  const anyVideo = call.remotes.some(hasVideo) || !!localPreview;
+  const anyScreen = call.remotes.some((r) => r.screen);
+  const stageUser = single?.user ?? call.peer;
+  const stageName = call.isGroup ? (single?.user?.displayName ?? call.title) : call.title || call.peer?.displayName;
 
   const [floatAnim] = useState(() => new Animated.Value(0));
   useEffect(() => {
@@ -270,21 +370,21 @@ function ActiveCall() {
         onPress={() => setControlsHidden((h) => !h)}
         accessibilityLabel={t('Show or hide controls')}
         {...(Platform.OS === 'web' ? { tabIndex: -1 } : {})}>
-        {remoteHasVideo ? (
-          <VideoView key={`remote-${call.mediaVersion}`} stream={call.remoteStream} contain={call.remoteScreen} />
+        {grid ? (
+          <ParticipantGrid remotes={call.remotes} version={call.mediaVersion} />
+        ) : remoteHasVideo && single ? (
+          <VideoView key={`remote-${single.userId}-${call.mediaVersion}`} stream={single.stream} contain={single.screen} />
         ) : (
           <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 16 }}>
             <LinearGradient colors={['rgba(255,184,77,0.08)', 'rgba(11,14,20,0)']} style={StyleSheet.absoluteFill} />
-            <Avatar user={call.peer} size={160} ring={colors.amber} />
-            <T variant="headline">{peerName}</T>
+            <Avatar user={stageUser} size={160} ring={colors.amber} />
+            <T variant="headline">{stageName}</T>
             <T variant="body" color={colors.textMuted}>
-              {call.remoteStream ? t('Voice call') : t('Connecting…')}
+              {single?.stream ? t('Voice call') : call.isGroup && !single ? t('Waiting for others to join…') : t('Connecting…')}
             </T>
           </View>
         )}
       </Pressable>
-      {/* One persistent audio output for the whole call (web); video views are muted. */}
-      <RemoteAudio stream={call.remoteStream} version={call.mediaVersion} />
 
       <SafeAreaView style={{ flex: 1, justifyContent: 'space-between' }} pointerEvents="box-none">
         {/* Top status */}
@@ -298,17 +398,30 @@ function ActiveCall() {
               <T variant="labelLg" color={colors.textMuted}>
                 •
               </T>
-              <T variant="labelLg" style={{ fontSize: 16 }}>
+              <T variant="labelLg" style={{ fontSize: 16 }} numberOfLines={1}>
                 {call.title || call.peer?.displayName}
               </T>
+              <Pressable
+                accessibilityLabel={t('Minimize call')}
+                onPress={() => setMinimized(true)}
+                hitSlop={8}
+                style={({ pressed }) => ({ marginStart: 4, padding: 4, borderRadius: 14, backgroundColor: pressed ? colors.surfaceHigh : 'transparent' })}>
+                <Icon name="minimize-2" size={16} color={colors.text} />
+              </Pressable>
             </View>
             <View style={{ flexDirection: 'row', gap: 6 }}>
               <View style={[styles.tag, { backgroundColor: colors.tealTint }]}>
                 <Icon name="wifi" size={13} color={colors.teal} />
                 <T variant="label" color={colors.teal}>
-                  {call.remoteScreen ? t('Screen') : anyVideo ? t('HD Video') : t('Voice')}
+                  {anyScreen ? t('Screen') : anyVideo ? t('HD Video') : t('Voice')}
                 </T>
               </View>
+              {call.isGroup && (
+                <View style={[styles.tag, { backgroundColor: colors.surfaceHigh }]}>
+                  <Icon name="users" size={13} color={colors.text} />
+                  <T variant="label">{t('{n} in call', { n: num(call.remotes.length + 1) })}</T>
+                </View>
+              )}
               <View style={[styles.tag, { backgroundColor: colors.amberTint }]}>
                 <Icon name="activity" size={13} color={colors.amber} />
                 <T variant="label" color={colors.amber}>
@@ -419,6 +532,38 @@ function ActiveCall() {
   );
 }
 
+/** Group calls: one tile per participant (video, or their avatar while voice-only). */
+function ParticipantGrid({ remotes, version }: { remotes: CallRemote[]; version: number }) {
+  const cols = remotes.length <= 4 ? 2 : 3;
+  const rows = Math.ceil(remotes.length / cols);
+  return (
+    <View style={{ flex: 1, flexDirection: 'row', flexWrap: 'wrap', padding: 6, paddingTop: 96, paddingBottom: 170 }}>
+      {remotes.map((r) => {
+        const video = r.video && !!r.stream?.getVideoTracks().length;
+        return (
+          <View key={r.userId} style={{ width: `${100 / cols}%`, height: `${100 / rows}%`, padding: 6 }}>
+            <View style={{ flex: 1, borderRadius: radius.lg, overflow: 'hidden', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.hairline }}>
+              {video ? (
+                <VideoView key={`tile-${r.userId}-${version}`} stream={r.stream} contain={r.screen} />
+              ) : (
+                <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+                  <Avatar user={r.user} size={88} showPresence={false} />
+                </View>
+              )}
+              <View style={[styles.glass, { position: 'absolute', start: 10, bottom: 10, paddingHorizontal: 10, paddingVertical: 4, flexDirection: 'row', gap: 6, alignItems: 'center' }]}>
+                {!r.stream && <Icon name="loader" size={12} color={colors.textMuted} />}
+                <T variant="label" numberOfLines={1}>
+                  {r.user?.displayName ?? '…'}
+                </T>
+              </View>
+            </View>
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
 function DockButton({ icon, active, onPress, label, badge = 0 }: { icon: IconName; active: boolean; onPress: () => void; label: string; badge?: number }) {
   return (
     <Pressable
@@ -453,6 +598,16 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     paddingHorizontal: 10,
     paddingVertical: 5,
+  },
+  mini: {
+    position: 'absolute',
+    end: 16,
+    borderRadius: radius.xl,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: colors.hairline,
+    backgroundColor: 'rgba(18, 23, 33, 0.96)',
+    elevation: 12,
   },
   pip: {
     width: 120,

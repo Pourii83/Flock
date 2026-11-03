@@ -59,7 +59,7 @@ export const isMember = async (conversationId, userId) =>
   isUuid(conversationId) &&
   !!(await one('SELECT 1 FROM members WHERE conversation_id = $1 AND user_id = $2', [conversationId, userId]));
 
-export async function createConversation(meId, userIds, name) {
+export async function createConversation(meId, userIds, name, description = '') {
   const candidates = [...new Set(userIds)].filter((id) => id !== meId && isUuid(id));
   const others = candidates.length
     ? (await query('SELECT id FROM users WHERE id = ANY($1::uuid[])', [candidates])).map((r) => r.id)
@@ -79,17 +79,14 @@ export async function createConversation(meId, userIds, name) {
   const id = newId();
   const t = now();
   await tx(async (client) => {
-    await client.query('INSERT INTO conversations (id, type, name, created_by, created_at) VALUES ($1, $2, $3, $4, $5)', [
-      id,
-      type,
-      type === 'group' ? name || null : null,
-      meId,
-      t,
-    ]);
+    await client.query(
+      'INSERT INTO conversations (id, type, name, description, created_by, created_at) VALUES ($1, $2, $3, $4, $5, $6)',
+      [id, type, type === 'group' ? name || null : null, type === 'group' ? description.slice(0, 500) : '', meId, t],
+    );
     for (const uid of [meId, ...others]) {
       await client.query(
-        'INSERT INTO members (conversation_id, user_id, joined_at, last_read_at) VALUES ($1, $2, $3, $3)',
-        [id, uid, t],
+        'INSERT INTO members (conversation_id, user_id, joined_at, last_read_at, role) VALUES ($1, $2, $3, $3, $4)',
+        [id, uid, t, type === 'group' && uid === meId ? 'owner' : 'member'],
       );
     }
   });
@@ -120,7 +117,7 @@ function serializeMessage(row) {
 /** Conversations for `meId`, optionally restricted to one id. One round trip per query, no N+1. */
 async function loadConversations(meId, onlyId) {
   const convs = await query(
-    `SELECT c.*, me.last_read_at, me.pinned, me.muted,
+    `SELECT c.*, me.last_read_at, me.pinned, me.muted, me.role AS my_role,
        (SELECT COUNT(*) FROM messages x
           WHERE x.conversation_id = c.id AND x.created_at > me.last_read_at AND x.sender_id != $1) AS unread
      FROM conversations c
@@ -132,8 +129,9 @@ async function loadConversations(meId, onlyId) {
   const ids = convs.map((c) => c.id);
   const [memberRows, lastRows] = await Promise.all([
     query(
-      `SELECT m.conversation_id, m.last_read_at AS member_read_at, u.*
-       FROM members m JOIN users u ON u.id = m.user_id WHERE m.conversation_id = ANY($1::uuid[])`,
+      `SELECT m.conversation_id, m.last_read_at AS member_read_at, m.role AS member_role, m.joined_at AS member_joined_at, u.*
+       FROM members m JOIN users u ON u.id = m.user_id WHERE m.conversation_id = ANY($1::uuid[])
+       ORDER BY m.joined_at`,
       [ids],
     ),
     query(
@@ -158,7 +156,10 @@ async function loadConversations(meId, onlyId) {
         c.type === 'direct'
           ? others[0]?.display_name ?? 'Unknown'
           : c.name || others.map((o) => o.display_name).join(', '),
-      members: members.map(publicUser),
+      members: members.map((m) => ({ ...publicUser(m), role: m.member_role })),
+      description: c.description ?? '',
+      avatarUrl: c.avatar_path ? `/api/avatars/${c.avatar_path}` : null,
+      myRole: c.my_role,
       lastMessage: serializeMessage(last),
       unreadCount: Number(c.unread),
       pinned: c.pinned,
@@ -267,3 +268,67 @@ export async function listCalls(meId) {
 
 export const setAvatarPath = (id, avatarPath) =>
   one('UPDATE users SET avatar_path = $2 WHERE id = $1 RETURNING *', [id, avatarPath]);
+
+// ---------- groups ----------
+
+export const ROLE_RANK = { member: 0, admin: 1, owner: 2 };
+
+export const getRole = async (conversationId, userId) =>
+  (await one('SELECT role FROM members WHERE conversation_id = $1 AND user_id = $2', [conversationId, userId]))?.role ?? null;
+
+export const getConversationRow = (id) => (isUuid(id) ? one('SELECT * FROM conversations WHERE id = $1', [id]) : null);
+
+export const updateGroupInfo = (id, { name, description }) =>
+  one('UPDATE conversations SET name = COALESCE($2, name), description = COALESCE($3, description) WHERE id = $1 RETURNING *', [
+    id,
+    name ?? null,
+    description ?? null,
+  ]);
+
+export const setGroupAvatar = (id, avatarPath) =>
+  one('UPDATE conversations SET avatar_path = $2 WHERE id = $1 RETURNING *', [id, avatarPath]);
+
+/** Adds users that exist and aren't members yet; returns the added user rows. */
+export async function addMembers(conversationId, userIds) {
+  const ids = [...new Set(userIds)].filter(isUuid);
+  if (!ids.length) return [];
+  const rows = await query(
+    `SELECT u.* FROM users u WHERE u.id = ANY($1::uuid[])
+       AND NOT EXISTS (SELECT 1 FROM members m WHERE m.conversation_id = $2 AND m.user_id = u.id)`,
+    [ids, conversationId],
+  );
+  const t = now();
+  for (const u of rows) {
+    await query(
+      "INSERT INTO members (conversation_id, user_id, joined_at, last_read_at, role) VALUES ($1, $2, $3, $3, 'member') ON CONFLICT DO NOTHING",
+      [conversationId, u.id, t],
+    );
+  }
+  return rows;
+}
+
+export const removeMember = (conversationId, userId) =>
+  query('DELETE FROM members WHERE conversation_id = $1 AND user_id = $2', [conversationId, userId]);
+
+export const setRole = (conversationId, userId, role) =>
+  query('UPDATE members SET role = $3 WHERE conversation_id = $1 AND user_id = $2', [conversationId, userId, role]);
+
+/**
+ * After the owner leaves: the earliest admin (else earliest member) becomes owner.
+ * Deletes the conversation when nobody is left. Returns the new owner's user row, if any.
+ */
+export async function ensureOwner(conversationId) {
+  const owner = await one("SELECT 1 FROM members WHERE conversation_id = $1 AND role = 'owner'", [conversationId]);
+  if (owner) return null;
+  const next = await one(
+    `SELECT user_id FROM members WHERE conversation_id = $1
+     ORDER BY (role = 'admin') DESC, joined_at, user_id LIMIT 1`,
+    [conversationId],
+  );
+  if (!next) {
+    await query('DELETE FROM conversations WHERE id = $1', [conversationId]);
+    return null;
+  }
+  await setRole(conversationId, next.user_id, 'owner');
+  return getUserRow(next.user_id);
+}

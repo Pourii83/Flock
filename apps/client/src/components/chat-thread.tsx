@@ -1,4 +1,5 @@
 import * as Clipboard from 'expo-clipboard';
+import { router } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -13,6 +14,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { clock, dayDivider, lastSeenLabel, sameDay } from '@/lib/format';
+import { systemText } from '@/lib/system-message';
 import type { Conversation, Message } from '@/lib/types';
 import { useAuth } from '@/state/auth';
 import { useCalls } from '@/state/calls';
@@ -24,7 +26,10 @@ import { t, num, isRTL } from '@/lib/i18n';
 
 const EMOJIS = ['😀', '😂', '😍', '🥳', '😎', '🤔', '😅', '😢', '👍', '🙏', '👏', '🔥', '❤️', '✨', '🎉', '✅'];
 
-type Row = { type: 'message'; message: Message; first: boolean; last: boolean } | { type: 'day'; key: string; label: string };
+type Row =
+  | { type: 'message'; message: Message; first: boolean; last: boolean }
+  | { type: 'day'; key: string; label: string }
+  | { type: 'system'; message: Message };
 
 function buildRows(messages: Message[]): Row[] {
   const rows: Row[] = [];
@@ -32,8 +37,12 @@ function buildRows(messages: Message[]): Row[] {
     const prev = messages[i - 1];
     const next = messages[i + 1];
     if (!prev || !sameDay(prev.createdAt, m.createdAt)) rows.push({ type: 'day', key: `day-${m.createdAt}`, label: dayDivider(m.createdAt) });
-    const groupedWithPrev = prev && prev.senderId === m.senderId && sameDay(prev.createdAt, m.createdAt) && m.createdAt - prev.createdAt < 5 * 60_000;
-    const groupedWithNext = next && next.senderId === m.senderId && sameDay(next.createdAt, m.createdAt) && next.createdAt - m.createdAt < 5 * 60_000;
+    if (m.kind === 'system') {
+      rows.push({ type: 'system', message: m });
+      return;
+    }
+    const groupedWithPrev = prev && prev.kind !== 'system' && prev.senderId === m.senderId && sameDay(prev.createdAt, m.createdAt) && m.createdAt - prev.createdAt < 5 * 60_000;
+    const groupedWithNext = next && next.kind !== 'system' && next.senderId === m.senderId && sameDay(next.createdAt, m.createdAt) && next.createdAt - m.createdAt < 5 * 60_000;
     rows.push({ type: 'message', message: m, first: !groupedWithPrev, last: !groupedWithNext });
   });
   return rows.reverse(); // inverted list
@@ -87,6 +96,7 @@ export function ChatThread({
   return (
     <KeyboardAvoidingView style={{ flex: 1, backgroundColor: colors.canvas }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <ThreadHeader conversation={conversation} desktop={desktop} onBack={onBack} detailsOpen={detailsOpen} onToggleDetails={onToggleDetails} />
+      <JoinCallBanner conversation={conversation} />
       {loadError ? (
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 }}>
           <T color={colors.textMuted}>{"Couldn't load messages."}</T>
@@ -116,6 +126,8 @@ export function ChatThread({
           renderItem={({ item }) =>
             item.type === 'day' ? (
               <DayDivider label={item.label} desktop={desktop} />
+            ) : item.type === 'system' ? (
+              <SystemNote message={item.message} />
             ) : (
               <Bubble
                 row={item}
@@ -196,7 +208,10 @@ function ThreadHeader({
         borderBottomColor: colors.surfaceHigh,
       }}>
       {onBack && <IconButton name="arrow-left" label={t('Back')} onPress={onBack} iconSize={24} />}
-      <Pressable onPress={onToggleDetails} disabled={!onToggleDetails} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1, minWidth: 0 }}>
+      <Pressable
+        onPress={onToggleDetails ?? (() => router.push(`/info/${conversation.id}`))}
+        accessibilityLabel={conversation.type === 'group' ? t('Group Info') : t('Contact Info')}
+        style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1, minWidth: 0 }}>
         <ConversationAvatar conversation={conversation} meId={user?.id} size={desktop ? 48 : 44} />
         <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
@@ -240,7 +255,63 @@ function ThreadHeader({
   );
 }
 
+/** A call is running in this conversation and this device isn't in it: offer to join. */
+function JoinCallBanner({ conversation }: { conversation: Conversation }) {
+  const { call, joinCall } = useCalls();
+  const running = useChat((s) => s.activeCalls[conversation.id]);
+  if (!running?.participants.length || call.callId === running.callId) return null;
+  const names = running.participants
+    .map((id) => conversation.members.find((m) => m.id === id)?.displayName)
+    .filter(Boolean)
+    .slice(0, 3)
+    .join(isRTL() ? '، ' : ', ');
+  return (
+    <View
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+        paddingHorizontal: 16,
+        paddingVertical: 10,
+        backgroundColor: 'rgba(52, 211, 153, 0.10)',
+        borderBottomWidth: 1,
+        borderBottomColor: colors.surfaceHigh,
+      }}>
+      <View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: 'rgba(52, 211, 153, 0.18)', alignItems: 'center', justifyContent: 'center' }}>
+        <Icon name={running.video ? 'video' : 'phone'} size={16} color={colors.online} />
+      </View>
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <T variant="labelLg">{t('Call in progress')}</T>
+        <T variant="bodySm" color={colors.textMuted} numberOfLines={1}>
+          {t('{n} in call', { n: num(running.participants.length) })}
+          {names ? ` · ${names}` : ''}
+        </T>
+      </View>
+      <Button
+        title={t('Join')}
+        icon="phone-call"
+        size="sm"
+        disabled={call.phase !== 'idle'}
+        onPress={() => joinCall(conversation.id)}
+      />
+    </View>
+  );
+}
+
 // ---------- messages ----------
+
+/** Centered note for group events ("Maya added Leo", "Leo is now an admin"…). */
+function SystemNote({ message }: { message: Message }) {
+  return (
+    <View style={{ alignItems: 'center', marginVertical: 8, paddingHorizontal: 24 }}>
+      <View style={{ backgroundColor: colors.surface, borderRadius: radius.pill, paddingHorizontal: 14, paddingVertical: 6 }}>
+        <T variant="bodySm" color={colors.textMuted} style={{ textAlign: 'center' }}>
+          {systemText(message.body)}
+        </T>
+      </View>
+    </View>
+  );
+}
 
 function DayDivider({ label, desktop }: { label: string; desktop: boolean }) {
   return (

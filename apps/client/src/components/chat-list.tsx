@@ -3,12 +3,13 @@ import { useMemo, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, ScrollView, View } from 'react-native';
 
 import { shortTime } from '@/lib/format';
+import { systemText } from '@/lib/system-message';
 import type { Conversation } from '@/lib/types';
 import { useAuth } from '@/state/auth';
 import { useChat } from '@/state/chat-store';
 import { colors, radius } from '@/theme';
 import { Avatar, ConversationAvatar } from './avatar';
-import { Button, Chip, Icon, SearchBar, SectionLabel, T, UnreadBadge } from './ui';
+import { Button, Chip, Icon, SearchBar, SectionLabel, T, UnreadBadge, IconButton } from './ui';
 import { t } from '@/lib/i18n';
 
 type Filter = 'all' | 'unread' | 'groups';
@@ -42,6 +43,12 @@ function Preview({ c, meId, typing }: { c: Conversation; meId?: string; typing: 
     return (
       <T variant="body" color={colors.textDim} numberOfLines={1} style={{ flex: 1 }}>
         {t('Say hello 👋')}
+      </T>
+    );
+  if (m.kind === 'system')
+    return (
+      <T variant="body" color={colors.textMuted} numberOfLines={1} style={{ flex: 1, fontStyle: 'italic' }}>
+        {systemText(m.body)}
       </T>
     );
   const mine = m.senderId === meId;
@@ -190,6 +197,7 @@ export function ChatList({
             </T>
           </View>
           <View style={{ flex: 1 }} />
+          <IconButton name="users" label={t('New group')} onPress={() => router.push('/new-group')} bg={colors.surface} size={36} iconSize={17} color={colors.amber} />
           <Button title={t('New Chat')} icon="plus" size="sm" onPress={onNewChat} />
         </View>
       )}

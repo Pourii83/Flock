@@ -80,6 +80,11 @@ export function CallChatPanel({ onClose }: { onClose: () => void }) {
                 borderRadius: 14,
                 backgroundColor: item.mine ? colors.amberSoft : colors.surfaceHigh,
               }}>
+              {!item.mine && !!item.author && (
+                <T variant="labelSm" color={colors.amber} numberOfLines={1}>
+                  {item.author}
+                </T>
+              )}
               <T variant="body" color={item.mine ? colors.onAmber : colors.text} selectable>
                 {item.text}
               </T>
