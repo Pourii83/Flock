@@ -1,0 +1,13 @@
+// Gradle init script (scripts/build-android.sh): native modules build their C++ with object
+// paths mirroring the full source path, which overflows Windows' 248/260-character limits.
+// - C++ build folders move from <module>/.cxx to a short folder at the drive root.
+// - A CMAKE_OBJECT_PATH_MAX below 260 makes CMake shorten the longest object paths with a hash.
+allprojects { p ->
+  def cxxRoot = new File(p.rootDir.toPath().root.toFile(), '.flock-cxx')
+  ['com.android.library', 'com.android.application'].each { id ->
+    p.plugins.withId(id) {
+      p.android.externalNativeBuild.cmake.buildStagingDirectory = new File(cxxRoot, p.name)
+      p.android.defaultConfig.externalNativeBuild.cmake.arguments '-DCMAKE_OBJECT_PATH_MAX=250'
+    }
+  }
+}
