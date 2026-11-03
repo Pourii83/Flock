@@ -9,14 +9,15 @@ const WEB_ROOT = path.join(__dirname, 'web-dist');
 const ORIGIN = 'app://flock';
 const DEV = process.argv.includes('--dev');
 
-// Server URL: FLOCK_SERVER_URL env > userData/config.json > localhost.
+// Server URL: FLOCK_SERVER_URL env > userData/config.json > localhost in --dev. Otherwise none,
+// and the web build's own default (EXPO_PUBLIC_API_URL at build time) applies.
 function serverUrl() {
   if (process.env.FLOCK_SERVER_URL) return process.env.FLOCK_SERVER_URL;
   try {
     const cfg = JSON.parse(fs.readFileSync(path.join(app.getPath('userData'), 'config.json'), 'utf8'));
     if (cfg.serverUrl) return cfg.serverUrl;
   } catch {}
-  return 'http://localhost:4000';
+  return DEV ? 'http://localhost:4000' : null;
 }
 
 protocol.registerSchemesAsPrivileged([
@@ -68,7 +69,7 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       sandbox: true,
-      additionalArguments: [`--flock-server=${serverUrl()}`],
+      additionalArguments: serverUrl() ? [`--flock-server=${serverUrl()}`] : [],
     },
   });
   win.once('ready-to-show', () => win.show());
