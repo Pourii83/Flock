@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { FlatList, Platform, Pressable, TextInput, View, type FlatList as FlatListType } from 'react-native';
+import { FlatList, Keyboard, Platform, Pressable, TextInput, View, type FlatList as FlatListType } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useIsWide } from '@/hooks/use-layout';
 import { clock } from '@/lib/format';
@@ -9,12 +10,35 @@ import { colors, fonts, radius } from '@/theme';
 import { Icon, IconButton, noOutline, T } from './ui';
 
 /**
+ * Height of the on-screen keyboard on phones (0 elsewhere). The call overlay floats above the
+ * app's screens, so no KeyboardAvoidingView wraps it; and Android edge-to-edge windows report
+ * the IME without resizing, so the panel lifts itself explicitly.
+ */
+function useKeyboardHeight() {
+  const [height, setHeight] = useState(0);
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const show = Keyboard.addListener(showEvent, (e) => setHeight(e.endCoordinates.height));
+    const hide = Keyboard.addListener(hideEvent, () => setHeight(0));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
+  return height;
+}
+
+/**
  * Temporary chat for the current call. Messages travel over the call's signaling channel,
  * are never stored, and disappear when the call ends.
  */
 export function CallChatPanel({ onClose }: { onClose: () => void }) {
   const { call, sendChat, readChat } = useCalls();
   const wide = useIsWide();
+  const keyboard = useKeyboardHeight();
+  const insets = useSafeAreaInsets();
   const [text, setText] = useState('');
   const listRef = useRef<FlatListType<(typeof call.chat)[number]>>(null);
 
@@ -23,7 +47,7 @@ export function CallChatPanel({ onClose }: { onClose: () => void }) {
     if (call.chatUnread) readChat();
     const id = setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 50);
     return () => clearTimeout(id);
-  }, [call.chat.length, call.chatUnread, readChat]);
+  }, [call.chat.length, call.chatUnread, readChat, keyboard]);
 
   const send = () => {
     if (!text.trim()) return;
@@ -45,7 +69,10 @@ export function CallChatPanel({ onClose }: { onClose: () => void }) {
         },
         wide
           ? { top: 16, bottom: 16, end: 16, width: 340, borderRadius: radius.xl }
-          : { start: 8, end: 8, bottom: 8, height: '58%', borderRadius: radius.xl },
+          : keyboard
+            ? // Keyboard up: sit right above it and use the space that's left.
+              { start: 8, end: 8, bottom: keyboard + 8, top: insets.top + 8, borderRadius: radius.xl }
+            : { start: 8, end: 8, bottom: 8, height: '58%', borderRadius: radius.xl },
       ]}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14, borderBottomWidth: 1, borderBottomColor: colors.hairline }}>
         <Icon name="message-square" size={18} color={colors.amber} />

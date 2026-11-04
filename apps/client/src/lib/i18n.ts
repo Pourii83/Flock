@@ -58,6 +58,9 @@ const fa: Record<string, string> = {
   'Tell your flock your name': 'نام خود را بنویسید',
   'Pick a valid username': 'یک نام کاربری معتبر انتخاب کنید',
   'Password must be at least 6 characters': 'رمز عبور باید حداقل ۶ کاراکتر باشد',
+  'Confirm password': 'تکرار رمز عبور',
+  'Repeat your password': 'رمز عبور را دوباره وارد کنید',
+  "Passwords don't match": 'رمزهای عبور یکسان نیستند',
   '3–24 letters, numbers, _ or .': '۳ تا ۲۴ حرف انگلیسی، عدد، _ یا .',
   Language: 'زبان',
 

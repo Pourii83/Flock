@@ -1,8 +1,8 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import { Image } from 'expo-image';
 import { useEffect, useState, type ReactNode } from 'react';
-import { Animated, Easing, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Animated, Easing, PanResponder, Platform, Pressable, ScrollView, StyleSheet, useWindowDimensions, View, type LayoutChangeEvent, type LayoutRectangle } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useIsWide } from '@/hooks/use-layout';
 import { api } from '@/lib/api';
@@ -42,6 +42,58 @@ export function CallOverlay() {
   );
 }
 
+/**
+ * Drag support for the floating call window. There's only ever one, so its state lives here and
+ * survives minimize/restore. The window keeps its default anchor and moves with a translate,
+ * clamped to the visible screen. Small movements stay taps, so the buttons inside keep working.
+ */
+const miniDrag = (() => {
+  const pan = new Animated.ValueXY();
+  let offset = { x: 0, y: 0 };
+  let box: LayoutRectangle | null = null;
+  let screen = { width: 0, height: 0, top: 0, bottom: 0, left: 0, right: 0 };
+  const clamp = (x: number, y: number) => {
+    if (!box || !screen.width) return { x, y };
+    const m = 8;
+    return {
+      x: Math.min(Math.max(x, screen.left + m - box.x), screen.width - screen.right - m - box.width - box.x),
+      y: Math.min(Math.max(y, screen.top + m - box.y), screen.height - screen.bottom - m - box.height - box.y),
+    };
+  };
+  const settle = (x: number, y: number) => {
+    offset = clamp(x, y);
+    pan.setValue(offset);
+  };
+  const responder = PanResponder.create({
+    // Capture only real drags so taps still reach the buttons underneath.
+    onMoveShouldSetPanResponderCapture: (_, g) => Math.abs(g.dx) + Math.abs(g.dy) > 6,
+    onPanResponderTerminationRequest: () => false,
+    onPanResponderMove: (_, g) => pan.setValue(clamp(offset.x + g.dx, offset.y + g.dy)),
+    onPanResponderRelease: (_, g) => settle(offset.x + g.dx, offset.y + g.dy),
+    onPanResponderTerminate: (_, g) => settle(offset.x + g.dx, offset.y + g.dy),
+  });
+  return {
+    handlers: responder.panHandlers,
+    transform: pan.getTranslateTransform(),
+    setScreen: (next: typeof screen) => {
+      screen = next;
+      settle(offset.x, offset.y);
+    },
+    onLayout: (e: LayoutChangeEvent) => {
+      box = e.nativeEvent.layout;
+      settle(offset.x, offset.y);
+    },
+  };
+})();
+
+function useMiniDrag() {
+  const { width, height } = useWindowDimensions();
+  const { top, bottom, left, right } = useSafeAreaInsets();
+  // Keep it on screen after rotation / window resizes.
+  useEffect(() => miniDrag.setScreen({ width, height, top, bottom, left, right }), [width, height, top, bottom, left, right]);
+  return miniDrag;
+}
+
 /** Floating call window: the app stays usable underneath and the call keeps running. */
 function MiniCall() {
   const { call, toggleMic, hangUp, setMinimized } = useCalls();
@@ -51,33 +103,38 @@ function MiniCall() {
   const elapsed = useElapsed(call.answeredAt);
   const withVideo = call.remotes.find((r) => r.video && r.stream?.getVideoTracks().length);
   const shown = withVideo ?? call.remotes[0];
+  const drag = useMiniDrag();
   return (
-    <View
+    <Animated.View
+      onLayout={drag.onLayout}
       style={[
         styles.mini,
         // Above the message composer (desktop) and the tab bar / composer (phones).
-        { width: wide ? 280 : 240, bottom: wide ? 104 : 150 },
-        Platform.OS === 'web' ? ({ boxShadow: '0 12px 36px rgba(0,0,0,0.45)' } as object) : {},
+        { width: wide ? 280 : 240, bottom: wide ? 104 : 150, transform: drag.transform },
+        Platform.OS === 'web' ? ({ boxShadow: '0 12px 36px rgba(0,0,0,0.45)', cursor: 'grab', userSelect: 'none' } as object) : {},
       ]}>
-      <Pressable onPress={() => setMinimized(false)} accessibilityLabel={t('Return to call')}>
-        {withVideo ? (
-          <View style={{ height: wide ? 158 : 135, backgroundColor: colors.rail }}>
-            <VideoView key={`mini-${withVideo.userId}-${call.mediaVersion}`} stream={withVideo.stream} contain={withVideo.screen} overlay />
+      {/* The header and the button row are drag handles; the participant list keeps its own scroll. */}
+      <View {...drag.handlers}>
+        <Pressable onPress={() => setMinimized(false)} accessibilityLabel={t('Return to call')}>
+          {withVideo ? (
+            <View style={{ height: wide ? 158 : 135, backgroundColor: colors.rail }}>
+              <VideoView key={`mini-${withVideo.userId}-${call.mediaVersion}`} stream={withVideo.stream} contain={withVideo.screen} overlay />
+            </View>
+          ) : null}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, paddingBottom: 6 }}>
+            {!withVideo && <Avatar user={shown?.user ?? call.peer} size={36} showPresence={false} ring={shown?.speaking ? colors.amber : colors.hairline} />}
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <T variant="labelLg" numberOfLines={1}>
+                {call.title || shown?.user?.displayName}
+              </T>
+              <T variant="bodySm" color={colors.amber} style={{ fontVariant: ['tabular-nums'] }}>
+                {timer(elapsed)}
+                {call.isGroup ? ` · ${t('{n} in call', { n: num(call.remotes.length + 1) })}` : ''}
+              </T>
+            </View>
           </View>
-        ) : null}
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, paddingBottom: 6 }}>
-          {!withVideo && <Avatar user={shown?.user ?? call.peer} size={36} showPresence={false} ring={shown?.speaking ? colors.amber : colors.hairline} />}
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <T variant="labelLg" numberOfLines={1}>
-              {call.title || shown?.user?.displayName}
-            </T>
-            <T variant="bodySm" color={colors.amber} style={{ fontVariant: ['tabular-nums'] }}>
-              {timer(elapsed)}
-              {call.isGroup ? ` · ${t('{n} in call', { n: num(call.remotes.length + 1) })}` : ''}
-            </T>
-          </View>
-        </View>
-      </Pressable>
+        </Pressable>
+      </View>
       {peopleOpen && call.isGroup && (
         <ScrollView style={{ maxHeight: 176 }} contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 6, gap: 8 }}>
           {[user, ...call.remotes.map((remote) => remote.user)].filter(Boolean).map((person) => (
@@ -90,7 +147,7 @@ function MiniCall() {
           ))}
         </ScrollView>
       )}
-      <View style={{ flexDirection: 'row', gap: 8, padding: 12, paddingTop: 6, justifyContent: 'flex-end' }}>
+      <View {...drag.handlers} style={{ flexDirection: 'row', gap: 8, padding: 12, paddingTop: 6, justifyContent: 'flex-end' }}>
         <MiniButton icon={call.micMuted ? 'mic-off' : 'mic'} active={!call.micMuted} onPress={toggleMic} label={t('Microphone')} />
         {call.isGroup && (
           <MiniButton icon="users" active={peopleOpen} onPress={() => setPeopleOpen((open) => !open)} label={t('Show participants')} />
@@ -110,7 +167,7 @@ function MiniCall() {
           <Icon name="phone-off" size={18} color="#FF8A80" />
         </Pressable>
       </View>
-    </View>
+    </Animated.View>
   );
 }
 
