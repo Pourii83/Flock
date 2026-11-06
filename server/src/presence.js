@@ -18,3 +18,4 @@ export function disconnect(userId) {
 }
 
 export const isOnline = (userId) => connections.has(userId);
+export const onlineCount = () => connections.size;

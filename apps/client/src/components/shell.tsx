@@ -6,11 +6,11 @@ import { useAuth } from '@/state/auth';
 import { useChat } from '@/state/chat-store';
 import { colors, radius } from '@/theme';
 import { Avatar } from './avatar';
-import { FlockMark } from './logo';
+import { FlockTile } from './logo';
 import { Icon, IconButton, T } from './ui';
 import { t } from '@/lib/i18n';
 
-/** Desktop top bar: "WORKSPACE | Flock" + connection status. */
+/** Desktop top bar: app name + connection status. */
 export function DesktopTopBar({ right }: { right?: ReactNode }) {
   const connected = useChat((s) => s.connected);
   return (
@@ -25,10 +25,6 @@ export function DesktopTopBar({ right }: { right?: ReactNode }) {
         borderBottomWidth: 1,
         borderBottomColor: colors.surfaceHigh,
       }}>
-      <T variant="overline" color={colors.amberSoft} style={{ opacity: 0.8 }}>
-        {t('WORKSPACE')}
-      </T>
-      <View style={{ width: 1, height: 22, backgroundColor: colors.surfaceHigh }} />
       <T variant="headlineSm" style={{ fontSize: 22 }}>
         {t('Flock')}
       </T>
@@ -58,7 +54,7 @@ export function MobileHeader({ onSearch }: { onSearch?: () => void }) {
   const { user } = useAuth();
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 8, gap: 10 }}>
-      <FlockMark size={30} />
+      <FlockTile size={34} />
       <T variant="headlineSm" style={{ fontSize: 24, flex: 1 }}>
         {t('Flock')}
       </T>
@@ -103,8 +99,8 @@ export function ConnectionBanner() {
         backgroundColor: colors.amberTint,
         paddingVertical: 6,
       }}>
-      <Icon name="wifi-off" size={14} color={colors.amber} />
-      <T variant="label" color={colors.amber}>
+      <Icon name="wifi-off" size={14} color={colors.amberText} />
+      <T variant="label" color={colors.amberText}>
         {t('Reconnecting to Flock…')}
       </T>
     </View>

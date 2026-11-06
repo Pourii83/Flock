@@ -6,7 +6,7 @@ import multer from 'multer';
 import { UPLOAD_DIR } from './avatars.js';
 
 export const FILE_DIR = path.join(UPLOAD_DIR, 'files');
-export const MAX_FILE_BYTES = 100 * 1024 * 1024;
+import { getSettings } from './settings.js';
 export const safeMimeType = (value) => (/^[a-z0-9][a-z0-9.+-]*\/[a-z0-9][a-z0-9.+-]*$/i.test(String(value || '')) ? value : 'application/octet-stream');
 
 await fs.mkdir(FILE_DIR, { recursive: true });
@@ -22,14 +22,15 @@ const storage = multer.diskStorage({
   filename: (_req, file, done) => done(null, `${crypto.randomUUID()}${safeExtension(file.originalname)}`),
 });
 
-const upload = multer({ storage, limits: { fileSize: MAX_FILE_BYTES, files: 1 } }).single('file');
+// The limit is the admin's current setting, read for every upload.
+const upload = (req, res, done) => multer({ storage, limits: { fileSize: getSettings().maxUploadMb * 1024 * 1024, files: 1 } }).single('file')(req, res, done);
 
 /** Multer middleware with stable user-facing errors for size and malformed uploads. */
 export function receiveFile(req, res, next) {
   upload(req, res, (error) => {
     if (!error) return next();
     const tooLarge = error.code === 'LIMIT_FILE_SIZE';
-    res.status(tooLarge ? 413 : 400).json({ error: tooLarge ? 'File is too large (max 100 MB)' : 'File upload failed' });
+    res.status(tooLarge ? 413 : 400).json({ error: tooLarge ? 'File is too large' : 'File upload failed' });
   });
 }
 

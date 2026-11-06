@@ -1,4 +1,5 @@
 import { isUuid, newId, now, one, query, randomAvatarColor, tx } from './db.js';
+import crypto from 'node:crypto';
 import { isOnline } from './presence.js';
 
 // ---------- users ----------
@@ -18,6 +19,9 @@ export function publicUser(row) {
   };
 }
 
+/** The signed-in user's own view of their account (adds what only they should know). */
+export const selfUser = (row) => (row ? { ...publicUser(row), isAdmin: !!row.is_admin } : null);
+
 export const getUserRow = (id) => (isUuid(id) ? one('SELECT * FROM users WHERE id = $1', [id]) : null);
 export const getUserByUsername = (username) =>
   one('SELECT * FROM users WHERE lower(username) = lower($1)', [username]);
@@ -30,22 +34,45 @@ export async function createUser({ username, displayName, passwordHash }) {
   );
 }
 
-export async function updateUser(id, { displayName, bio, title }) {
+export async function updateUser(id, { displayName, bio, title, username }) {
   return one(
-    `UPDATE users SET display_name = COALESCE($2, display_name), bio = COALESCE($3, bio), title = COALESCE($4, title)
+    `UPDATE users SET display_name = COALESCE($2, display_name), bio = COALESCE($3, bio), title = COALESCE($4, title),
+       username = COALESCE($5, username)
      WHERE id = $1 RETURNING *`,
-    [id, displayName ?? null, bio ?? null, title ?? null],
+    [id, displayName ?? null, bio ?? null, title ?? null, username ?? null],
   );
 }
 
 export const touchLastSeen = (id) => query('UPDATE users SET last_seen = $2 WHERE id = $1', [id, now()]);
 
+// Escape LIKE wildcards so "_" and "%" in a query match literally.
+const likeEscape = (text) => text.replace(/[\\%_]/g, '\\$&');
+
+/** Directory search: only by a query of 3+ characters, so the user list can't be browsed. */
+export const MIN_SEARCH = 3;
 export async function searchUsers(meId, q) {
-  const like = `%${q || ''}%`;
+  const term = String(q || '').trim().replace(/^@/, '');
+  if (term.length < MIN_SEARCH) return [];
   const rows = await query(
     `SELECT * FROM users WHERE id != $1 AND (username ILIKE $2 OR display_name ILIKE $2)
-     ORDER BY lower(display_name) LIMIT 100`,
-    [meId, like],
+     ORDER BY (lower(username) = lower($3)) DESC, lower(display_name) LIMIT 50`,
+    [meId, `%${likeEscape(term)}%`, term],
+  );
+  return rows.map(publicUser);
+}
+
+/** People I share a chat with (direct or group) — every call happens inside one of those chats. */
+export async function contactUsers(meId, q) {
+  const term = String(q || '').trim().replace(/^@/, '');
+  const rows = await query(
+    `SELECT u.* FROM users u
+     WHERE u.id IN (
+         SELECT other.user_id FROM members mine
+         JOIN members other ON other.conversation_id = mine.conversation_id AND other.user_id != mine.user_id
+         WHERE mine.user_id = $1)
+       AND ($2 = '' OR u.username ILIKE $3 OR u.display_name ILIKE $3)
+     ORDER BY lower(u.display_name) LIMIT 300`,
+    [meId, term, `%${likeEscape(term)}%`],
   );
   return rows.map(publicUser);
 }
@@ -77,7 +104,7 @@ export async function createConversation(meId, userIds, name, description = '') 
       `SELECT c.id FROM conversations c
        JOIN members m1 ON m1.conversation_id = c.id AND m1.user_id = $1
        JOIN members m2 ON m2.conversation_id = c.id AND m2.user_id = $2
-       WHERE c.type = 'direct'`,
+       WHERE c.type = 'direct' AND NOT c.secret`,
       [meId, others[0]],
     );
     if (existing) return { id: existing.id, created: false };
@@ -134,10 +161,13 @@ function serializeMessage(row) {
 async function loadConversations(meId, onlyId) {
   const convs = await query(
     `SELECT c.*, me.last_read_at, me.pinned, me.muted, me.role AS my_role,
+       ki.public_key AS secret_initiator_key, ki.user_id AS secret_initiator_user, kr.public_key AS secret_recipient_key,
        (SELECT COUNT(*) FROM messages x
           WHERE x.conversation_id = c.id AND x.created_at > me.last_read_at AND x.sender_id != $1) AS unread
      FROM conversations c
      JOIN members me ON me.conversation_id = c.id AND me.user_id = $1
+     LEFT JOIN device_keys ki ON ki.id = c.secret_initiator_device
+     LEFT JOIN device_keys kr ON kr.id = c.secret_recipient_device
      WHERE ($2::uuid IS NULL OR c.id = $2::uuid)`,
     [meId, onlyId ?? null],
   );
@@ -174,6 +204,16 @@ async function loadConversations(meId, onlyId) {
           : c.name || others.map((o) => o.display_name).join(', '),
       members: members.map((m) => ({ ...publicUser(m), role: m.member_role })),
       description: c.description ?? '',
+      // Secret chats: the two device keys messages are encrypted between (recipient set once accepted).
+      secret: c.secret
+        ? {
+            initiatorUserId: c.secret_initiator_user ?? c.created_by,
+            initiatorDeviceId: c.secret_initiator_device,
+            initiatorKey: c.secret_initiator_key,
+            recipientDeviceId: c.secret_recipient_device,
+            recipientKey: c.secret_recipient_key,
+          }
+        : null,
       avatarUrl: c.avatar_path ? `/api/avatars/${c.avatar_path}` : null,
       myRole: c.my_role,
       lastMessage: serializeMessage(last),
@@ -393,4 +433,111 @@ export async function ensureOwner(conversationId) {
   }
   await setRole(conversationId, next.user_id, 'owner');
   return getUserRow(next.user_id);
+}
+
+// ---------- meeting rooms ----------
+
+const ROOM_ALPHABET = 'abcdefghijkmnpqrstuvwxyz23456789';
+const roomCode = () => Array.from(crypto.getRandomValues(new Uint8Array(12)), (b) => ROOM_ALPHABET[b % ROOM_ALPHABET.length]).join('');
+
+export function publicRoom(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    code: row.code,
+    ownerId: row.owner_id,
+    title: row.title,
+    createdAt: Number(row.created_at),
+    expiresAt: row.expires_at == null ? null : Number(row.expires_at),
+    closedAt: row.closed_at == null ? null : Number(row.closed_at),
+  };
+}
+
+/** How a meeting guest appears to the others in the call. */
+export const guestUser = (id, name) => ({
+  id,
+  username: '',
+  displayName: name,
+  bio: '',
+  title: '',
+  avatarColor: '#94A3B8',
+  avatarUrl: null,
+  online: true,
+  lastSeen: null,
+  guest: true,
+});
+
+/** Open = not closed by its owner and not past its expiry. */
+export const roomIsOpen = (room) => !!room && !room.closedAt && (room.expiresAt == null || room.expiresAt > now());
+
+export async function createRoom(ownerId, { title, expiresAt }) {
+  return publicRoom(
+    await one(
+      `INSERT INTO rooms (id, code, owner_id, title, created_at, expires_at) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+      [newId(), roomCode(), ownerId, title, now(), expiresAt],
+    ),
+  );
+}
+
+export const getRoomByCode = async (code) => publicRoom(await one('SELECT * FROM rooms WHERE code = $1', [String(code)]));
+export const getRoom = async (id) => (isUuid(id) ? publicRoom(await one('SELECT * FROM rooms WHERE id = $1', [id])) : null);
+
+export async function listOpenRooms(ownerId) {
+  const rows = await query(
+    `SELECT * FROM rooms WHERE owner_id = $1 AND closed_at IS NULL AND (expires_at IS NULL OR expires_at > $2) ORDER BY created_at DESC`,
+    [ownerId, now()],
+  );
+  return rows.map(publicRoom);
+}
+
+export async function closeRoom(id, ownerId) {
+  if (!isUuid(id)) return null;
+  return publicRoom(await one('UPDATE rooms SET closed_at = $3 WHERE id = $1 AND owner_id = $2 AND closed_at IS NULL RETURNING *', [id, ownerId, now()]));
+}
+
+// ---------- end-to-end encrypted ("secret") chats ----------
+
+/** A Curve25519 public key, base64 (32 bytes). */
+const isPublicKey = (k) => typeof k === 'string' && /^[A-Za-z0-9+/]{43}=$/.test(k);
+
+export async function registerDevice(userId, publicKey) {
+  if (!isPublicKey(publicKey)) throw new Error('Invalid device key');
+  const row = await one('INSERT INTO device_keys (id, user_id, public_key, created_at) VALUES ($1, $2, $3, $4) RETURNING id', [newId(), userId, publicKey, now()]);
+  return row.id;
+}
+
+const ownsDevice = async (userId, deviceId) =>
+  isUuid(deviceId) && !!(await one('SELECT 1 FROM device_keys WHERE id = $1 AND user_id = $2', [deviceId, userId]));
+
+/** Always a new conversation: several secret chats with the same person can exist (one per device pair). */
+export async function createSecretConversation(meId, otherId, deviceId) {
+  if (!isUuid(otherId) || otherId === meId || !(await getUserRow(otherId))) throw new Error('Pick someone to chat with');
+  if (!(await ownsDevice(meId, deviceId))) throw new Error('Invalid device key');
+  const id = newId();
+  const t = now();
+  await tx(async (client) => {
+    await client.query(
+      `INSERT INTO conversations (id, type, name, description, created_by, created_at, secret, secret_initiator_device)
+       VALUES ($1, 'direct', NULL, '', $2, $3, TRUE, $4)`,
+      [id, meId, t, deviceId],
+    );
+    for (const uid of [meId, otherId]) {
+      await client.query("INSERT INTO members (conversation_id, user_id, joined_at, last_read_at, role) VALUES ($1, $2, $3, $3, 'member')", [id, uid, t]);
+    }
+  });
+  return id;
+}
+
+export const getSecretState = async (conversationId) =>
+  isUuid(conversationId)
+    ? one('SELECT secret, created_by, secret_initiator_device, secret_recipient_device FROM conversations WHERE id = $1', [conversationId])
+    : null;
+
+/** The other person picks the device this secret chat lives on. Only once. */
+export async function acceptSecret(conversationId, meId, deviceId) {
+  const state = await getSecretState(conversationId);
+  if (!state?.secret || state.created_by === meId) throw new Error('Not a secret chat request');
+  if (state.secret_recipient_device) throw new Error('This secret chat was accepted on another device');
+  if (!(await ownsDevice(meId, deviceId))) throw new Error('Invalid device key');
+  await query('UPDATE conversations SET secret_recipient_device = $2 WHERE id = $1 AND secret_recipient_device IS NULL', [conversationId, deviceId]);
 }

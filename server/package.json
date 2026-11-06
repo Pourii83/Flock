@@ -10,7 +10,8 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
-    "seed": "node src/seed.js"
+    "seed": "node src/seed.js",
+    "create-admin": "node src/create-admin.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

@@ -1,6 +1,6 @@
 import { Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold, useFonts } from '@expo-google-fonts/inter';
 import { Vazirmatn_400Regular, Vazirmatn_500Medium, Vazirmatn_600SemiBold, Vazirmatn_700Bold } from '@expo-google-fonts/vazirmatn';
-import { DarkTheme, Stack, ThemeProvider } from 'expo-router';
+import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
@@ -12,21 +12,17 @@ import { loadLang, useLang } from '@/lib/i18n';
 import { loadNoisePreference } from '@/lib/noise';
 import { CallProvider } from '@/state/calls';
 import { AuthProvider, useAuth } from '@/state/auth';
-import { colors } from '@/theme';
+import { colors, loadTheme, useThemeMode } from '@/theme';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
-const theme = {
-  ...DarkTheme,
-  colors: {
-    ...DarkTheme.colors,
-    background: colors.canvas,
-    card: colors.rail,
-    primary: colors.amber,
-    text: colors.text,
-    border: colors.surfaceHigh,
-  },
-};
+function navigationTheme(mode: 'dark' | 'light') {
+  const base = mode === 'light' ? DefaultTheme : DarkTheme;
+  return {
+    ...base,
+    colors: { ...base.colors, background: colors.canvas, card: colors.rail, primary: colors.amber, text: colors.text, border: colors.surfaceHigh },
+  };
+}
 
 function RootStack() {
   const { ready, user } = useAuth();
@@ -56,6 +52,8 @@ function RootStack() {
         <Stack.Screen name="login" />
         <Stack.Screen name="register" />
       </Stack.Protected>
+      {/* Meeting links open with or without an account. */}
+      <Stack.Screen name="meet/[code]" />
     </Stack>
   );
 }
@@ -66,34 +64,36 @@ function RootStack() {
  */
 function LocalizedApp() {
   const lang = useLang();
+  const mode = useThemeMode();
   // Derived from `lang` (not isRTL()) so the React Compiler sees the dependency.
   const dir = lang === 'fa' ? 'rtl' : 'ltr';
   return (
     // Native layout flips via Yoga's `direction`; react-native-web needs the HTML `dir` attribute.
-    <View key={lang} {...({ dir } as object)} style={{ flex: 1, direction: dir }}>
-      <RootStack />
-      <CallOverlay />
-    </View>
+    // Keyed by theme too: colors are read at render, so a switch repaints every screen.
+    <ThemeProvider value={navigationTheme(mode)}>
+      <StatusBar style={mode === 'light' ? 'dark' : 'light'} />
+      <View key={`${lang}-${mode}`} {...({ dir } as object)} style={{ flex: 1, direction: dir, backgroundColor: colors.canvas }}>
+        <RootStack />
+        <CallOverlay />
+      </View>
+    </ThemeProvider>
   );
 }
 
 export default function RootLayout() {
   const [langReady, setLangReady] = useState(false);
   useEffect(() => {
-    Promise.all([loadLang(), loadNoisePreference()]).finally(() => setLangReady(true));
+    Promise.all([loadLang(), loadNoisePreference(), loadTheme()]).finally(() => setLangReady(true));
   }, []);
   if (!langReady) return null;
 
   return (
     <SafeAreaProvider>
-      <ThemeProvider value={theme}>
-        <AuthProvider>
-          <CallProvider>
-            <StatusBar style="light" />
-            <LocalizedApp />
-          </CallProvider>
-        </AuthProvider>
-      </ThemeProvider>
+      <AuthProvider>
+        <CallProvider>
+          <LocalizedApp />
+        </CallProvider>
+      </AuthProvider>
     </SafeAreaProvider>
   );
 }

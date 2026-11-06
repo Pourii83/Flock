@@ -1,7 +1,7 @@
 import type { DocumentPickerAsset } from 'expo-document-picker';
 
 import { getApiUrl } from './config';
-import type { ActiveCall, CallLog, Conversation, Message, User } from './types';
+import type { ActiveCall, CallLog, Conversation, Message, PublicRoom, Room, User } from './types';
 import { t } from '@/lib/i18n';
 
 export class ApiError extends Error {
@@ -72,17 +72,56 @@ async function uploadFile(conversationId: string, asset: DocumentPickerAsset, re
 
 type AuthResponse = { token: string; user: User };
 
+/** Server-wide settings the admin changes in App settings. */
+export type AppSettings = { allowRegistration: boolean; allowGuestMeetings: boolean; maxUploadMb: number; fileRetentionDays: number };
+
+export type ServerUsage = {
+  version: string | null;
+  cpu: { percent: number; cores: number; load: number[] };
+  memory: { total: number; free: number; flock: number };
+  disk: { total: number; free: number } | null;
+  storage: { uploads: number; database: number };
+  uptime: { system: number; flock: number };
+  counts: {
+    users: number;
+    online: number;
+    conversations: number;
+    messages: number;
+    files: number;
+    openRooms: number;
+    liveCalls: number;
+    liveRooms: number;
+    inCalls: number;
+  };
+};
+
 export const api = {
   login: (username: string, password: string) => request<AuthResponse>('POST', '/auth/login', { username, password }),
   register: (username: string, displayName: string, password: string) =>
     request<AuthResponse>('POST', '/auth/register', { username, displayName, password }),
   me: () => request<User>('GET', '/me'),
-  updateMe: (patch: Partial<Pick<User, 'displayName' | 'bio' | 'title'>>) => request<User>('PATCH', '/me', patch),
+  updateMe: (patch: Partial<Pick<User, 'displayName' | 'bio' | 'title' | 'username'>>) => request<User>('PATCH', '/me', patch),
   setAvatar: (base64: string) => request<User>('PUT', '/me/avatar', { data: base64 }),
   removeAvatar: () => request<User>('DELETE', '/me/avatar'),
+  /** Directory search (the server needs 3+ characters). */
   users: (q = '') => request<User[]>('GET', `/users?q=${encodeURIComponent(q)}`),
+  adminSettings: () => request<AppSettings>('GET', '/admin/settings'),
+  updateAdminSettings: (patch: Partial<AppSettings>) => request<AppSettings>('PATCH', '/admin/settings', patch),
+  adminUsage: () => request<ServerUsage>('GET', '/admin/usage'),
+  health: () => request<{ ok: boolean; maxUploadMb?: number }>('GET', '/health'),
+  rooms: () => request<Room[]>('GET', '/rooms'),
+  /** expiresInMinutes null = open until closed. */
+  createRoom: (title: string, expiresInMinutes: number | null) => request<Room>('POST', '/rooms', { title, expiresInMinutes }),
+  closeRoom: (id: string) => request<Room>('DELETE', `/rooms/${id}`),
+  publicRoom: (code: string) => request<PublicRoom>('GET', `/rooms/public/${encodeURIComponent(code)}`),
+  joinRoomAsGuest: (code: string, name: string) => request<AuthResponse>('POST', `/rooms/public/${encodeURIComponent(code)}/guest`, { name }),
+  /** People I already share a chat with. */
+  contacts: (q = '') => request<User[]>('GET', `/users?scope=contacts&q=${encodeURIComponent(q)}`),
   conversations: () => request<Conversation[]>('GET', '/conversations'),
   conversation: (id: string) => request<Conversation>('GET', `/conversations/${id}`),
+  registerDevice: (publicKey: string) => request<{ id: string }>('POST', '/devices', { publicKey }),
+  createSecretConversation: (userId: string, deviceId: string) => request<Conversation>('POST', '/conversations/secret', { userId, deviceId }),
+  acceptSecret: (id: string, deviceId: string) => request<Conversation>('POST', `/conversations/${id}/secret/accept`, { deviceId }),
   createGroup: (userIds: string[], name: string, description: string) =>
     request<Conversation>('POST', '/conversations', { userIds, name, description }),
   updateGroupInfo: (id: string, patch: { name?: string; description?: string }) =>

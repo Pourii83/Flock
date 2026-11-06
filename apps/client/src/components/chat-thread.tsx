@@ -18,6 +18,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { clock, dayDivider, lastSeenLabel, sameDay } from '@/lib/format';
 import { attachmentSource, openAttachment } from '@/lib/attachments';
 import { api } from '@/lib/api';
+import { ensureDevice, safetyCode, useDevice, useSecretStatus } from '@/lib/e2e';
 import { systemText } from '@/lib/system-message';
 import type { Conversation, Message } from '@/lib/types';
 import { useAuth } from '@/state/auth';
@@ -25,6 +26,7 @@ import { useCalls } from '@/state/calls';
 import { chatStore, useChat, useConversation, useMessages, useTyping } from '@/state/chat-store';
 import { colors, fonts, radius } from '@/theme';
 import { Avatar, ConversationAvatar } from './avatar';
+import { LinkedText } from './linked-text';
 import { Button, Icon, IconButton, noOutline, T, type IconName } from './ui';
 import { t, num, isRTL } from '@/lib/i18n';
 
@@ -95,7 +97,7 @@ export function ChatThread({
   if (!conversation) {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 }}>
-        <ActivityIndicator color={colors.amber} />
+        <ActivityIndicator color={colors.amberText} />
       </View>
     );
   }
@@ -104,6 +106,7 @@ export function ChatThread({
     <KeyboardAvoidingView style={{ flex: 1, backgroundColor: colors.canvas }} behavior={keyboardBehavior}>
       <ThreadHeader conversation={conversation} desktop={desktop} onBack={onBack} detailsOpen={detailsOpen} onToggleDetails={onToggleDetails} />
       <JoinCallBanner conversation={conversation} />
+      {!!conversation.secret && <SecretBanner conversation={conversation} />}
       {loadError ? (
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 }}>
           <T color={colors.textMuted}>{"Couldn't load messages."}</T>
@@ -119,7 +122,7 @@ export function ChatThread({
         </View>
       ) : !loadedMessages ? (
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-          <ActivityIndicator color={colors.amber} />
+          <ActivityIndicator color={colors.amberText} />
         </View>
       ) : (
         <FlatList
@@ -156,6 +159,19 @@ export function ChatThread({
       <Composer conversation={conversation} desktop={desktop} replyTo={replyTo} onClearReply={() => setReplyTo(null)} />
     </KeyboardAvoidingView>
   );
+}
+
+/** The server's upload limit (set at install time), asked once. */
+let uploadLimit: Promise<number> | null = null;
+function uploadLimitMb() {
+  uploadLimit ??= api.health().then(
+    (h) => h.maxUploadMb ?? 100,
+    () => {
+      uploadLimit = null;
+      return 100;
+    },
+  );
+  return uploadLimit;
 }
 
 // ---------- header ----------
@@ -210,7 +226,7 @@ function ThreadHeader({
         paddingTop: desktop ? 14 : insets.top + 8,
         paddingBottom: 14,
         paddingHorizontal: desktop ? 24 : 10,
-        backgroundColor: desktop ? colors.canvas : 'rgba(18, 23, 33, 0.92)',
+        backgroundColor: desktop ? colors.canvas : colors.bar,
         borderBottomWidth: 1,
         borderBottomColor: colors.surfaceHigh,
       }}>
@@ -222,6 +238,7 @@ function ThreadHeader({
         <ConversationAvatar conversation={conversation} meId={user?.id} size={desktop ? 48 : 44} />
         <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            {!!conversation.secret && <Icon name="lock" size={desktop ? 18 : 15} color={colors.teal} />}
             <T variant="headlineSm" numberOfLines={1} style={{ fontSize: desktop ? 22 : 18, flexShrink: 0, maxWidth: '75%' }}>
               {conversation.name}
             </T>
@@ -257,6 +274,74 @@ function ThreadHeader({
           rounded="lg"
           size={44}
         />
+      )}
+    </View>
+  );
+}
+
+/** Secret chats: where this chat stands on this device, and accepting it here. */
+function SecretBanner({ conversation }: { conversation: Conversation }) {
+  const { user } = useAuth();
+  const status = useSecretStatus(conversation, user?.id);
+  const device = useDevice();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [codeOpen, setCodeOpen] = useState(false);
+  const name = conversation.members.find((m) => m.id !== user?.id)?.displayName ?? t('Someone');
+  if (!status || !user) return null;
+
+  const accept = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      const mine = await ensureDevice(user.id);
+      chatStore.upsertConversation(await api.acceptSecret(conversation.id, mine.id));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const text =
+    status.state === 'ready'
+      ? t('End-to-end encrypted. Only this device and {name}’s device can read these messages.', { name })
+      : status.state === 'waiting'
+        ? t('Waiting for {name} to accept on one of their devices. You can write once they do.', { name })
+        : status.state === 'invite'
+          ? t('{name} started a secret chat with you. It will be readable only on the device you accept it on.', { name })
+          : t('This secret chat lives on another device. Open it there to read and write.');
+
+  return (
+    <View style={{ gap: 8, paddingHorizontal: 16, paddingVertical: 10, backgroundColor: colors.tealTint, borderBottomWidth: 1, borderBottomColor: colors.surfaceHigh }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+        <Icon name={status.state === 'ready' ? 'lock' : status.state === 'elsewhere' ? 'smartphone' : 'clock'} size={16} color={colors.teal} />
+        <T variant="bodySm" style={{ flex: 1 }}>
+          {text}
+        </T>
+        {status.state === 'ready' && (
+          <Pressable onPress={() => setCodeOpen((v) => !v)} hitSlop={6}>
+            <T variant="label" color={colors.teal}>
+              {codeOpen ? t('Hide code') : t('Safety code')}
+            </T>
+          </Pressable>
+        )}
+        {status.state === 'invite' && <Button title={t('Accept on this device')} icon="check" size="sm" loading={busy} onPress={() => void accept()} />}
+      </View>
+      {codeOpen && status.state === 'ready' && device && (
+        <View style={{ gap: 4 }}>
+          <T variant="labelLg" style={{ fontVariant: ['tabular-nums'], letterSpacing: 1 }}>
+            {safetyCode(device.publicKey, status.peerKey)}
+          </T>
+          <T variant="bodySm" color={colors.textMuted}>
+            {t('Compare this code with {name} (in person or on a call). If it matches on both devices, nobody is in the middle.', { name })}
+          </T>
+        </View>
+      )}
+      {!!error && (
+        <T variant="bodySm" color={colors.danger}>
+          {error}
+        </T>
       )}
     </View>
   );
@@ -373,7 +458,7 @@ function Bubble({
   const [hovered, setHovered] = useState(false);
   const sender = conversation.members.find((u) => u.id === m.senderId);
   const showSender = !mine && first && (conversation.type === 'group' || desktop);
-  const bubbleBg = mine ? colors.amberSoft : '#202838';
+  const bubbleBg = mine ? colors.amberSoft : colors.bubble;
   const fg = mine ? colors.onAmber : colors.text;
   const r = 20;
   // Pending/failed messages don't exist on the server yet, so they can't be replied to.
@@ -453,7 +538,7 @@ function Bubble({
               }}>
               <View style={{ width: 3, borderRadius: 2, backgroundColor: colors.amber }} />
               <View style={{ flexShrink: 1 }}>
-                <T variant="label" color={mine ? '#8A5A00' : colors.amber}>
+                <T variant="label" color={mine ? '#8A5A00' : colors.amberText}>
                   {m.replyTo.senderName}
                 </T>
                 <T variant="body" color={mine ? colors.onAmber : colors.textMuted} numberOfLines={2} style={{ fontStyle: 'italic' }}>
@@ -467,9 +552,9 @@ function Bubble({
           ) : m.kind === 'call_invite' ? (
             <CallInviteCard message={m} mine={mine} />
           ) : (
-            <T variant="bodyLg" color={fg} style={{ fontSize: 16, lineHeight: 24 }} selectable={desktop}>
+            <LinkedText variant="bodyLg" color={fg} linkColor={mine ? '#5A3A00' : colors.amberText} style={{ fontSize: 16, lineHeight: 24 }} selectable={desktop}>
               {m.body}
-            </T>
+            </LinkedText>
           )}
         </Pressable>
         {actionsOpen && (
@@ -524,7 +609,7 @@ function AttachmentCard({ message, mine }: { message: Message; mine: boolean }) 
       )}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
         <View style={{ width: 42, height: 42, borderRadius: 13, alignItems: 'center', justifyContent: 'center', backgroundColor: mine ? 'rgba(61,38,0,0.10)' : colors.surface }}>
-          {opening ? <ActivityIndicator color={mine ? colors.onAmber : colors.amber} /> : <Icon name={expired ? 'clock' : image ? 'image' : 'file'} size={20} color={mine ? colors.onAmber : colors.amber} />}
+          {opening ? <ActivityIndicator color={mine ? colors.onAmber : colors.amberText} /> : <Icon name={expired ? 'clock' : image ? 'image' : 'file'} size={20} color={mine ? colors.onAmber : colors.amberText} />}
         </View>
         <View style={{ flex: 1, minWidth: 0 }}>
           <T variant="labelLg" color={mine ? colors.onAmber : colors.text} numberOfLines={2}>{attachment.name}</T>
@@ -532,7 +617,7 @@ function AttachmentCard({ message, mine }: { message: Message; mine: boolean }) 
             {expired ? t('File expired') : `${bytesLabel(attachment.size)} · ${t('Original quality')}`}
           </T>
         </View>
-        {!expired && <Icon name="download" size={18} color={mine ? colors.onAmber : colors.amber} />}
+        {!expired && <Icon name="download" size={18} color={mine ? colors.onAmber : colors.amberText} />}
       </View>
       {!!error && <T variant="bodySm" color={colors.danger}>{error}</T>}
     </Pressable>
@@ -610,7 +695,7 @@ function ActionChip({ icon, label, onPress }: { icon: IconName; label: string; o
         borderRadius: radius.pill,
         backgroundColor: pressed ? colors.surfaceHighest : colors.surfaceHigh,
       })}>
-      <Icon name={icon} size={14} color={colors.amber} />
+      <Icon name={icon} size={14} color={colors.amberText} />
       <T variant="label">{label}</T>
     </Pressable>
   );
@@ -620,7 +705,7 @@ function EmptyThread({ conversation }: { conversation: Conversation }) {
   return (
     <View style={{ alignItems: 'center', gap: 10, paddingVertical: 48 }}>
       <View style={{ width: 64, height: 64, borderRadius: 20, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' }}>
-        <Icon name="message-circle" size={28} color={colors.amber} />
+        <Icon name="message-circle" size={28} color={colors.amberText} />
       </View>
       <T variant="headlineSm">{t('Start the conversation')}</T>
       <T variant="body" color={colors.textMuted} style={{ textAlign: 'center' }}>
@@ -661,6 +746,10 @@ function Composer({
   replyTo: Message | null;
   onClearReply: () => void;
 }) {
+  const { user } = useAuth();
+  const secret = useSecretStatus(conversation, user?.id);
+  const blocked = !!conversation.secret && secret?.state !== 'ready';
+  const filesAllowed = !conversation.secret;
   const [text, setText] = useState('');
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -707,8 +796,9 @@ function Composer({
     const picked = await DocumentPicker.getDocumentAsync({ type: '*/*', copyToCacheDirectory: true, multiple: false, base64: false });
     if (picked.canceled) return;
     const asset = picked.assets[0];
-    if ((asset.size ?? 0) > 100 * 1024 * 1024) {
-      setUploadError(t('Files can be up to 100 MB'));
+    const maxMb = await uploadLimitMb();
+    if ((asset.size ?? 0) > maxMb * 1024 * 1024) {
+      setUploadError(t('Files can be up to {n} MB', { n: num(maxMb) }));
       return;
     }
     setUploading(true);
@@ -723,6 +813,8 @@ function Composer({
   };
 
   const firstName = conversation.type === 'direct' ? conversation.name.split(' ')[0] : conversation.name;
+  // Secret chat not usable on this device yet: the banner above says why.
+  if (blocked) return null;
 
   return (
     <View
@@ -730,7 +822,7 @@ function Composer({
         paddingHorizontal: desktop ? 24 : 12,
         paddingTop: 10,
         paddingBottom: desktop ? 18 : Math.max(insets.bottom, 12),
-        backgroundColor: desktop ? colors.canvas : 'rgba(11,14,20,0.96)',
+        backgroundColor: desktop ? colors.canvas : colors.barDeep,
         borderTopWidth: desktop ? 1 : 0,
         borderTopColor: colors.surfaceHigh,
         gap: 10,
@@ -739,7 +831,7 @@ function Composer({
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: colors.surface, borderRadius: radius.lg, padding: 10, paddingLeft: 14 }}>
           <View style={{ width: 3, alignSelf: 'stretch', borderRadius: 2, backgroundColor: colors.amber }} />
           <View style={{ flex: 1 }}>
-            <T variant="label" color={colors.amber}>
+            <T variant="label" color={colors.amberText}>
               {t('Replying to {name}', { name: chatStore.memberName(conversation.id, replyTo.senderId) })}
             </T>
             <T variant="body" color={colors.textMuted} numberOfLines={1}>
@@ -777,7 +869,7 @@ function Composer({
       )}
       {!!uploadError && <T variant="bodySm" color={colors.danger}>{uploadError}</T>}
       <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 10 }}>
-        {!desktop && (
+        {!desktop && filesAllowed && (
           <IconButton
             name="plus"
             label={t('Upload file')}
@@ -803,8 +895,8 @@ function Composer({
           }}>
           {desktop && (
             <>
-              <IconButton name="paperclip" label={t('Upload file')} onPress={() => void pickFile()} disabled={uploading} color={colors.textMuted} />
-              <IconButton name="smile" label={t('Emoji')} onPress={() => setEmojiOpen((v) => !v)} color={emojiOpen ? colors.amber : colors.textMuted} />
+              {filesAllowed && <IconButton name="paperclip" label={t('Upload file')} onPress={() => void pickFile()} disabled={uploading} color={colors.textMuted} />}
+              <IconButton name="smile" label={t('Emoji')} onPress={() => setEmojiOpen((v) => !v)} color={emojiOpen ? colors.amberText : colors.textMuted} />
             </>
           )}
           <TextInput
@@ -844,7 +936,7 @@ function Composer({
             ]}
           />
           {!desktop && (
-            <IconButton name="smile" label={t('Emoji')} onPress={() => setEmojiOpen((v) => !v)} color={emojiOpen ? colors.amber : colors.textMuted} iconSize={22} />
+            <IconButton name="smile" label={t('Emoji')} onPress={() => setEmojiOpen((v) => !v)} color={emojiOpen ? colors.amberText : colors.textMuted} iconSize={22} />
           )}
           {desktop && (
             <Pressable

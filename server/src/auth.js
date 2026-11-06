@@ -11,9 +11,24 @@ export const hashPassword = (pw) => bcrypt.hash(pw, 10);
 export const checkPassword = (pw, hash) => bcrypt.compare(pw, hash);
 export const signToken = (userId) => jwt.sign({ sub: userId }, SECRET, { expiresIn: '30d' });
 
+/** Signed-in users only; guest tokens are refused everywhere except meeting-room signaling. */
 export function verifyToken(token) {
   try {
-    return jwt.verify(token, SECRET).sub;
+    const payload = jwt.verify(token, SECRET);
+    return payload.guest ? null : payload.sub;
+  } catch {
+    return null;
+  }
+}
+
+/** A guest's pass into one meeting room: a random id, the name they typed, and the room. */
+export const signGuestToken = ({ guestId, name, roomId }, expiresInSeconds) =>
+  jwt.sign({ sub: guestId, guest: { name, roomId } }, SECRET, { expiresIn: Math.max(60, Math.floor(expiresInSeconds)) });
+
+export function verifyGuestToken(token) {
+  try {
+    const payload = jwt.verify(token, SECRET);
+    return payload.guest ? { guestId: payload.sub, name: payload.guest.name, roomId: payload.guest.roomId } : null;
   } catch {
     return null;
   }

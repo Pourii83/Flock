@@ -79,7 +79,7 @@ export default function NewGroupScreen() {
               <Image source={{ uri: `data:image/jpeg;base64,${photo}` }} style={{ width: 96, height: 96, borderRadius: 48 }} />
             ) : (
               <View style={{ width: 96, height: 96, borderRadius: 48, backgroundColor: colors.surfaceHigh, alignItems: 'center', justifyContent: 'center' }}>
-                <Icon name="users" size={34} color={colors.amber} />
+                <Icon name="users" size={34} color={colors.amberText} />
               </View>
             )}
             <View

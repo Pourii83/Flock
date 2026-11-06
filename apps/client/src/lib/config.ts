@@ -34,6 +34,12 @@ const listeners = new Set<() => void>();
 
 export const getApiUrl = () => override ?? defaultApiUrl();
 
+/** Shareable link to a meeting room. The server serves the web app, so links point at it (the page itself on the web). */
+export function meetingLink(code: string) {
+  const base = !isInstalledApp && typeof window !== 'undefined' && window.location?.origin?.startsWith('http') ? window.location.origin : getApiUrl();
+  return `${base}/meet/${code}`;
+}
+
 /** Loads the saved server address; call once before any API request. */
 export async function loadServerUrl() {
   if (!isInstalledApp) return;

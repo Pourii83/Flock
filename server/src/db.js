@@ -68,6 +68,39 @@ export async function migrate() {
       ended_at BIGINT
     );
     CREATE INDEX IF NOT EXISTS calls_conv ON calls (conversation_id, started_at DESC);
+
+    -- Meeting rooms: a link anyone can open, even without an account, until it expires or its owner closes it.
+    CREATE TABLE IF NOT EXISTS rooms (
+      id UUID PRIMARY KEY,
+      code TEXT NOT NULL UNIQUE,
+      owner_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      title TEXT NOT NULL DEFAULT '',
+      created_at BIGINT NOT NULL,
+      expires_at BIGINT,
+      closed_at BIGINT
+    );
+    CREATE INDEX IF NOT EXISTS rooms_owner ON rooms (owner_id, created_at DESC);
+
+    -- The server's admin account(s), created by the installer (create-admin.js).
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FALSE;
+    -- Server-wide settings changed by the admin in the app (see settings.js).
+    CREATE TABLE IF NOT EXISTS app_settings (
+      key TEXT PRIMARY KEY,
+      value JSONB NOT NULL
+    );
+
+    -- End-to-end encrypted ("secret") direct chats. Each device makes its own key pair and only the
+    -- public half is stored here. A secret chat is bound to one device on each side.
+    CREATE TABLE IF NOT EXISTS device_keys (
+      id UUID PRIMARY KEY,
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      public_key TEXT NOT NULL,
+      created_at BIGINT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS device_keys_user ON device_keys (user_id);
+    ALTER TABLE conversations ADD COLUMN IF NOT EXISTS secret BOOLEAN NOT NULL DEFAULT FALSE;
+    ALTER TABLE conversations ADD COLUMN IF NOT EXISTS secret_initiator_device UUID REFERENCES device_keys(id) ON DELETE SET NULL;
+    ALTER TABLE conversations ADD COLUMN IF NOT EXISTS secret_recipient_device UUID REFERENCES device_keys(id) ON DELETE SET NULL;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_path TEXT;
 
     -- Groups: profile and roles (owner = "mother admin", admin, member)

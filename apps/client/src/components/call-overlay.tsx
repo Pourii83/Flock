@@ -1,3 +1,4 @@
+import * as Clipboard from 'expo-clipboard';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Image } from 'expo-image';
 import { useEffect, useState, type ReactNode } from 'react';
@@ -6,20 +7,20 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { useIsWide } from '@/hooks/use-layout';
 import { api } from '@/lib/api';
-import { getApiUrl } from '@/lib/config';
+import { getApiUrl, meetingLink } from '@/lib/config';
 import { timer } from '@/lib/format';
 import { canSwitchCamera } from '@/lib/native-media';
 import { getNoisePreference, strongNoiseSupported } from '@/lib/noise';
 import { screenShareSupported } from '@/lib/rtc';
-import { useAuth } from '@/state/auth';
-import { STREAM_PRESETS, useCalls, type CallRemote, type StreamFps, type StreamQuality, type VoiceBitrate } from '@/state/calls';
+import { REACTION_MS, STREAM_PRESETS, useCalls, type CallReaction, type CallRemote, type StreamFps, type StreamQuality, type VoiceBitrate } from '@/state/calls';
 import { useConversation } from '@/state/chat-store';
-import { colors, radius } from '@/theme';
+import { colors, onThemeChange, radius } from '@/theme';
 import { Avatar, ConversationAvatar } from './avatar';
 import { Button, Icon, T, type IconName, UnreadBadge } from './ui';
 import type { User } from '@/lib/types';
 import { CallChatPanel } from './call-chat';
 import { RemoteAudio } from './remote-audio';
+import { Slider } from './slider';
 import { VideoView } from './video-view';
 import { num, t } from '@/lib/i18n';
 
@@ -97,7 +98,7 @@ function useMiniDrag() {
 /** Floating call window: the app stays usable underneath and the call keeps running. */
 function MiniCall() {
   const { call, toggleMic, hangUp, setMinimized } = useCalls();
-  const { user } = useAuth();
+  const { self: user } = useCalls();
   const wide = useIsWide();
   const [peopleOpen, setPeopleOpen] = useState(false);
   const elapsed = useElapsed(call.answeredAt);
@@ -127,7 +128,7 @@ function MiniCall() {
               <T variant="labelLg" numberOfLines={1}>
                 {call.title || shown?.user?.displayName}
               </T>
-              <T variant="bodySm" color={colors.amber} style={{ fontVariant: ['tabular-nums'] }}>
+              <T variant="bodySm" color={colors.amberText} style={{ fontVariant: ['tabular-nums'] }}>
                 {timer(elapsed)}
                 {call.isGroup ? ` · ${t('{n} in call', { n: num(call.remotes.length + 1) })}` : ''}
               </T>
@@ -164,7 +165,7 @@ function MiniCall() {
             alignItems: 'center',
             justifyContent: 'center',
           })}>
-          <Icon name="phone-off" size={18} color="#FF8A80" />
+          <Icon name="phone-off" size={18} color={colors.dangerText} />
         </Pressable>
       </View>
     </Animated.View>
@@ -184,7 +185,7 @@ function MiniButton({ icon, active, onPress, label }: { icon: IconName; active: 
         alignItems: 'center',
         justifyContent: 'center',
       })}>
-      <Icon name={icon} size={18} color={active ? colors.amber : colors.text} />
+      <Icon name={icon} size={18} color={active ? colors.amberText : colors.text} />
     </Pressable>
   );
 }
@@ -241,7 +242,7 @@ function RoundAction({
         <Icon name={icon} size={size * 0.38} color={color} />
       </Pressable>
       {label && (
-        <T variant="labelLg" color={colors.amberSoft} style={{ fontSize: 15 }}>
+        <T variant="labelLg" color={colors.amberSoftText} style={{ fontSize: 15 }}>
           {label}
         </T>
       )}
@@ -252,7 +253,7 @@ function RoundAction({
 /** Incoming (Stitch "Incoming Video Call") and outgoing ringing screen. */
 function RingingCall() {
   const { call, accept, decline, hangUp } = useCalls();
-  const { user } = useAuth();
+  const { self: user } = useCalls();
   const conversation = useConversation(call.conversationId ?? undefined);
   const pulse = usePulse();
   const incoming = call.phase === 'incoming';
@@ -262,19 +263,19 @@ function RingingCall() {
   return (
     <SafeAreaView style={{ flex: 1 }}>
       <LinearGradient
-        colors={['rgba(255,184,77,0.10)', 'rgba(11,14,20,0)']}
+        colors={['rgba(255,184,77,0.10)', `${colors.canvas}00`]}
         style={{ position: 'absolute', left: 0, right: 0, top: 0, height: '60%' }}
       />
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'space-between', padding: 24, maxWidth: 520, width: '100%', alignSelf: 'center' }}>
         <View style={{ alignItems: 'center', gap: 8, paddingTop: 16 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.surface, borderRadius: radius.pill, paddingHorizontal: 18, paddingVertical: 8 }}>
             <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: colors.amber }} />
-            <T variant="overline" color={colors.amber} style={{ fontSize: 14 }}>
+            <T variant="overline" color={colors.amberText} style={{ fontSize: 14 }}>
               {call.video ? t('FLOCK HD VIDEO') : t('FLOCK VOICE')}
             </T>
           </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-            <T variant="body" color={colors.amberSoft}>
+            <T variant="body" color={colors.amberSoftText}>
               {t('Secure session')}
             </T>
             <Icon name="lock" size={14} color={colors.teal} />
@@ -306,7 +307,7 @@ function RingingCall() {
             {call.title || call.peer?.displayName}
           </T>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <T variant="bodyLg" color={colors.amberSoft} style={{ fontSize: 18, textAlign: 'center' }}>
+            <T variant="bodyLg" color={colors.amberSoftText} style={{ fontSize: 18, textAlign: 'center' }}>
               {incoming
                 ? call.isGroup && call.peer
                   ? t('{name} is calling the group', { name: call.peer.displayName })
@@ -315,12 +316,12 @@ function RingingCall() {
                     : t('Flock Voice Calling')
                 : t('Ringing…')}
             </T>
-            <Icon name="bar-chart-2" size={18} color={colors.amber} />
+            <Icon name="bar-chart-2" size={18} color={colors.amberText} />
           </View>
           {!call.isGroup && !!call.peer?.title && (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.surface, borderRadius: radius.pill, paddingHorizontal: 14, paddingVertical: 6 }}>
               <Icon name="briefcase" size={14} color={colors.textMuted} />
-              <T variant="body" color={colors.amberSoft}>
+              <T variant="body" color={colors.amberSoftText}>
                 {call.peer.title}
               </T>
             </View>
@@ -346,7 +347,7 @@ function RingingCall() {
                     paddingHorizontal: 16,
                     paddingVertical: 12,
                   })}>
-                  <Icon name={q.icon} size={16} color={colors.amber} />
+                  <Icon name={q.icon} size={16} color={colors.amberText} />
                   <T variant="body" style={{ fontSize: 15 }}>
                     {q.text}
                   </T>
@@ -357,7 +358,7 @@ function RingingCall() {
           <View style={{ flexDirection: 'row', justifyContent: 'space-evenly', alignItems: 'flex-start' }}>
             {incoming ? (
               <>
-                <RoundAction icon="phone-off" label={t('Decline')} bg={colors.dangerDeep} color="#FF8A80" glow={colors.danger} onPress={() => decline()} />
+                <RoundAction icon="phone-off" label={t('Decline')} bg={colors.dangerDeep} color={colors.dangerText} glow={colors.danger} onPress={() => decline()} />
                 {call.video && (
                   <View style={{ paddingTop: 10 }}>
                     <RoundAction icon="video-off" label={t('Audio only')} bg={colors.surfaceHigh} size={52} onPress={() => accept(true)} />
@@ -373,7 +374,7 @@ function RingingCall() {
                 />
               </>
             ) : (
-              <RoundAction icon="phone-off" label={t('Cancel')} bg={colors.dangerDeep} color="#FF8A80" glow={colors.danger} onPress={hangUp} />
+              <RoundAction icon="phone-off" label={t('Cancel')} bg={colors.dangerDeep} color={colors.dangerText} glow={colors.danger} onPress={hangUp} />
             )}
           </View>
           {!!call.notice && <Notice text={call.notice} />}
@@ -415,22 +416,22 @@ function ParticipantBackdrop({ user }: { user: User | null | undefined }) {
   );
 }
 
-/** Stitch "Active Video Call": full-bleed remote, PiP self view, glass control dock. */
+type Panel = 'chat' | 'quality' | 'invite' | 'audio' | 'mic' | 'more' | null;
+
+/** Stitch "Active Video Call": full-bleed remote, draggable self view, glass control dock. */
 function ActiveCall() {
-  const { call, hangUp, toggleMic, toggleCamera, toggleScreenShare, flipCamera, sendReaction, setNoiseMode, setMinimized } = useCalls();
-  const { user } = useAuth();
-  // Dock toggle: off ↔ the user's preferred level (strong AI filter where available).
-  const toggleNoise = () => {
-    const preferred = getNoisePreference();
-    setNoiseMode(call.noiseMode !== 'off' ? 'off' : preferred !== 'off' ? preferred : strongNoiseSupported() ? 'strong' : 'standard');
-  };
+  const { call, hangUp, toggleMic, toggleCamera, toggleScreenShare, flipCamera, sendReaction, setMinimized } = useCalls();
+  const { self: user } = useCalls();
+  const wide = useIsWide();
+  const insets = useSafeAreaInsets();
   // Tap the stage to hide the controls (less visual noise), tap again to bring them back.
   const [controlsHidden, setControlsHidden] = useState(false);
-  const [chatOpen, setChatOpen] = useState(false);
-  const [qualityOpen, setQualityOpen] = useState(false);
-  const [inviteOpen, setInviteOpen] = useState(false);
-  const [audioOpen, setAudioOpen] = useState(false);
+  // One panel at a time.
+  const [panel, setPanel] = useState<Panel>(null);
+  const toggle = (p: Exclude<Panel, null>) => setPanel((open) => (open === p ? null : p));
   const [focusedScreen, setFocusedScreen] = useState<string | null>(null);
+  const [stage, setStage] = useState({ width: 0, height: 0 });
+  const [dockHeight, setDockHeight] = useState(180);
   // Plain opacity (+ a CSS fade on web); Animated's JS driver doesn't apply reliably on web here.
   const chrome = {
     opacity: controlsHidden ? 0 : 1,
@@ -452,19 +453,37 @@ function ActiveCall() {
   const focusedRemote = call.remotes.find((remote) => remote.userId === focusedScreen && remote.screen);
   const focusedLocal = focusedScreen === 'local' && call.sharingScreen;
 
-  const [floatAnim] = useState(() => new Animated.Value(0));
-  useEffect(() => {
-    if (!call.reaction) return;
-    floatAnim.setValue(0);
-    Animated.timing(floatAnim, { toValue: 1, duration: 1600, useNativeDriver: Platform.OS !== 'web' }).start();
-  }, [call.reaction, floatAnim]);
+  // Meeting rooms are invited to by sharing their link; group calls by picking people.
+  const canInvite = call.isGroup && !call.guest && !call.room;
+  const [linkCopied, setLinkCopied] = useState(false);
+  const copyMeetingLink = async () => {
+    if (!call.room) return;
+    await Clipboard.setStringAsync(meetingLink(call.room.code));
+    setLinkCopied(true);
+    setTimeout(() => setLinkCopied(false), 2000);
+  };
+  const canFlip = canSwitchCamera && !call.cameraOff;
+  const canShare = screenShareSupported();
+  // Phones keep the essentials in the dock and the rest behind "More".
+  const moreItems: MenuItem[] = [
+    ...(canFlip ? [{ icon: 'refresh-ccw' as const, label: t('Switch camera'), onPress: flipCamera }] : []),
+    ...(canShare ? [{ icon: 'monitor' as const, label: call.sharingScreen ? t('Stop sharing') : t('Share screen'), active: call.sharingScreen, onPress: toggleScreenShare }] : []),
+    { icon: 'headphones', label: t('Audio devices'), onPress: () => setPanel('audio') },
+    { icon: 'sliders', label: t('Call quality'), onPress: () => setPanel('quality') },
+    ...(canInvite ? [{ icon: 'user-plus' as const, label: t('Invite to call'), onPress: () => setPanel('invite') }] : []),
+    ...(call.room ? [{ icon: 'link' as const, label: t('Copy meeting link'), onPress: () => void copyMeetingLink() }] : []),
+    { icon: 'minimize-2', label: t('Minimize call'), onPress: () => setMinimized(true) },
+  ];
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.canvas }}>
-      {/* Remote stage — tap toggles the controls */}
+    <View style={{ flex: 1, backgroundColor: colors.canvas }} onLayout={(e) => setStage({ width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height })}>
+      {/* Remote stage — tap closes an open panel, otherwise toggles the controls */}
       <Pressable
         style={StyleSheet.absoluteFill}
-        onPress={() => setControlsHidden((h) => !h)}
+        onPress={() => {
+          if (panel) setPanel(null);
+          else setControlsHidden((h) => !h);
+        }}
         accessibilityLabel={t('Show or hide controls')}
         {...(Platform.OS === 'web' ? { tabIndex: -1 } : {})}>
         {focusedRemote || focusedLocal ? (
@@ -483,9 +502,9 @@ function ActiveCall() {
             <VideoView key={`remote-${single.userId}-${call.mediaVersion}`} stream={single.stream} contain={single.screen} />
           </View>
         ) : (
-          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 16 }}>
-            <LinearGradient colors={['rgba(255,184,77,0.08)', 'rgba(11,14,20,0)']} style={StyleSheet.absoluteFill} />
-            <Avatar user={stageUser} size={160} ring={single?.speaking ? colors.amber : colors.hairline} />
+          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 16, paddingBottom: dockHeight / 2 }}>
+            <LinearGradient colors={['rgba(255,184,77,0.08)', `${colors.canvas}00`]} style={StyleSheet.absoluteFill} />
+            <Avatar user={stageUser} size={wide ? 160 : 132} ring={single?.speaking ? colors.amber : colors.hairline} />
             <T variant="headline">{stageName}</T>
             <T variant="body" color={colors.textMuted}>
               {single?.stream ? t('Voice call') : call.isGroup && !single ? t('Waiting for others to join…') : t('Connecting…')}
@@ -494,93 +513,71 @@ function ActiveCall() {
         )}
       </Pressable>
 
+      {/* Reactions float from the bottom of the screen to the top */}
+      <View style={StyleSheet.absoluteFill} pointerEvents="none">
+        {call.reactions.map((r) => (
+          <FloatingReaction key={r.key} reaction={r} stage={stage} />
+        ))}
+      </View>
+
       <SafeAreaView style={{ flex: 1, justifyContent: 'space-between' }} pointerEvents="box-none">
         {/* Top status */}
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', padding: 16 }} pointerEvents="box-none">
-          <View style={[{ gap: 8 }, chrome]} pointerEvents={chromePointer}>
-            <View style={[styles.glass, { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingVertical: 8 }]}>
-              <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: colors.amber }} />
-              <T variant="labelLg" style={{ fontSize: 16, fontVariant: ['tabular-nums'] }}>
-                {timer(elapsed)}
-              </T>
-              <T variant="labelLg" color={colors.textMuted}>
-                •
-              </T>
-              <T variant="labelLg" style={{ fontSize: 16 }} numberOfLines={1}>
-                {call.title || call.peer?.displayName}
-              </T>
-              <Pressable
-                accessibilityLabel={t('Minimize call')}
-                onPress={() => setMinimized(true)}
-                hitSlop={8}
-                style={({ pressed }) => ({ marginStart: 4, padding: 4, borderRadius: 14, backgroundColor: pressed ? colors.surfaceHigh : 'transparent' })}>
-                <Icon name="minimize-2" size={16} color={colors.text} />
-              </Pressable>
-            </View>
-            <View style={{ flexDirection: 'row', gap: 6 }}>
-              <View style={[styles.tag, { backgroundColor: colors.tealTint }]}>
-                <Icon name="wifi" size={13} color={colors.teal} />
-                <T variant="label" color={colors.teal}>
-                  {anyScreen ? t('Screen') : anyVideo ? t('HD Video') : t('Voice')}
-                </T>
-              </View>
-              {call.isGroup && (
-                <View style={[styles.tag, { backgroundColor: colors.surfaceHigh }]}>
-                  <Icon name="users" size={13} color={colors.text} />
-                  <T variant="label">{t('{n} in call', { n: num(call.remotes.length + 1) })}</T>
-                </View>
-              )}
-              <View style={[styles.tag, { backgroundColor: colors.amberTint }]}>
-                <Icon name="activity" size={13} color={colors.amber} />
-                <T variant="label" color={colors.amber}>
-                  {t('Synced')}
-                </T>
-              </View>
-            </View>
-          </View>
-
-          {localPreview && (
-            <Pressable style={[styles.pip, { borderColor: call.localSpeaking ? colors.amber : colors.hairline, borderWidth: 2 }]} onPress={() => call.sharingScreen && setFocusedScreen('local')}>
-              <VideoView
-                key={`local-${call.sharingScreen ? 'screen' : 'cam'}-${call.mediaVersion}`}
-                stream={localPreview}
-                mirror={!call.sharingScreen && call.frontCamera}
-                contain={call.sharingScreen}
-                muted
-                overlay
-              />
-              <T variant="label" style={{ position: 'absolute', start: 10, bottom: 8 }}>
-                {call.sharingScreen ? (call.sharingAudio ? t('Your screen + audio') : t('Your screen')) : t('You')}
-              </T>
+        <View style={[{ padding: 16, gap: 8, alignItems: 'flex-start' }, chrome]} pointerEvents={chromePointer}>
+          <View style={[styles.glass, { flexDirection: 'row', alignItems: 'center', gap: 10, paddingStart: 16, paddingEnd: 6, paddingVertical: 6, maxWidth: '100%' }]}>
+            <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: colors.amber }} />
+            <T variant="labelLg" style={{ fontSize: 16, fontVariant: ['tabular-nums'] }}>
+              {timer(elapsed)}
+            </T>
+            <T variant="labelLg" color={colors.textMuted}>
+              •
+            </T>
+            <T variant="labelLg" style={{ fontSize: 16, flexShrink: 1 }} numberOfLines={1}>
+              {call.title || call.peer?.displayName}
+            </T>
+            <Pressable
+              accessibilityLabel={t('Minimize call')}
+              onPress={() => setMinimized(true)}
+              hitSlop={8}
+              style={({ pressed }) => ({ padding: 7, borderRadius: 16, backgroundColor: pressed ? colors.surfaceHighest : colors.surfaceHigh })}>
+              <Icon name="minimize-2" size={16} color={colors.text} />
             </Pressable>
-          )}
+          </View>
+          <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
+            <View style={[styles.tag, { backgroundColor: colors.tealTint }]}>
+              <Icon name="wifi" size={13} color={colors.teal} />
+              <T variant="label" color={colors.teal}>
+                {anyScreen ? t('Screen') : anyVideo ? t('HD Video') : t('Voice')}
+              </T>
+            </View>
+            {call.isGroup && (
+              <View style={[styles.tag, { backgroundColor: colors.surfaceHigh }]}>
+                <Icon name="users" size={13} color={colors.text} />
+                <T variant="label">{t('{n} in call', { n: num(call.remotes.length + 1) })}</T>
+              </View>
+            )}
+            {call.noiseMode !== 'off' && (
+              <View style={[styles.tag, { backgroundColor: colors.amberTint }]}>
+                <Icon name="wind" size={13} color={colors.amberText} />
+                <T variant="label" color={colors.amberText}>
+                  {call.noiseMode === 'strong' ? t('Strong (AI)') : t('Noise cancellation')}
+                </T>
+              </View>
+            )}
+          </View>
         </View>
 
-        {/* Floating reaction */}
-        {call.reaction && (
-          <Animated.Text
-            key={call.reaction.key}
-            style={{
-              position: 'absolute',
-              alignSelf: 'center',
-              bottom: 200,
-              fontSize: 56,
-              opacity: floatAnim.interpolate({ inputRange: [0, 0.7, 1], outputRange: [1, 1, 0] }),
-              transform: [{ translateY: floatAnim.interpolate({ inputRange: [0, 1], outputRange: [0, -160] }) }],
-            }}>
-            {call.reaction.emoji}
-          </Animated.Text>
-        )}
-
         {/* Bottom controls */}
-        <View style={[{ padding: 16, gap: 12, alignItems: 'center' }, chrome]} pointerEvents={chromePointer}>
+        <View
+          onLayout={(e) => setDockHeight(e.nativeEvent.layout.height)}
+          style={[{ padding: 12, gap: 12, alignItems: 'center' }, chrome]}
+          pointerEvents={chromePointer}>
           {!!call.notice && (
-            <View style={[styles.glass, { paddingHorizontal: 14, paddingVertical: 8 }]}>
+            <View style={[styles.glass, { paddingHorizontal: 14, paddingVertical: 8, maxWidth: '100%' }]}>
               <Notice text={call.notice} />
             </View>
           )}
           {!!call.audioIssue && (
-            <View style={[styles.glass, { paddingHorizontal: 14, paddingVertical: 8, borderColor: colors.amber }]}>
+            <View style={[styles.glass, { paddingHorizontal: 14, paddingVertical: 8, borderColor: colors.amber, maxWidth: '100%' }]}>
               <Notice
                 text={
                   call.audioIssue === 'send'
@@ -590,88 +587,391 @@ function ActiveCall() {
               />
             </View>
           )}
-          <View style={{ flexDirection: 'row', gap: 10 }}>
+          <View style={[styles.glass, { flexDirection: 'row', gap: 4, padding: 4 }]}>
             {REACTIONS.map((e) => (
-              <Pressable key={e} onPress={() => sendReaction(e)} style={[styles.glass, { paddingHorizontal: 16, paddingVertical: 6 }]}>
-                <T style={{ fontSize: 18 }}>{e}</T>
+              <Pressable
+                key={e}
+                accessibilityLabel={t('React with {emoji}', { emoji: e })}
+                onPress={() => sendReaction(e)}
+                style={({ pressed }) => ({
+                  paddingHorizontal: 12,
+                  paddingVertical: 6,
+                  borderRadius: radius.pill,
+                  backgroundColor: pressed ? colors.surfaceHighest : 'transparent',
+                  transform: [{ scale: pressed ? 1.15 : 1 }],
+                })}>
+                <T style={{ fontSize: 20 }}>{e}</T>
               </Pressable>
             ))}
           </View>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={[styles.glass, { maxWidth: '100%', borderRadius: radius.pill }]}
-            contentContainerStyle={{ flexDirection: 'row', gap: 12, padding: 10 }}>
-            <DockButton icon={call.micMuted ? 'mic-off' : 'mic'} active={!call.micMuted} onPress={toggleMic} label={t('Microphone')} />
-            <DockButton
-              icon="wind"
-              active={call.noiseMode !== 'off'}
-              onPress={toggleNoise}
-              label={call.noiseMode === 'off' ? t('Noise cancellation: off') : call.noiseMode === 'strong' ? t('Noise cancellation: strong (AI)') : t('Noise cancellation: standard')}
-            />
-            <DockButton icon="message-square" active={chatOpen} onPress={() => setChatOpen((o) => !o)} label={t('Call chat')} badge={chatOpen ? 0 : call.chatUnread} />
-            <DockButton
-              icon="sliders"
-              active={qualityOpen}
-              onPress={() => {
-                setQualityOpen((open) => !open);
-                setInviteOpen(false);
-                setAudioOpen(false);
-              }}
-              label={t('Call quality')}
-            />
-            {call.isGroup && !call.guest && (
-              <DockButton
-                icon="user-plus"
-                active={inviteOpen}
-                onPress={() => {
-                  setInviteOpen((open) => !open);
-                  setQualityOpen(false);
-                  setAudioOpen(false);
-                }}
-                label={t('Invite to call')}
-              />
-            )}
-            <DockButton icon={call.cameraOff ? 'video-off' : 'video'} active={!call.cameraOff} onPress={toggleCamera} label={t('Camera')} />
-            {canSwitchCamera && !call.cameraOff && (
-              <DockButton icon="refresh-ccw" active={false} onPress={flipCamera} label={t('Switch camera')} />
-            )}
-            <DockButton
-              icon="headphones"
-              active={audioOpen}
-              onPress={() => {
-                setAudioOpen((open) => !open);
-                setQualityOpen(false);
-                setInviteOpen(false);
-              }}
-              label={t('Audio devices')}
-            />
-            {screenShareSupported() && (
-              <DockButton icon="monitor" active={call.sharingScreen} onPress={toggleScreenShare} label={t('Share screen')} />
-            )}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: wide ? 14 : 10, maxWidth: '100%' }}>
+            <View style={[styles.glass, { flexDirection: 'row', alignItems: 'center', gap: wide ? 10 : 8, padding: 8, flexShrink: 1 }]}>
+              <MicButton muted={call.micMuted} panelOpen={panel === 'mic'} onToggle={toggleMic} onOpenPanel={() => toggle('mic')} />
+              <DockButton icon={call.cameraOff ? 'video-off' : 'video'} active={!call.cameraOff} onPress={toggleCamera} label={call.cameraOff ? t('Turn camera on') : t('Turn camera off')} />
+              {wide && canFlip && <DockButton icon="refresh-ccw" active={false} onPress={flipCamera} label={t('Switch camera')} />}
+              {wide && canShare && (
+                <DockButton icon="monitor" active={call.sharingScreen} onPress={toggleScreenShare} label={call.sharingScreen ? t('Stop sharing') : t('Share screen')} />
+              )}
+              <DockButton icon="message-square" active={panel === 'chat'} onPress={() => toggle('chat')} label={t('Call chat')} badge={panel === 'chat' ? 0 : call.chatUnread} />
+              {wide ? (
+                <>
+                  <DockButton icon="headphones" active={panel === 'audio'} onPress={() => toggle('audio')} label={t('Audio devices')} />
+                  <DockButton icon="sliders" active={panel === 'quality'} onPress={() => toggle('quality')} label={t('Call quality')} />
+                  {canInvite && <DockButton icon="user-plus" active={panel === 'invite'} onPress={() => toggle('invite')} label={t('Invite to call')} />}
+                  {!!call.room && <DockButton icon={linkCopied ? 'check' : 'link'} active={linkCopied} onPress={() => void copyMeetingLink()} label={t('Copy meeting link')} />}
+                </>
+              ) : (
+                <DockButton icon="more-horizontal" active={panel === 'more' || call.sharingScreen} onPress={() => toggle('more')} label={t('More options')} />
+              )}
+            </View>
             <Pressable
               accessibilityLabel={t('Hang up')}
               onPress={hangUp}
               style={({ pressed }) => ({
-                width: 64,
-                height: 56,
-                borderRadius: 28,
-                backgroundColor: pressed ? '#B91C1C' : colors.dangerDeep,
+                width: wide ? 72 : 64,
+                height: wide ? 64 : 60,
+                borderRadius: 32,
+                backgroundColor: pressed ? '#B91C1C' : colors.danger,
                 alignItems: 'center',
                 justifyContent: 'center',
                 shadowColor: colors.danger,
-                shadowOpacity: 0.5,
-                shadowRadius: 16,
+                shadowOpacity: 0.55,
+                shadowRadius: 18,
+                elevation: 8,
               })}>
-              <Icon name="phone-off" size={22} color="#FF8A80" />
+              <Icon name="phone-off" size={24} color="#FFFFFF" />
             </Pressable>
-          </ScrollView>
+          </View>
         </View>
       </SafeAreaView>
-      {chatOpen && <CallChatPanel onClose={() => setChatOpen(false)} />}
-      {qualityOpen && <CallQualityPanel onClose={() => setQualityOpen(false)} />}
-      {inviteOpen && <CallInvitePanel onClose={() => setInviteOpen(false)} />}
-      {audioOpen && <AudioDevicePanel onClose={() => setAudioOpen(false)} />}
+
+      {localPreview && (
+        <SelfView
+          stage={stage}
+          topReserve={insets.top + (wide ? 16 : 108)}
+          bottomReserve={dockHeight + insets.bottom + 8}
+          speaking={!!call.localSpeaking}
+          onPress={() => call.sharingScreen && setFocusedScreen('local')}>
+          <VideoView
+            key={`local-${call.sharingScreen ? 'screen' : 'cam'}-${call.mediaVersion}`}
+            stream={localPreview}
+            mirror={!call.sharingScreen && call.frontCamera}
+            contain={call.sharingScreen}
+            muted
+            overlay
+          />
+          <T variant="label" style={{ position: 'absolute', start: 10, bottom: 8 }}>
+            {call.sharingScreen ? (call.sharingAudio ? t('Your screen + audio') : t('Your screen')) : t('You')}
+          </T>
+        </SelfView>
+      )}
+
+      {panel === 'chat' && <CallChatPanel onClose={() => setPanel(null)} />}
+      {panel === 'quality' && <CallQualityPanel onClose={() => setPanel(null)} />}
+      {panel === 'invite' && <CallInvitePanel onClose={() => setPanel(null)} />}
+      {panel === 'audio' && <AudioDevicePanel onClose={() => setPanel(null)} />}
+      {panel === 'mic' && <MicPanel onClose={() => setPanel(null)} bottom={dockHeight + insets.bottom} />}
+      {panel === 'more' && <MoreSheet items={moreItems} onClose={() => setPanel(null)} bottom={dockHeight + insets.bottom} />}
+    </View>
+  );
+}
+
+/** One reaction drifting up the whole call screen, swaying side to side, with who sent it. */
+function FloatingReaction({ reaction, stage }: { reaction: CallReaction; stage: { width: number; height: number } }) {
+  const [progress] = useState(() => new Animated.Value(0));
+  useEffect(() => {
+    Animated.timing(progress, { toValue: 1, duration: REACTION_MS, easing: Easing.out(Easing.sin), useNativeDriver: Platform.OS !== 'web' }).start();
+  }, [progress]);
+  const height = stage.height || 600;
+  const width = stage.width || 400;
+  // Start around the middle; sway width and direction come with the reaction.
+  const startX = width / 2 - 40 + reaction.drift * Math.min(120, width / 4);
+  const sway = (24 + Math.abs(reaction.drift) * 26) * (reaction.drift < 0 ? -1 : 1);
+  return (
+    <Animated.View
+      style={{
+        position: 'absolute',
+        left: startX,
+        top: height - 140,
+        width: 80,
+        alignItems: 'center',
+        opacity: progress.interpolate({ inputRange: [0, 0.08, 0.75, 1], outputRange: [0, 1, 1, 0] }),
+        transform: [
+          { translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [0, -(height - 120)] }) },
+          { translateX: progress.interpolate({ inputRange: [0, 0.25, 0.5, 0.75, 1], outputRange: [0, sway, 0, -sway, 0] }) },
+          { scale: progress.interpolate({ inputRange: [0, 0.1, 1], outputRange: [0.4, 1.1, 0.9] }) },
+        ],
+      }}>
+      <T style={{ fontSize: 44, lineHeight: 54 }}>{reaction.emoji}</T>
+      {!!reaction.name && (
+        <View style={[styles.glass, { paddingHorizontal: 8, paddingVertical: 2, maxWidth: 120 }]}>
+          <T variant="labelSm" numberOfLines={1}>
+            {reaction.name}
+          </T>
+        </View>
+      )}
+    </Animated.View>
+  );
+}
+
+type Corner = 'tl' | 'tr' | 'bl' | 'br';
+// Remembered for the rest of the session, across calls.
+let selfCorner: Corner = 'tr';
+
+type CornerGeometry = { spot: (corner: Corner) => { x: number; y: number }; stage: { width: number; height: number }; w: number; h: number };
+
+/** Drag state for the self view; snaps to the corner nearest to where it was let go. */
+function createCornerDrag(start: { x: number; y: number }) {
+  const pos = new Animated.ValueXY(start);
+  let geo: CornerGeometry | null = null;
+  let dragging = false;
+  let origin = { x: 0, y: 0 };
+  const snap = (x: number, y: number) => {
+    dragging = false;
+    if (!geo) return;
+    const cx = x + geo.w / 2;
+    const cy = y + geo.h / 2;
+    selfCorner = `${cy < geo.stage.height / 2 ? 't' : 'b'}${cx < geo.stage.width / 2 ? 'l' : 'r'}` as Corner;
+    Animated.spring(pos, { toValue: geo.spot(selfCorner), useNativeDriver: false, friction: 7, tension: 60 }).start();
+  };
+  const responder = PanResponder.create({
+    // Only real drags; a tap still reaches the preview.
+    onMoveShouldSetPanResponderCapture: (_, g) => Math.abs(g.dx) + Math.abs(g.dy) > 6,
+    onPanResponderGrant: () => {
+      dragging = true;
+      pos.stopAnimation((value) => (origin = value));
+    },
+    onPanResponderTerminationRequest: () => false,
+    onPanResponderMove: (_, g) => pos.setValue({ x: origin.x + g.dx, y: origin.y + g.dy }),
+    onPanResponderRelease: (_, g) => snap(origin.x + g.dx, origin.y + g.dy),
+    onPanResponderTerminate: (_, g) => snap(origin.x + g.dx, origin.y + g.dy),
+  });
+  return {
+    pos,
+    responder,
+    update(next: CornerGeometry) {
+      const moved = !geo || next.spot(selfCorner).x !== geo.spot(selfCorner).x || next.spot(selfCorner).y !== geo.spot(selfCorner).y;
+      geo = next;
+      if (moved && !dragging) pos.setValue(next.spot(selfCorner));
+    },
+  };
+}
+
+/** The local camera / screen preview. Drag it anywhere; it snaps to the nearest corner. */
+function SelfView({
+  stage,
+  topReserve,
+  bottomReserve,
+  speaking,
+  onPress,
+  children,
+}: {
+  stage: { width: number; height: number };
+  topReserve: number;
+  bottomReserve: number;
+  speaking: boolean;
+  onPress: () => void;
+  children: ReactNode;
+}) {
+  const wide = useIsWide();
+  const insets = useSafeAreaInsets();
+  const w = wide ? 200 : 112;
+  const h = wide ? 130 : 160;
+  const spot = (corner: Corner) => {
+    const m = 16;
+    const left = corner === 'tl' || corner === 'bl';
+    const top = corner === 'tl' || corner === 'tr';
+    return {
+      x: left ? insets.left + m : Math.max(m, stage.width - insets.right - m - w),
+      y: top ? topReserve : Math.max(topReserve, stage.height - bottomReserve - h),
+    };
+  };
+  const [drag] = useState(() => createCornerDrag(spot(selfCorner)));
+  // Keep the geometry current and follow the layout (rotation, resizes, dock height) while resting in a corner.
+  useEffect(() => drag.update({ spot, stage, w, h }));
+  const { pos, responder } = drag;
+
+  if (!stage.width) return null;
+  return (
+    <Animated.View
+      {...responder.panHandlers}
+      style={[
+        styles.pip,
+        {
+          position: 'absolute',
+          left: 0,
+          top: 0,
+          width: w,
+          height: h,
+          borderColor: speaking ? colors.amber : colors.hairline,
+          borderWidth: 2,
+          transform: pos.getTranslateTransform(),
+        },
+        Platform.OS === 'web' ? ({ cursor: 'grab', userSelect: 'none', touchAction: 'none', boxShadow: '0 10px 30px rgba(0,0,0,0.45)' } as object) : null,
+      ]}>
+      <Pressable style={{ flex: 1 }} onPress={onPress} accessibilityLabel={t('Your video — drag to move')}>
+        {children}
+      </Pressable>
+    </Animated.View>
+  );
+}
+
+/** Mic toggle with a small handle that opens the microphone settings. */
+function MicButton({ muted, panelOpen, onToggle, onOpenPanel }: { muted: boolean; panelOpen: boolean; onToggle: () => void; onOpenPanel: () => void }) {
+  return (
+    <View>
+      <DockButton icon={muted ? 'mic-off' : 'mic'} active={!muted} danger={muted} onPress={onToggle} label={muted ? t('Unmute') : t('Mute')} />
+      <Pressable
+        accessibilityLabel={t('Microphone settings')}
+        onPress={onOpenPanel}
+        hitSlop={6}
+        style={({ pressed }) => ({
+          position: 'absolute',
+          end: -4,
+          bottom: -4,
+          width: 24,
+          height: 24,
+          borderRadius: 12,
+          borderWidth: 2,
+          borderColor: colors.canvas,
+          backgroundColor: panelOpen ? colors.amber : pressed ? colors.surfaceHigh : colors.surfaceHighest,
+          alignItems: 'center',
+          justifyContent: 'center',
+        })}>
+        <Icon name={panelOpen ? 'chevron-down' : 'chevron-up'} size={13} color={panelOpen ? colors.onAmber : colors.text} />
+      </Pressable>
+    </View>
+  );
+}
+
+/** Microphone popover: noise cancellation and the input device. */
+function MicPanel({ onClose, bottom }: { onClose: () => void; bottom: number }) {
+  const { call, setNoiseMode, refreshAudioDevices, selectAudioInput } = useCalls();
+  useEffect(() => {
+    void refreshAudioDevices();
+  }, [refreshAudioDevices]);
+  const inputs = call.audioDevices.filter((device) => device.kind === 'input');
+  const on = call.noiseMode !== 'off';
+  const strong = strongNoiseSupported();
+  const toggleNoise = () => {
+    if (on) return setNoiseMode('off');
+    const preferred = getNoisePreference();
+    setNoiseMode(preferred !== 'off' ? preferred : strong ? 'strong' : 'standard');
+  };
+  return (
+    <Popover title={t('Microphone')} onClose={onClose} bottom={bottom}>
+      <Pressable
+        accessibilityRole="checkbox"
+        accessibilityState={{ checked: on }}
+        onPress={toggleNoise}
+        style={({ pressed }) => ({
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 12,
+          padding: 12,
+          borderRadius: radius.lg,
+          backgroundColor: pressed ? colors.surfaceHighest : colors.surfaceHigh,
+        })}>
+        <View
+          style={{
+            width: 22,
+            height: 22,
+            borderRadius: 6,
+            borderWidth: 2,
+            borderColor: on ? colors.amber : colors.textMuted,
+            backgroundColor: on ? colors.amber : 'transparent',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}>
+          {on && <Icon name="check" size={14} color={colors.onAmber} />}
+        </View>
+        <View style={{ flex: 1 }}>
+          <T variant="labelLg">{t('Noise cancellation')}</T>
+          <T variant="bodySm" color={colors.textMuted}>
+            {t('Filters out keyboard, fan and background noise.')}
+          </T>
+        </View>
+      </Pressable>
+      {on && strong && (
+        <ChoiceRow
+          values={['standard', 'strong'] as const}
+          value={call.noiseMode === 'strong' ? 'strong' : 'standard'}
+          label={t('Strength')}
+          display={(v) => (v === 'strong' ? t('Strong (AI)') : t('Standard'))}
+          onChange={(v) => setNoiseMode(v)}
+        />
+      )}
+      {inputs.length > 0 && <DeviceSection title={t('Microphone input')} icon="mic" devices={inputs} selected={call.audioInputId} onSelect={selectAudioInput} />}
+    </Popover>
+  );
+}
+
+type MenuItem = { icon: IconName; label: string; active?: boolean; onPress: () => void };
+
+/** Phone overflow menu for the controls that don't need to be one tap away. */
+function MoreSheet({ items, onClose, bottom }: { items: MenuItem[]; onClose: () => void; bottom: number }) {
+  return (
+    <Popover onClose={onClose} bottom={bottom}>
+      <View style={{ gap: 2 }}>
+        {items.map((item) => (
+          <Pressable
+            key={item.label}
+            onPress={() => {
+              onClose();
+              item.onPress();
+            }}
+            style={({ pressed }) => ({
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 14,
+              minHeight: 52,
+              paddingHorizontal: 10,
+              borderRadius: radius.lg,
+              backgroundColor: pressed ? colors.surfaceHighest : item.active ? colors.amberTint : 'transparent',
+            })}>
+            <View
+              style={{
+                width: 38,
+                height: 38,
+                borderRadius: 19,
+                backgroundColor: item.active ? 'rgba(255,184,77,0.22)' : colors.surfaceHigh,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}>
+              <Icon name={item.icon} size={18} color={item.active ? colors.amberText : colors.text} />
+            </View>
+            <T variant="labelLg" color={item.active ? colors.amberText : colors.text} style={{ flex: 1 }}>
+              {item.label}
+            </T>
+          </Pressable>
+        ))}
+      </View>
+    </Popover>
+  );
+}
+
+/** A panel that opens just above the dock, centered. */
+function Popover({ title, onClose, bottom, children }: { title?: string; onClose: () => void; bottom: number; children: ReactNode }) {
+  return (
+    <View
+      style={[
+        styles.popover,
+        { bottom: bottom + 4 },
+        Platform.OS === 'web' ? ({ boxShadow: '0 18px 50px rgba(0,0,0,0.5)' } as object) : null,
+      ]}>
+      {!!title && (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingStart: 4 }}>
+          <T variant="headlineSm" style={{ flex: 1 }}>
+            {title}
+          </T>
+          <Pressable onPress={onClose} accessibilityLabel={t('Close')} style={{ padding: 6 }}>
+            <Icon name="x" />
+          </Pressable>
+        </View>
+      )}
+      <ScrollView style={{ flexGrow: 0 }} contentContainerStyle={{ gap: 14 }}>
+        {children}
+      </ScrollView>
     </View>
   );
 }
@@ -701,8 +1001,8 @@ function ParticipantGrid({ remotes, version, onFocusScreen }: { remotes: CallRem
               )}
               {r.screen && (
                 <View style={[styles.tag, { position: 'absolute', top: 10, end: 10, backgroundColor: colors.amberTint }]}>
-                  <Icon name="maximize-2" size={13} color={colors.amber} />
-                  <T variant="label" color={colors.amber}>{t('Open screen')}</T>
+                  <Icon name="maximize-2" size={13} color={colors.amberText} />
+                  <T variant="label" color={colors.amberText}>{t('Open screen')}</T>
                 </View>
               )}
               <View style={[styles.glass, { position: 'absolute', start: 10, bottom: 10, paddingHorizontal: 10, paddingVertical: 4, flexDirection: 'row', gap: 6, alignItems: 'center' }]}>
@@ -788,7 +1088,7 @@ function ChoiceRow<T extends string | number>({ values, value, label, display, o
             key={String(item)}
             onPress={() => onChange(item)}
             style={{ paddingHorizontal: 14, paddingVertical: 9, borderRadius: radius.pill, borderWidth: 1, borderColor: item === value ? colors.amber : colors.surfaceHighest, backgroundColor: item === value ? colors.amberTint : colors.surfaceHigh }}>
-            <T variant="label" color={item === value ? colors.amber : colors.text}>{display?.(item) ?? String(item)}</T>
+            <T variant="label" color={item === value ? colors.amberText : colors.text}>{display?.(item) ?? String(item)}</T>
           </Pressable>
         ))}
       </View>
@@ -803,16 +1103,27 @@ function CallQualityPanel({ onClose }: { onClose: () => void }) {
   const fps: readonly StreamFps[] = [60, 30, 15];
   return (
     <PanelShell title={t('Call quality')} onClose={onClose}>
-      <ChoiceRow values={rates} value={call.voiceBitrate} label={t('Voice quality')} display={(v) => `${v} Kbps`} onChange={(v) => void setVoiceBitrate(v)} />
-      <ChoiceRow
-        values={qualities}
-        value={call.streamQuality}
-        label={t('Screen share quality')}
-        display={(v) => v === '2k' ? `2K · ${STREAM_PRESETS[v].width}×${STREAM_PRESETS[v].height}` : v.toUpperCase()}
-        onChange={(v) => void setStreamQuality(v)}
-      />
-      <ChoiceRow values={fps} value={call.streamFps} label={t('Screen share FPS')} display={(v) => `${v} FPS`} onChange={(v) => void setStreamFps(v)} />
-      <T variant="bodySm" color={colors.textMuted}>{t('Defaults: 160 Kbps and 1080p / 30 FPS')}</T>
+      <View style={{ gap: 6 }}>
+        <ChoiceRow values={rates} value={call.voiceBitrate} label={t('Voice quality')} display={(v) => `${v} Kbps`} onChange={(v) => void setVoiceBitrate(v)} />
+        <T variant="bodySm" color={colors.textMuted}>{t('Applies to everyone in this call.')}</T>
+      </View>
+      {call.sharingScreen ? (
+        <>
+          <ChoiceRow
+            values={qualities}
+            value={call.streamQuality}
+            label={t('Screen share quality')}
+            display={(v) => v === '2k' ? `2K · ${STREAM_PRESETS[v].width}×${STREAM_PRESETS[v].height}` : v.toUpperCase()}
+            onChange={(v) => void setStreamQuality(v)}
+          />
+          <ChoiceRow values={fps} value={call.streamFps} label={t('Screen share FPS')} display={(v) => `${v} FPS`} onChange={(v) => void setStreamFps(v)} />
+        </>
+      ) : (
+        <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center', padding: 12, borderRadius: radius.lg, backgroundColor: colors.surfaceHigh }}>
+          <Icon name="monitor" size={16} color={colors.textMuted} />
+          <T variant="bodySm" color={colors.textMuted} style={{ flex: 1 }}>{t('Screen share quality and FPS appear here once you start sharing your screen.')}</T>
+        </View>
+      )}
     </PanelShell>
   );
 }
@@ -834,7 +1145,7 @@ function DeviceSection({
   return (
     <View style={{ gap: 8 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-        <Icon name={icon} size={16} color={colors.amber} />
+        <Icon name={icon} size={16} color={colors.amberText} />
         <T variant="labelLg">{title}</T>
       </View>
       {devices.map((device) => (
@@ -846,7 +1157,7 @@ function DeviceSection({
             try { await onSelect(device.id); } finally { setBusy(null); }
           }}
           style={{ flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 44, paddingHorizontal: 12, paddingVertical: 8, borderRadius: radius.lg, borderWidth: 1, borderColor: selected === device.id ? colors.amber : colors.surfaceHighest, backgroundColor: selected === device.id ? colors.amberTint : colors.surfaceHigh }}>
-          <Icon name={busy === device.id ? 'loader' : selected === device.id ? 'check-circle' : 'circle'} size={17} color={selected === device.id ? colors.amber : colors.textMuted} />
+          <Icon name={busy === device.id ? 'loader' : selected === device.id ? 'check-circle' : 'circle'} size={17} color={selected === device.id ? colors.amberText : colors.textMuted} />
           <T variant="body" style={{ flex: 1 }} numberOfLines={2}>{device.label}</T>
         </Pressable>
       ))}
@@ -864,7 +1175,14 @@ function AudioDevicePanel({ onClose }: { onClose: () => void }) {
       <ScrollView style={{ maxHeight: 430 }} contentContainerStyle={{ gap: 20 }}>
         {call.remotes.length > 0 && <T variant="labelLg">{t('Participant volume')}</T>}
         {call.remotes.map((remote) => (
-          <ChoiceRow key={remote.userId} values={[0, 0.25, 0.5, 0.75, 1]} value={remote.volume ?? 1} label={remote.user?.displayName ?? t('Someone')} display={(value) => `${Math.round(value * 100)}%`} onChange={(value) => setParticipantVolume(remote.userId, value)} />
+          <View key={remote.userId} style={{ gap: 4 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <Icon name={(remote.volume ?? 1) === 0 ? 'volume-x' : (remote.volume ?? 1) < 0.5 ? 'volume-1' : 'volume-2'} size={16} color={colors.textMuted} />
+              <T variant="label" style={{ flex: 1 }} numberOfLines={1}>{remote.user?.displayName ?? t('Someone')}</T>
+              <T variant="label" color={colors.amberText} style={{ fontVariant: ['tabular-nums'], minWidth: 44, textAlign: 'right' }}>{num(Math.round((remote.volume ?? 1) * 100))}%</T>
+            </View>
+            <Slider value={remote.volume ?? 1} label={t('Volume of {name}', { name: remote.user?.displayName ?? t('Someone') })} onChange={(value) => setParticipantVolume(remote.userId, value)} />
+          </View>
         ))}
         <DeviceSection title={t('Microphone input')} icon="mic" devices={inputs} selected={call.audioInputId} onSelect={selectAudioInput} />
         <DeviceSection title={t('Sound output')} icon="volume-2" devices={outputs} selected={call.audioOutputId} onSelect={selectAudioOutput} />
@@ -879,7 +1197,7 @@ function AudioDevicePanel({ onClose }: { onClose: () => void }) {
 
 function CallInvitePanel({ onClose }: { onClose: () => void }) {
   const { call, inviteGuests } = useCalls();
-  const { user } = useAuth();
+  const { self: user } = useCalls();
   const conversation = useConversation(call.conversationId ?? undefined);
   const [users, setUsers] = useState<User[]>([]);
   const [sent, setSent] = useState<Set<string>>(() => new Set());
@@ -889,7 +1207,7 @@ function CallInvitePanel({ onClose }: { onClose: () => void }) {
 
   useEffect(() => {
     let active = true;
-    api.users().then((items) => active && setUsers(items)).catch((e) => active && setError(e instanceof Error ? e.message : t('Could not load people'))).finally(() => active && setLoading(false));
+    api.contacts().then((items) => active && setUsers(items)).catch((e) => active && setError(e instanceof Error ? e.message : t('Could not load people'))).finally(() => active && setLoading(false));
     return () => { active = false; };
   }, []);
 
@@ -937,28 +1255,33 @@ function CallInvitePanel({ onClose }: { onClose: () => void }) {
   );
 }
 
-function DockButton({ icon, active, onPress, label, badge = 0 }: { icon: IconName; active: boolean; onPress: () => void; label: string; badge?: number }) {
+function DockButton({ icon, active, onPress, label, badge = 0, danger }: { icon: IconName; active: boolean; onPress: () => void; label: string; badge?: number; danger?: boolean }) {
+  const wide = useIsWide();
+  const size = wide ? 54 : 50;
   return (
     <Pressable
       accessibilityLabel={label}
       onPress={onPress}
+      {...(Platform.OS === 'web' ? ({ title: label } as object) : {})}
       style={({ pressed }) => ({
-        width: 56,
-        height: 56,
-        borderRadius: 28,
-        backgroundColor: active ? 'rgba(255,184,77,0.22)' : pressed ? colors.surfaceHighest : colors.surfaceHigh,
+        width: size,
+        height: size,
+        borderRadius: size / 2,
+        backgroundColor: danger ? colors.dangerTint : active ? 'rgba(255,184,77,0.22)' : pressed ? colors.surfaceHighest : colors.surfaceHigh,
         alignItems: 'center',
         justifyContent: 'center',
+        transform: [{ scale: pressed ? 0.94 : 1 }],
       })}>
-      <Icon name={icon} size={22} color={active ? colors.amber : colors.text} />
+      <Icon name={icon} size={22} color={danger ? colors.danger : active ? colors.amberText : colors.text} />
       {badge > 0 && <UnreadBadge count={badge} style={{ position: 'absolute', top: 2, end: 2 }} />}
     </Pressable>
   );
 }
 
-const styles = StyleSheet.create({
+// Rebuilt when the theme changes, since the tokens are read when the sheet is made.
+const makeStyles = () => StyleSheet.create({
   glass: {
-    backgroundColor: 'rgba(18, 23, 33, 0.75)',
+    backgroundColor: colors.glass,
     borderRadius: radius.pill,
     borderWidth: 1,
     borderColor: colors.hairline,
@@ -979,7 +1302,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: colors.hairline,
-    backgroundColor: 'rgba(18, 23, 33, 0.96)',
+    backgroundColor: colors.panel,
     elevation: 12,
   },
   pip: {
@@ -990,6 +1313,20 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.hairline,
     backgroundColor: colors.rail,
+  },
+  popover: {
+    position: 'absolute',
+    alignSelf: 'center',
+    width: 360,
+    maxWidth: '94%',
+    maxHeight: '70%',
+    gap: 14,
+    padding: 14,
+    borderRadius: radius.xl,
+    borderWidth: 1,
+    borderColor: colors.hairline,
+    backgroundColor: colors.panel,
+    elevation: 18,
   },
   sidePanel: {
     position: 'absolute',
@@ -1003,7 +1340,11 @@ const styles = StyleSheet.create({
     borderRadius: radius.xl,
     borderWidth: 1,
     borderColor: colors.hairline,
-    backgroundColor: 'rgba(18, 23, 33, 0.98)',
+    backgroundColor: colors.panel,
     elevation: 18,
   },
+});
+let styles = makeStyles();
+onThemeChange(() => {
+  styles = makeStyles();
 });

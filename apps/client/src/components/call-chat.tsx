@@ -7,6 +7,7 @@ import { clock } from '@/lib/format';
 import { t } from '@/lib/i18n';
 import { useCalls } from '@/state/calls';
 import { colors, fonts, radius } from '@/theme';
+import { LinkedText } from './linked-text';
 import { Icon, IconButton, noOutline, T } from './ui';
 
 /**
@@ -60,7 +61,7 @@ export function CallChatPanel({ onClose }: { onClose: () => void }) {
       style={[
         {
           position: 'absolute',
-          backgroundColor: 'rgba(18, 23, 33, 0.94)',
+          backgroundColor: colors.panel,
           borderColor: colors.hairline,
           borderWidth: 1,
           overflow: 'hidden',
@@ -75,7 +76,7 @@ export function CallChatPanel({ onClose }: { onClose: () => void }) {
             : { start: 8, end: 8, bottom: 8, height: '58%', borderRadius: radius.xl },
       ]}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14, borderBottomWidth: 1, borderBottomColor: colors.hairline }}>
-        <Icon name="message-square" size={18} color={colors.amber} />
+        <Icon name="message-square" size={18} color={colors.amberText} />
         <View style={{ flex: 1 }}>
           <T variant="labelLg">{t('Call chat')}</T>
           <T variant="bodySm" color={colors.textMuted}>
@@ -108,13 +109,13 @@ export function CallChatPanel({ onClose }: { onClose: () => void }) {
                 backgroundColor: item.mine ? colors.amberSoft : colors.surfaceHigh,
               }}>
               {!item.mine && !!item.author && (
-                <T variant="labelSm" color={colors.amber} numberOfLines={1}>
+                <T variant="labelSm" color={colors.amberText} numberOfLines={1}>
                   {item.author}
                 </T>
               )}
-              <T variant="body" color={item.mine ? colors.onAmber : colors.text} selectable>
+              <LinkedText color={item.mine ? colors.onAmber : colors.text} linkColor={item.mine ? '#5A3A00' : colors.amberText} selectable>
                 {item.text}
-              </T>
+              </LinkedText>
             </View>
             <T variant="labelSm" color={colors.textDim} style={{ marginTop: 2, paddingHorizontal: 4 }}>
               {clock(item.at)}

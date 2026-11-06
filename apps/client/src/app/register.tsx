@@ -116,7 +116,7 @@ export default function RegisterScreen() {
           {t('Already have an account?')}
         </T>
         <Link href="/login">
-          <T variant="labelLg" color={colors.amber}>
+          <T variant="labelLg" color={colors.amberText}>
             {t('Sign in')}
           </T>
         </Link>

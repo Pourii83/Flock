@@ -18,6 +18,14 @@
 #                     (DNS must point here and ports 80/443 must be reachable)
 #   --email ADDR      email for Let's Encrypt expiry notices (optional)
 #   --turn            also install a TURN relay (coturn) so calls work across different networks
+#   --upload-mb N     largest file people can send, in MB (default 100)
+#   --retention-days N  keep sent files this many days (default 7)
+#   --admin NAME      admin account to create (default: admin; asked when interactive)
+#   --no-admin        don't create an admin account
+#   --yes             don't ask questions; use the options and defaults
+#
+# On a first install the script asks for these settings when it runs in a terminal (also when
+# piped from curl), and creates the admin account at the end. Passwords are stored as bcrypt hashes.
 #
 # Re-running the installer upgrades Flock and keeps /etc/flock/flock.env and the database.
 # Private repository? Export GITHUB_TOKEN=<token with repo read access> before running.
@@ -37,6 +45,14 @@ DOMAIN=""
 EMAIL=""
 WITH_TURN=0
 HTTPS_OK=0
+UPLOAD_MB=100
+RETENTION=7
+OPEN_SIGNUP=1
+ADMIN_USER=""
+ADMIN_PASS=""
+ADMIN_GENERATED=0
+NO_ADMIN=0
+ASSUME_YES=0
 
 info() { printf '\033[1;33m==>\033[0m %s\n' "$*"; }
 ok() { printf '\033[1;32m✔\033[0m %s\n' "$*"; }
@@ -52,7 +68,12 @@ while [ $# -gt 0 ]; do
     --domain) DOMAIN="$2"; shift 2 ;;
     --email) EMAIL="$2"; shift 2 ;;
     --turn) WITH_TURN=1; shift ;;
-    -h|--help) sed -n '2,25p' "$0"; exit 0 ;;
+    --upload-mb) UPLOAD_MB="$2"; shift 2 ;;
+    --retention-days) RETENTION="$2"; shift 2 ;;
+    --admin) ADMIN_USER="$2"; shift 2 ;;
+    --no-admin) NO_ADMIN=1; shift ;;
+    --yes|-y) ASSUME_YES=1; shift ;;
+    -h|--help) sed -n '2,35p' "$0"; exit 0 ;;
     *) die "Unknown option: $1 (see --help)" ;;
   esac
 done
@@ -70,6 +91,78 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
 random() { head -c 48 /dev/urandom | od -An -tx1 | tr -d ' \n' | head -c "${1:-48}"; }
+
+# ---------- 0. questions (first install only) ----------
+
+FIRST_INSTALL=0
+[ -f "$ENV_FILE" ] || FIRST_INSTALL=1
+# Questions go to the terminal even when the script itself is piped from curl.
+TTY=0
+if [ "$ASSUME_YES" = 0 ] && { : </dev/tty; } 2>/dev/null; then TTY=1; fi
+
+ask() { # ask VAR "question" default
+  local ans=""
+  if [ "$TTY" = 1 ]; then
+    printf '\033[1;36m?\033[0m %s [%s]: ' "$2" "$3" >/dev/tty
+    IFS= read -r ans </dev/tty || true
+  fi
+  printf -v "$1" '%s' "${ans:-$3}"
+}
+ask_num() { # ask_num VAR "question" default min max
+  while :; do
+    ask "$1" "$2" "$3"
+    local v="${!1}"
+    if [[ "$v" =~ ^[0-9]+$ ]] && [ "$v" -ge "$4" ] && [ "$v" -le "$5" ]; then return; fi
+    [ "$TTY" = 1 ] || die "$2: must be a number from $4 to $5"
+    echo "  Enter a number from $4 to $5." >/dev/tty
+  done
+}
+ask_yn() { # ask_yn VAR "question" y|n  → VAR=1/0
+  local a
+  while :; do
+    ask a "$2 (y/n)" "$3"
+    case "$a" in [Yy]*) printf -v "$1" 1; return ;; [Nn]*) printf -v "$1" 0; return ;; esac
+    echo "  Answer y or n." >/dev/tty
+  done
+}
+
+if [ "$FIRST_INSTALL" = 1 ] && [ "$TTY" = 1 ]; then
+  info "A few questions — press Enter to keep the value in [brackets]"
+  if [ -z "$DOMAIN" ]; then ask DOMAIN "Domain for HTTPS, e.g. chat.example.com (empty = no domain, use the IP)" ""; fi
+  if [ -n "$DOMAIN" ] && [ -z "$EMAIL" ]; then ask EMAIL "Email for certificate expiry notices (optional)" ""; fi
+  if [ -z "$DOMAIN" ]; then ask_num PORT "Port for Flock" "$PORT" 1 65535; fi
+  ask_num UPLOAD_MB "Largest file people can send, in MB" "$UPLOAD_MB" 1 4096
+  ask_num RETENTION "Keep sent files for how many days" "$RETENTION" 1 365
+  ask_yn OPEN_SIGNUP "Let anyone who reaches the server sign up?" y
+  if [ "$WITH_TURN" = 0 ]; then ask_yn WITH_TURN "Install a TURN relay (coturn) so calls work across networks?" n; fi
+fi
+[[ "$UPLOAD_MB" =~ ^[0-9]+$ ]] && [ "$UPLOAD_MB" -ge 1 ] && [ "$UPLOAD_MB" -le 4096 ] || die "--upload-mb must be 1–4096"
+[[ "$RETENTION" =~ ^[0-9]+$ ]] && [ "$RETENTION" -ge 1 ] && [ "$RETENTION" -le 365 ] || die "--retention-days must be 1–365"
+
+# The admin account: on a first install (or when --admin is given), created at the very end.
+CREATE_ADMIN=0
+if [ "$NO_ADMIN" = 0 ] && { [ "$FIRST_INSTALL" = 1 ] || [ -n "$ADMIN_USER" ]; }; then
+  CREATE_ADMIN=1
+  while :; do
+    ask ADMIN_USER "Admin username" "${ADMIN_USER:-admin}"
+    [[ "$ADMIN_USER" =~ ^[a-zA-Z0-9_.]{3,24}$ ]] && break
+    [ "$TTY" = 1 ] || die "Admin username must be 3–24 letters, numbers, _ or ."
+    echo "  3–24 letters, numbers, _ or ." >/dev/tty
+  done
+  if [ "$TTY" = 1 ]; then
+    while :; do
+      printf '\033[1;36m?\033[0m Admin password (min 8 characters, empty = generate one): ' >/dev/tty
+      IFS= read -rs ADMIN_PASS </dev/tty || true; echo >/dev/tty
+      [ -z "$ADMIN_PASS" ] && break
+      if [ "${#ADMIN_PASS}" -lt 8 ]; then echo "  At least 8 characters." >/dev/tty; continue; fi
+      printf '\033[1;36m?\033[0m Repeat the password: ' >/dev/tty
+      IFS= read -rs again </dev/tty || true; echo >/dev/tty
+      [ "$again" = "$ADMIN_PASS" ] && break
+      echo "  The passwords don't match." >/dev/tty
+    done
+  fi
+  if [ -z "$ADMIN_PASS" ]; then ADMIN_PASS="$(random 20)"; ADMIN_GENERATED=1; fi
+fi
 
 # ---------- 1. locate the package ----------
 
@@ -211,7 +304,10 @@ DATABASE_URL=$DB_URL
 JWT_SECRET=$(random 64)
 WEB_DIR=$PREFIX/web
 CORS_ORIGIN=*
-FILE_RETENTION_DAYS=7
+# First defaults; the admin changes these later in the app (Settings → App settings).
+FILE_RETENTION_DAYS=$RETENTION
+MAX_UPLOAD_MB=$UPLOAD_MB
+ALLOW_REGISTRATION=$OPEN_SIGNUP
 CONF
   chown root:flock "$ENV_FILE"
   chmod 640 "$ENV_FILE"
@@ -249,8 +345,8 @@ server {
     listen 80;
     listen [::]:80;
     server_name $DOMAIN;
-    # The app accepts files up to 100 MiB; leave room for multipart headers.
-    client_max_body_size 105m;
+    # Largest upload plus room for multipart headers (raise it if you raise the limit in the app).
+    client_max_body_size $(( $(grep -E '^MAX_UPLOAD_MB=' "$ENV_FILE" | cut -d= -f2 || echo 100) + 5 ))m;
 
     location / {
         proxy_pass http://127.0.0.1:$PORT;
@@ -418,6 +514,21 @@ else
   echo "  sudo -u flock env \$(grep -v '^#' $ENV_FILE | xargs) $PREFIX/node/bin/node $PREFIX/server/src/index.js"
 fi
 
+# ---------- 7. admin account ----------
+
+ADMIN_OK=0
+if [ "$CREATE_ADMIN" = 1 ]; then
+  info "Creating the admin account '$ADMIN_USER'"
+  # The password goes through stdin (never on a command line) and is stored as a bcrypt hash.
+  if printf '%s\n' "$ADMIN_PASS" | runuser -u flock -- env $(grep -Ev '^\s*(#|$)' "$ENV_FILE" | xargs) \
+      "$PREFIX/node/bin/node" "$PREFIX/server/src/create-admin.js" "$ADMIN_USER" "Admin" >/dev/null; then
+    ADMIN_OK=1
+    ok "Admin account ready"
+  else
+    warn "Couldn't create the admin account. Later: printf '%s\n' 'PASSWORD' | sudo -u flock env \$(grep -v '^#' $ENV_FILE | xargs) $PREFIX/node/bin/node $PREFIX/server/src/create-admin.js $ADMIN_USER"
+  fi
+fi
+
 IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
 echo
 ok "Flock is installed."
@@ -427,4 +538,8 @@ echo "   Mobile/desktop apps: use server address $ADDR"
 echo "   Config:      $ENV_FILE"
 echo "   Logs:        journalctl -u $SERVICE -f"
 echo "   Uninstall:   sudo $PREFIX/uninstall.sh"
+if [ "$ADMIN_OK" = 1 ]; then
+  echo "   Admin:       $ADMIN_USER  (Settings → App settings in the app)"
+  [ "$ADMIN_GENERATED" = 1 ] && echo "   Admin password: $ADMIN_PASS   ← shown only once; save it, then change it by re-running with --admin $ADMIN_USER"
+fi
 [ -n "$DOMAIN" ] || echo "   Tip: re-run with --domain your.domain for automatic HTTPS (needed for calls in browsers)."

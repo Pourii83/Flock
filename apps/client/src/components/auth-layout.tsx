@@ -67,7 +67,7 @@ export function AuthLayout({ title, subtitle, children }: { title: string; subti
           <T variant="display" style={{ fontSize: 40, marginTop: 8 }}>
             {t('Flock')}
           </T>
-          <T variant="bodyLg" color={colors.amberSoft} style={{ opacity: 0.85 }}>
+          <T variant="bodyLg" color={colors.amberSoftText} style={{ opacity: 0.85 }}>
             {t('Stay together, wherever you are')}
           </T>
         </View>
@@ -93,7 +93,7 @@ export function AuthLayout({ title, subtitle, children }: { title: string; subti
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }}>
         <LinearGradient
-          colors={['rgba(255,184,77,0.10)', 'rgba(11,14,20,0)']}
+          colors={['rgba(255,184,77,0.10)', `${colors.canvas}00`]}
           style={{ position: 'absolute', left: 0, right: 0, top: 0, height: 360 }}
         />
         {scroll(form)}
@@ -105,7 +105,7 @@ export function AuthLayout({ title, subtitle, children }: { title: string; subti
     <View style={{ flex: 1, flexDirection: 'row', backgroundColor: colors.canvas }}>
       <View style={{ flex: 1, padding: 64, justifyContent: 'space-between', overflow: 'hidden' }}>
         <LinearGradient
-          colors={['rgba(255,184,77,0.10)', 'rgba(11,14,20,0)', 'rgba(18,23,33,1)']}
+          colors={['rgba(255,184,77,0.10)', `${colors.canvas}00`, colors.rail]}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
           style={{ position: 'absolute', inset: 0 } as any}
@@ -135,7 +135,7 @@ export function AuthLayout({ title, subtitle, children }: { title: string; subti
               paddingVertical: 6,
             }}>
             <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: colors.online }} />
-            <T variant="label" color={colors.amber}>
+            <T variant="label" color={colors.amberText}>
               {t('FLOCK MESSENGER')}
             </T>
           </View>
@@ -143,7 +143,7 @@ export function AuthLayout({ title, subtitle, children }: { title: string; subti
             <T variant="display" style={{ fontSize: 60, lineHeight: 66 }}>
               {t('Stay together,')}
             </T>
-            <T variant="display" color={colors.amber} style={{ fontSize: 60, lineHeight: 66 }}>
+            <T variant="display" color={colors.amberText} style={{ fontSize: 60, lineHeight: 66 }}>
               {t('wherever you are.')}
             </T>
           </View>

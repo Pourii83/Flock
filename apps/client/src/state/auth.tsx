@@ -15,7 +15,7 @@ type AuthState = {
   login: (username: string, password: string) => Promise<void>;
   register: (username: string, displayName: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
-  updateProfile: (patch: Partial<Pick<User, 'displayName' | 'bio' | 'title'>>) => Promise<void>;
+  updateProfile: (patch: Partial<Pick<User, 'displayName' | 'bio' | 'title' | 'username'>>) => Promise<void>;
   /** Uploads a base64 JPEG as the profile photo, or removes it when null. */
   setAvatar: (base64: string | null) => Promise<void>;
   /** Switches to another Flock server; the current session belongs to the old one, so it signs out. */

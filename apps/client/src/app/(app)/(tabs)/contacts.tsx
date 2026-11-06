@@ -64,7 +64,7 @@ function PersonRow({ user, wide }: { user: User; wide: boolean }) {
       </View>
       <IconButton name="message-square" label={t('Message')} onPress={message} bg={colors.surface} />
       <IconButton name="phone" label={t('Voice call')} onPress={() => call(false)} bg={colors.surface} color={colors.teal} />
-      <IconButton name="video" label={t('Video call')} onPress={() => call(true)} bg={colors.surface} color={colors.amber} />
+      <IconButton name="video" label={t('Video call')} onPress={() => call(true)} bg={colors.surface} color={colors.amberText} />
     </Pressable>
   );
 }
@@ -79,7 +79,7 @@ function PeopleList({ wide }: { wide: boolean }) {
   useEffect(() => {
     let cancelled = false;
     const t = setTimeout(() => {
-      api.users(query.trim()).then(
+      api.contacts(query.trim()).then(
         (list) => !cancelled && setPeople(list),
         () => !cancelled && setPeople([]),
       );
@@ -94,7 +94,7 @@ function PeopleList({ wide }: { wide: boolean }) {
   const rest = people?.filter((p) => !p.online) ?? [];
   const sections: (User | string)[] = [
     ...(online.length ? [t('Online — {n}', { n: num(online.length) }), ...online] : []),
-    ...(rest.length ? [t('Everyone — {n}', { n: num(rest.length) }), ...rest] : []),
+    ...(rest.length ? [t('Contacts — {n}', { n: num(rest.length) }), ...rest] : []),
   ];
 
   return (
@@ -116,10 +116,10 @@ function PeopleList({ wide }: { wide: boolean }) {
       }
       ListEmptyComponent={
         people === null ? (
-          <ActivityIndicator color={colors.amber} />
+          <ActivityIndicator color={colors.amberText} />
         ) : (
           <T variant="body" color={colors.textMuted} style={{ textAlign: 'center', marginTop: 24 }}>
-            {query ? t('Nobody found.') : t('No one else is here yet — share Flock with your team!')}
+            {query ? t('Nobody found.') : t('People you chat or call with show up here. Start a new chat to find someone.')}
           </T>
         )
       }
@@ -154,7 +154,7 @@ export default function ContactsScreen() {
         </View>
         <EmptyStage
           title={t('Your flock, all in one place')}
-          body="Everyone on this Flock server shows up here. Message them, or jump straight into a voice or video call."
+          body={t('People you chat or call with show up here. Message them, or jump straight into a voice or video call.')}
           onNewChat={() => router.push('/new-chat')}
         />
       </View>

@@ -17,6 +17,7 @@ export default function AppLayout() {
       <Stack.Screen name="new-chat" options={sheet} />
       <Stack.Screen name="new-group" options={sheet} />
       <Stack.Screen name="add-members" options={sheet} />
+      <Stack.Screen name="admin" options={sheet} />
     </Stack>
   );
 }

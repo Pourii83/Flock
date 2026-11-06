@@ -44,7 +44,7 @@ export function ModalFrame({
 
   if (wide) {
     return (
-      <Pressable onPress={onClose} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+      <Pressable onPress={onClose} style={{ flex: 1, backgroundColor: colors.scrim, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
         <Pressable
           onPress={(e) => e.stopPropagation()}
           style={

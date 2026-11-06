@@ -1,0 +1,6 @@
+# HTTPS in front of the Docker setup (docker compose --profile https up -d).
+# Caddy gets and renews a Let's Encrypt certificate for $DOMAIN automatically.
+{$DOMAIN} {
+	encode gzip
+	reverse_proxy web:80
+}

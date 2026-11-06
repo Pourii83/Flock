@@ -131,7 +131,7 @@ export function ConversationAvatar({
         alignItems: 'center',
         justifyContent: 'center',
       }}>
-      <Icon name="users" size={size * 0.42} color={colors.amber} />
+      <Icon name="users" size={size * 0.42} color={colors.amberText} />
     </View>
   );
 }

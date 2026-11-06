@@ -5,6 +5,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { AVATAR_DIR } from './avatars.js';
 import { migrate, pool } from './db.js';
+import { loadSettings } from './settings.js';
 import { deleteStoredFile } from './files.js';
 import { createRealtime } from './realtime.js';
 import { createRouter } from './routes.js';
@@ -19,6 +20,7 @@ const rawOrigins = (process.env.CORS_ORIGIN || '*').split(',').map((s) => s.trim
 const CORS_ORIGIN = rawOrigins.includes('*') ? '*' : rawOrigins;
 
 await migrate();
+await loadSettings();
 
 const app = express();
 app.disable('x-powered-by');

@@ -55,7 +55,7 @@ export function EmptyStage({
         <T variant="headline" style={{ fontSize: 36, lineHeight: 44, textAlign: 'center', marginTop: 12 }}>
           {title}
         </T>
-        <T variant="bodyLg" color={colors.amberSoft} style={{ textAlign: 'center', opacity: 0.8, fontSize: 18, lineHeight: 28 }}>
+        <T variant="bodyLg" color={colors.amberSoftText} style={{ textAlign: 'center', opacity: 0.8, fontSize: 18, lineHeight: 28 }}>
           {body}
         </T>
         <View style={{ flexDirection: 'row', gap: 16, marginTop: 12, flexWrap: 'wrap', justifyContent: 'center' }}>

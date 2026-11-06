@@ -4,6 +4,7 @@ import type { DocumentPickerAsset } from 'expo-document-picker';
 
 import { api } from '@/lib/api';
 import { getApiUrl } from '@/lib/config';
+import { decryptText, encryptText, forgetLoadedDevice, loadDevice, onDeviceChange, secretStatus } from '@/lib/e2e';
 import type { Conversation, Message, User, ActiveCall } from '@/lib/types';
 import { t } from '@/lib/i18n';
 
@@ -17,6 +18,8 @@ type State = {
   typing: Record<string, string[]>;
   /** conversationId -> call running there (group calls can be joined late). */
   activeCalls: Record<string, ActiveCall>;
+  /** Set while a meeting guest (no account) is connected only for a meeting room. */
+  guest: User | null;
 };
 
 const initialState = (): State => ({
@@ -27,6 +30,7 @@ const initialState = (): State => ({
   hasMore: {},
   typing: {},
   activeCalls: {},
+  guest: null,
 });
 
 const sortConversations = (list: Conversation[]) =>
@@ -62,6 +66,9 @@ class ChatStore {
   start(token: string, me: User) {
     this.stop();
     this.me = me;
+    // Secret chats need this device's key; once it's loaded, decrypt what's already here.
+    this.stopDeviceWatch = onDeviceChange(() => this.revealAll());
+    void loadDevice(me.id);
     const socket = io(getApiUrl(), { auth: { token }, transports: ['websocket', 'polling'] });
     this.socket = socket;
 
@@ -92,7 +99,58 @@ class ChatStore {
     socket.on('user:updated', (u: User) => this.patchUser(u.id, u));
   }
 
+  /** A meeting guest: a socket for room signaling only — no chats, no presence. */
+  startGuest(token: string, me: User) {
+    this.stop();
+    this.me = me;
+    const socket = io(getApiUrl(), { auth: { token }, transports: ['websocket', 'polling'] });
+    this.socket = socket;
+    this.set({ guest: me });
+    socket.on('connect', () => this.set({ connected: true }));
+    socket.on('disconnect', () => this.set({ connected: false }));
+  }
+
+  private stopDeviceWatch: (() => void) | null = null;
+
+  // ---------- secret chats ----------
+
+  /** Decrypts a secret-chat message for display (and its quoted reply); other messages pass through. */
+  private reveal(m: Message, conversation?: Conversation): Message {
+    const c = conversation ?? this.state.conversations.find((x) => x.id === m.conversationId);
+    if (!c?.secret || m.kind !== 'text' || m.secret === 'ok') return m;
+    const status = secretStatus(c, this.me?.id);
+    const open = (body: string) => (status?.state === 'ready' ? decryptText(body, status.peerKey) : null);
+    const body = open(m.body);
+    const reply = m.replyTo ? open(m.replyTo.body) : null;
+    return {
+      ...m,
+      body: body ?? t('Encrypted message — readable only on the device this secret chat lives on'),
+      secret: body === null ? 'locked' : 'ok',
+      replyTo: m.replyTo ? { ...m.replyTo, body: reply ?? t('Encrypted message') } : null,
+    };
+  }
+
+  private revealConversation(c: Conversation): Conversation {
+    return c.secret && c.lastMessage ? { ...c, lastMessage: this.reveal(c.lastMessage, c) } : c;
+  }
+
+  /** Re-run decryption on everything loaded (this device's key arrived, or a chat was accepted). */
+  private revealAll() {
+    this.set((s) => ({
+      conversations: s.conversations.map((c) => this.revealConversation(c)),
+      messages: Object.fromEntries(
+        Object.entries(s.messages).map(([id, list]) => {
+          const c = s.conversations.find((x) => x.id === id);
+          return [id, c?.secret ? list.map((m) => this.reveal(m, c)) : list];
+        }),
+      ),
+    }));
+  }
+
   stop() {
+    this.stopDeviceWatch?.();
+    this.stopDeviceWatch = null;
+    forgetLoadedDevice();
     this.socket?.removeAllListeners();
     this.socket?.disconnect();
     this.socket = null;
@@ -109,7 +167,7 @@ class ChatStore {
     try {
       const [list, calls] = await Promise.all([api.conversations(), api.activeCalls().catch(() => [])]);
       this.set({
-        conversations: sortConversations(list),
+        conversations: sortConversations(list.map((c) => this.revealConversation(c))),
         activeCalls: Object.fromEntries(calls.map((c) => [c.conversationId, c])),
         loaded: true,
       });
@@ -128,9 +186,12 @@ class ChatStore {
   }
 
   upsertConversation(c: Conversation) {
+    const before = this.state.conversations.find((x) => x.id === c.id);
     this.set((s) => ({
-      conversations: sortConversations([c, ...s.conversations.filter((x) => x.id !== c.id)]),
+      conversations: sortConversations([this.revealConversation(c), ...s.conversations.filter((x) => x.id !== c.id)]),
     }));
+    // A secret chat was just accepted: messages that were sealed for it can be opened now.
+    if (c.secret && before?.secret?.recipientKey !== c.secret.recipientKey) this.revealAll();
   }
 
   private patchConversation(id: string, fn: (c: Conversation) => Partial<Conversation>) {
@@ -189,7 +250,7 @@ class ChatStore {
   // ---------- messages ----------
 
   async loadMessages(id: string) {
-    const list = await api.messages(id);
+    const list = (await api.messages(id)).map((m) => this.reveal(m));
     this.set((s) => ({
       messages: { ...s.messages, [id]: list },
       hasMore: { ...s.hasMore, [id]: list.length >= 50 },
@@ -199,14 +260,15 @@ class ChatStore {
   async loadOlder(id: string) {
     const current = this.state.messages[id];
     if (!current?.length || !this.state.hasMore[id]) return;
-    const older = await api.messages(id, current[0]!.createdAt);
+    const older = (await api.messages(id, current[0]!.createdAt)).map((m) => this.reveal(m));
     this.set((s) => ({
       messages: { ...s.messages, [id]: [...older, ...(s.messages[id] ?? [])] },
       hasMore: { ...s.hasMore, [id]: older.length >= 50 },
     }));
   }
 
-  private receiveMessage(m: Message) {
+  private receiveMessage(incoming: Message) {
+    const m = this.reveal(incoming);
     this.set((s) => {
       const list = s.messages[m.conversationId];
       if (!list) return {};
@@ -257,7 +319,13 @@ class ChatStore {
     replace((list) => [...list, optimistic]);
     this.patchConversation(conversationId, () => ({ lastMessage: optimistic, updatedAt: optimistic.createdAt }));
     try {
-      const saved = await api.sendMessage(conversationId, body, replyTo?.id);
+      // Secret chats: only ciphertext leaves this device; the plaintext stays in memory here.
+      const conversation = this.state.conversations.find((c) => c.id === conversationId);
+      const status = conversation ? secretStatus(conversation, me.id) : null;
+      if (conversation?.secret && status?.state !== 'ready') throw new Error('secret chat not ready');
+      const wire = status?.state === 'ready' ? encryptText(body, status.peerKey) : body;
+      const sent = await api.sendMessage(conversationId, wire, replyTo?.id);
+      const saved = status?.state === 'ready' ? { ...sent, body, secret: 'ok' as const, replyTo: optimistic.replyTo && sent.replyTo ? { ...sent.replyTo, body: optimistic.replyTo.body } : sent.replyTo } : sent;
       // The socket echo may already have delivered it.
       replace((list) =>
         list.some((x) => x.id === saved.id) ? list.filter((x) => x.id !== tempId) : list.map((x) => (x.id === tempId ? saved : x)),

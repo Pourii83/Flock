@@ -30,8 +30,8 @@ function Action({ icon, label, onPress, active }: { icon: IconName; label: strin
         borderRadius: radius.lg,
         backgroundColor: hovered ? colors.surfaceHigh : colors.surface,
       })}>
-      <Icon name={icon} size={20} color={active ? colors.amber : colors.text} />
-      <T variant="label" color={active ? colors.amber : colors.textMuted}>
+      <Icon name={icon} size={20} color={active ? colors.amberText : colors.text} />
+      <T variant="label" color={active ? colors.amberText : colors.textMuted}>
         {label}
       </T>
     </Pressable>
@@ -72,7 +72,7 @@ export function ConversationInfo({ conversationId, onClose }: { conversationId: 
               {conversation.name}
             </T>
             {peer && (
-              <T variant="labelLg" color={colors.amber}>
+              <T variant="labelLg" color={colors.amberText}>
                 @{peer.username}
               </T>
             )}
@@ -206,7 +206,7 @@ function GroupHeader({ conversation }: { conversation: Conversation }) {
             {conversation.name}
           </T>
           {!!conversation.description && (
-            <T variant="body" color={colors.amberSoft} style={{ textAlign: 'center' }}>
+            <T variant="body" color={colors.amberSoftText} style={{ textAlign: 'center' }}>
               {conversation.description}
             </T>
           )}
@@ -242,7 +242,7 @@ function RoleBadge({ role }: { role?: GroupRole }) {
   const owner = role === 'owner';
   return (
     <View style={{ backgroundColor: owner ? colors.amberTint : colors.tealTint, borderRadius: radius.pill, paddingHorizontal: 8, paddingVertical: 2 }}>
-      <T variant="labelSm" color={owner ? colors.amber : colors.teal}>
+      <T variant="labelSm" color={owner ? colors.amberText : colors.teal}>
         {owner ? t('Owner') : t('Admin')}
       </T>
     </View>
@@ -324,9 +324,9 @@ function Members({ conversation, meId }: { conversation: Conversation; meId?: st
             backgroundColor: hovered ? colors.surface : 'transparent',
           })}>
           <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: colors.amberTint, alignItems: 'center', justifyContent: 'center' }}>
-            <Icon name="user-plus" size={18} color={colors.amber} />
+            <Icon name="user-plus" size={18} color={colors.amberText} />
           </View>
-          <T variant="labelLg" color={colors.amber}>
+          <T variant="labelLg" color={colors.amberText}>
             {t('Add members')}
           </T>
         </Pressable>

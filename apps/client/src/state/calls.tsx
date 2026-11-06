@@ -14,6 +14,10 @@ export type CallPhase = 'idle' | 'outgoing' | 'incoming' | 'active';
 
 export type CallChatMessage = { id: string; mine: boolean; text: string; at: number; author?: string };
 export type VoiceBitrate = 160 | 320;
+/** How long one reaction floats from the bottom of the call screen to the top. */
+export const REACTION_MS = 3200;
+const REACTION_COOLDOWN_MS = 400;
+export type CallReaction = { emoji: string; name: string; key: string; /** -1…1, side-to-side sway direction and width. */ drift: number };
 export type StreamQuality = '2k' | '1080p' | '720p' | '480p';
 export type StreamFps = 60 | 30 | 15;
 
@@ -64,13 +68,18 @@ export type CallState = {
   chat: CallChatMessage[];
   chatUnread: number;
   notice: string | null;
-  reaction: { emoji: string; key: number } | null;
-  /** Sender controls, changed from the in-call quality panel. */
+  /** Reactions currently floating up the screen; each removes itself when its animation ends. */
+  reactions: CallReaction[];
+  /** Call-wide voice quality: whoever changes it changes it for everyone in the call. */
   voiceBitrate: VoiceBitrate;
+  /** When voiceBitrate was last chosen (0 = default); the newest choice wins across peers. */
+  voiceBitrateAt: number;
   streamQuality: StreamQuality;
   streamFps: StreamFps;
   /** True for a non-member admitted only for the lifetime of this group call. */
   guest: boolean;
+  /** Set when this call is a meeting room opened from a link. */
+  room: { code: string; ownerId: string; expiresAt: number | null } | null;
   audioDevices: AudioDeviceChoice[];
   audioInputId: string;
   audioOutputId: string;
@@ -101,11 +110,13 @@ const IDLE: CallState = {
   chat: [],
   chatUnread: 0,
   notice: null,
-  reaction: null,
+  reactions: [],
   voiceBitrate: 160,
+  voiceBitrateAt: 0,
   streamQuality: '1080p',
   streamFps: 30,
   guest: false,
+  room: null,
   audioDevices: [],
   audioInputId: 'default',
   audioOutputId: 'default',
@@ -120,6 +131,10 @@ type CallApi = {
   /** Joins a group call from a private temporary invitation. */
   joinInvitedCall: (callId: string) => Promise<void>;
   inviteGuests: (userIds: string[]) => Promise<User[]>;
+  /** Joins a meeting room by its link code; resolves with an error message if it couldn't. */
+  joinRoom: (code: string) => Promise<string | null>;
+  /** Who I am in calls: my account, or my guest identity in a meeting room. */
+  self: User | null;
   accept: (audioOnly?: boolean) => Promise<void>;
   decline: (quickReply?: string) => void;
   hangUp: () => void;
@@ -164,7 +179,9 @@ const memberOf = (conversationId: string | null, userId: string) =>
   chatStore.state.conversations.find((c) => c.id === conversationId)?.members.find((m) => m.id === userId) ?? null;
 
 export function CallProvider({ children }: { children: ReactNode }) {
-  const { user } = useAuth();
+  const { user: account } = useAuth();
+  const guestUser = useChat((s) => s.guest);
+  const user = account ?? guestUser;
   const connected = useChat((s) => s.connected);
   const [call, setCallState] = useState<CallState>(IDLE);
   const [historyVersion, setHistoryVersion] = useState(0);
@@ -322,11 +339,24 @@ export function CallProvider({ children }: { children: ReactNode }) {
     if (callId) chatStore.socket?.emit('call:signal', { callId, to, data });
   }, []);
 
+  const lastReaction = useRef(0);
+  /** Adds a floating reaction and drops it once its animation has finished. */
+  const addReaction = useCallback(
+    (emoji: string, name: string) => {
+      const key = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      setCall((c) => ({ ...c, reactions: [...c.reactions.slice(-23), { emoji, name, key, drift: Math.random() * 2 - 1 }] }));
+      setTimeout(() => setCall((c) => ({ ...c, reactions: c.reactions.filter((r) => r.key !== key) })), REACTION_MS + 200);
+    },
+    [setCall],
+  );
+
   /** Tells the others (or one newcomer) whether our video slot carries the camera or the screen. */
   const announceMedia = useCallback(
     (to?: string) => {
       const c = callRef.current;
       signal({ type: 'media', video: !!screenTrack.current || !c.cameraOff, screen: !!screenTrack.current }, to);
+      // A newcomer adopts the call's voice quality if someone already changed it.
+      if (to && c.voiceBitrateAt) signal({ type: 'quality', voiceBitrate: c.voiceBitrate, at: c.voiceBitrateAt }, to);
     },
     [signal],
   );
@@ -455,8 +485,15 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
   const handleSignal = useCallback(
     async (from: string, data: any) => {
-      if (data?.type === 'reaction') {
-        patch({ reaction: { emoji: data.emoji, key: Date.now() } });
+      if (data?.type === 'reaction' && typeof data.emoji === 'string') {
+        const name = memberOf(callRef.current.conversationId, from)?.displayName ?? callRef.current.remotes.find((r) => r.userId === from)?.user?.displayName ?? callRef.current.peer?.displayName ?? '';
+        addReaction(data.emoji.slice(0, 16), name);
+        return;
+      }
+      if (data?.type === 'quality' && (data.voiceBitrate === 160 || data.voiceBitrate === 320) && typeof data.at === 'number') {
+        if (data.at <= callRef.current.voiceBitrateAt) return;
+        patch({ voiceBitrate: data.voiceBitrate, voiceBitrateAt: data.at });
+        await applySenderQuality({ voiceBitrate: data.voiceBitrate });
         return;
       }
       if (data?.type === 'chat' && typeof data.text === 'string') {
@@ -506,7 +543,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
         else entry.pending.push(data.candidate);
       }
     },
-    [patch, setCall, upsertRemote, makePeer, outgoingAudio, outgoingVideo, signal, announceMedia, applySenderQuality],
+    [patch, setCall, upsertRemote, makePeer, outgoingAudio, outgoingVideo, signal, announceMedia, applySenderQuality, addReaction],
   );
 
   // ---------- socket events ----------
@@ -728,6 +765,33 @@ export function CallProvider({ children }: { children: ReactNode }) {
       });
     });
   }, []);
+
+  const joinRoom = useCallback(
+    async (code: string) => {
+      const socket = chatStore.socket;
+      if (callRef.current.phase !== 'idle') return t('You are already in a call');
+      if (!socket) return t("Can't reach the Flock server. Check your connection.");
+      // Join with the camera off; it can be turned on from the dock.
+      setCall({ ...IDLE, phase: 'active', isGroup: true, video: false, answeredAt: Date.now(), title: t('Meeting'), guest: !account });
+      acceptedHere.current = true;
+      await callAudio.prepare();
+      callAudio.start(false);
+      mediaReady.current = prepareMedia(false);
+      const res: any = await new Promise((resolve) => socket.emit('room:join', { code }, resolve));
+      if (!res?.ok) {
+        cleanup();
+        return t(res?.error || 'This meeting has ended');
+      }
+      patch({ callId: res.callId, title: res.title || t('Meeting'), room: res.room });
+      const ready = await mediaReady.current;
+      for (const participant of (res.participants ?? []) as User[]) {
+        upsertRemote(participant.id, { user: participant });
+        if (ready) await offerTo(participant.id).catch((e) => console.warn('[flock] offer failed', e));
+      }
+      return null;
+    },
+    [account, setCall, prepareMedia, cleanup, patch, upsertRemote, offerTo],
+  );
 
   const startCall = useCallback(
     async (conversation: Conversation, video: boolean) => {
@@ -963,10 +1027,12 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
   const setVoiceBitrate = useCallback(
     async (voiceBitrate: VoiceBitrate) => {
-      patch({ voiceBitrate });
+      const at = Math.max(Date.now(), callRef.current.voiceBitrateAt + 1);
+      patch({ voiceBitrate, voiceBitrateAt: at });
+      signal({ type: 'quality', voiceBitrate, at });
       await applySenderQuality({ voiceBitrate });
     },
-    [applySenderQuality, patch],
+    [applySenderQuality, patch, signal],
   );
 
   const setStreamQuality = useCallback(
@@ -1010,10 +1076,14 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
   const sendReaction = useCallback(
     (emoji: string) => {
+      // A short cooldown keeps rapid taps from piling emojis on top of each other.
+      const now = Date.now();
+      if (now - lastReaction.current < REACTION_COOLDOWN_MS) return;
+      lastReaction.current = now;
       signal({ type: 'reaction', emoji });
-      patch({ reaction: { emoji, key: Date.now() } });
+      addReaction(emoji, t('You'));
     },
-    [signal, patch],
+    [signal, addReaction],
   );
 
   const sendChat = useCallback(
@@ -1089,6 +1159,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
       joinCall,
       joinInvitedCall,
       inviteGuests,
+      joinRoom,
+      self: user,
       accept,
       decline,
       hangUp,
@@ -1117,6 +1189,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
       joinCall,
       joinInvitedCall,
       inviteGuests,
+      joinRoom,
+      user,
       accept,
       decline,
       hangUp,

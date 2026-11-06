@@ -1,5 +1,5 @@
 import { Server } from 'socket.io';
-import { verifyToken } from './auth.js';
+import { verifyGuestToken, verifyToken } from './auth.js';
 import * as presence from './presence.js';
 import * as repo from './repo.js';
 
@@ -63,10 +63,30 @@ export function createRealtime(httpServer, corsOrigin) {
     await toMembers(c.conversationId, 'call:state', { conversationId: c.conversationId, callId: null, participants: [] });
   }
 
+  /** A meeting room was closed or expired: everyone in it is sent out. */
+  function closeRoom(roomId) {
+    const c = live.get(roomId);
+    if (!c?.roomId) return;
+    live.delete(roomId);
+    clearTimeout(c.timer);
+    for (const sid of c.participants.values()) io.to(sid).emit('call:ended', { callId: roomId, status: 'closed' });
+  }
+
   async function leaveCall(callId, userId, socketId) {
     const c = live.get(callId);
     if (!c || c.participants.get(userId) !== socketId) return;
     c.participants.delete(userId);
+    if (c.roomId) {
+      // The room's link stays valid; only the live session goes away when the last person leaves.
+      c.people.delete(userId);
+      if (c.participants.size === 0) {
+        live.delete(callId);
+        clearTimeout(c.timer);
+      } else {
+        for (const sid of c.participants.values()) io.to(sid).emit('call:participant-left', { callId, userId });
+      }
+      return;
+    }
     // Direct calls (and empty group calls) end; otherwise the rest keep talking.
     if (!c.isGroup || c.participants.size === 0) return finishCall(callId, 'missed', userId);
     for (const sid of c.participants.values()) io.to(sid).emit('call:participant-left', { callId, userId });
@@ -74,16 +94,27 @@ export function createRealtime(httpServer, corsOrigin) {
   }
 
   io.use((socket, next) => {
-    const userId = verifyToken(socket.handshake.auth?.token);
-    if (!userId) return next(new Error('unauthorized'));
-    socket.data.userId = userId;
+    const token = socket.handshake.auth?.token;
+    const userId = verifyToken(token);
+    if (userId) {
+      socket.data.userId = userId;
+      return next();
+    }
+    // Meeting guests: no account, allowed only into their one room.
+    const guest = verifyGuestToken(token);
+    if (!guest) return next(new Error('unauthorized'));
+    socket.data.userId = guest.guestId;
+    socket.data.guest = guest;
     next();
   });
 
   io.on('connection', (socket) => {
     const me = socket.data.userId;
-    socket.join(userRoom(me));
-    if (presence.connect(me)) broadcastPresence(me, true).catch(console.error);
+    const guest = socket.data.guest ?? null;
+    if (!guest) {
+      socket.join(userRoom(me));
+      if (presence.connect(me)) broadcastPresence(me, true).catch(console.error);
+    }
 
     const guard = (handler) => async (payload, ack) => {
       try {
@@ -94,9 +125,60 @@ export function createRealtime(httpServer, corsOrigin) {
       }
     };
 
+    // ----- meeting rooms: open to anyone with the link (guests included) -----
+
+    socket.on(
+      'room:join',
+      guard(async ({ code }) => {
+        const room = await repo.getRoomByCode(code);
+        if (!repo.roomIsOpen(room) || (guest && guest.roomId !== room.id)) throw new Error('This meeting has ended');
+        const callId = room.id;
+        let c = live.get(callId);
+        if (!c) {
+          c = {
+            roomId: room.id,
+            conversationId: null,
+            isGroup: true,
+            title: room.title,
+            video: false,
+            startedAt: Date.now(),
+            participants: new Map(),
+            people: new Map(),
+            invited: new Set(),
+            ringing: new Set(),
+            timer: null,
+          };
+          live.set(callId, c);
+          // Everyone is sent out when the link expires (timers cap at ~24.8 days; joins re-check anyway).
+          if (room.expiresAt) c.timer = setTimeout(() => closeRoom(room.id), Math.min(Math.max(0, room.expiresAt - Date.now()), 2 ** 31 - 1));
+        }
+        const meUser = guest ? repo.guestUser(me, guest.name) : repo.publicUser(await repo.getUserRow(me));
+        const previous = c.participants.get(me);
+        c.participants.set(me, socket.id);
+        c.people.set(me, meUser);
+        if (previous && previous !== socket.id) io.to(previous).emit('call:ended', { callId, status: 'moved', by: me });
+        for (const [uid, sid] of c.participants) {
+          if (uid !== me) io.to(sid).emit('call:participant-joined', { callId, userId: me, user: meUser });
+        }
+        return {
+          callId,
+          title: c.title,
+          participants: [...c.participants.keys()].filter((id) => id !== me).map((id) => c.people.get(id)),
+          room: { code: room.code, ownerId: room.ownerId, expiresAt: room.expiresAt },
+          me: meUser,
+        };
+      }),
+    );
+
+    // Everything below needs an account.
+    const member = (handler) => guard(async (payload) => {
+      if (guest) throw new Error('not allowed');
+      return handler(payload);
+    });
+
     socket.on(
       'typing',
-      guard(async ({ conversationId, typing }) => {
+      member(async ({ conversationId, typing }) => {
         if (!(await repo.isMember(conversationId, me))) throw new Error('not a member');
         await toMembers(conversationId, 'typing', { conversationId, userId: me, typing: !!typing }, me);
       }),
@@ -106,7 +188,7 @@ export function createRealtime(httpServer, corsOrigin) {
 
     socket.on(
       'call:invite',
-      guard(async ({ conversationId, video }) => {
+      member(async ({ conversationId, video }) => {
         if (!(await repo.isMember(conversationId, me))) throw new Error('not a member');
         for (const [id, c] of live) {
           if (c.conversationId === conversationId) return { callId: id, alreadyRunning: true };
@@ -156,7 +238,7 @@ export function createRealtime(httpServer, corsOrigin) {
     // Invite non-members through a private conversation. Access exists only in this live call.
     socket.on(
       'call:invite-guests',
-      guard(async ({ callId, userIds }) => {
+      member(async ({ callId, userIds }) => {
         const c = live.get(callId);
         if (!c?.isGroup || c.participants.get(me) !== socket.id) throw new Error('not in this group call');
         const groupMembers = new Set(await repo.memberIds(c.conversationId));
@@ -183,7 +265,7 @@ export function createRealtime(httpServer, corsOrigin) {
     // Answer a ringing call, or join a group call that is already running.
     socket.on(
       'call:accept',
-      guard(async ({ callId }) => {
+      member(async ({ callId }) => {
         const c = live.get(callId);
         const member = c && (await repo.isMember(c.conversationId, me));
         if (!c || (!member && !c.invited.has(me))) throw new Error('call is no longer available');
@@ -220,7 +302,7 @@ export function createRealtime(httpServer, corsOrigin) {
 
     socket.on(
       'call:decline',
-      guard(async ({ callId }) => {
+      member(async ({ callId }) => {
         const c = live.get(callId);
         if (!c) return;
         c.ringing.delete(me);
@@ -256,7 +338,7 @@ export function createRealtime(httpServer, corsOrigin) {
       for (const [callId, c] of live) {
         if (c.participants.get(me) === socket.id) leaveCall(callId, me, socket.id).catch(console.error);
       }
-      if (presence.disconnect(me)) {
+      if (!guest && presence.disconnect(me)) {
         repo.touchLastSeen(me).catch(console.error);
         broadcastPresence(me, false).catch(console.error);
       }
@@ -265,17 +347,30 @@ export function createRealtime(httpServer, corsOrigin) {
 
   return {
     io,
+    closeRoom,
+    /** Live calls and meeting rooms right now (admin usage). */
+    liveStats() {
+      let calls = 0;
+      let rooms = 0;
+      let inCalls = 0;
+      for (const c of live.values()) {
+        if (c.roomId) rooms++;
+        else calls++;
+        inCalls += c.participants.size;
+      }
+      return { liveCalls: calls, liveRooms: rooms, inCalls };
+    },
     /** Running calls in the user's conversations (for "Join call" after a reload). */
     async activeCalls(userId) {
       const out = [];
       for (const [callId, c] of live) {
-        if (await repo.isMember(c.conversationId, userId)) out.push(callState(callId, c));
+        if (!c.roomId && (await repo.isMember(c.conversationId, userId))) out.push(callState(callId, c));
       }
       return out;
     },
     async invitedCall(userId, callId) {
       const c = live.get(callId);
-      if (!c || (!c.invited.has(userId) && !(await repo.isMember(c.conversationId, userId)))) return null;
+      if (!c || c.roomId || (!c.invited.has(userId) && !(await repo.isMember(c.conversationId, userId)))) return null;
       return { ...callState(callId, c), title: c.title, isGroup: c.isGroup };
     },
     async notifyMessage(message) {

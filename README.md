@@ -2,50 +2,353 @@
 
 > Stay together, wherever you are.
 
-Flock is a real-time messenger built with **React Native (Expo)**. It runs from one codebase as a **PWA**, an **Android app** and a **desktop app**. It has a Node.js + PostgreSQL backend for chat, presence and WebRTC calls. The UI follows the *Synchronous Flight* design system from Google Stitch: deep-space surfaces, warm amber accents and Inter typography.
+Flock is a self-hosted messenger for you and your friends: chats, voice and video calls, screen sharing and meeting links, all on your own server. It runs from one **React Native (Expo)** codebase as a **web app (PWA)**, an **Android app** and a **Windows app**, with a **Node.js + PostgreSQL** server.
+
+## Contents
+
+- [Features](#features)
+- [Quick start](#quick-start)
+- [Installation](#installation)
+  - [Before you start](#before-you-start)
+  - [Method 1: Docker](#method-1-docker)
+  - [Method 2: Install script, online](#method-2-install-script-online)
+  - [Method 3: Install script, offline](#method-3-install-script-offline)
+  - [After installing](#after-installing)
+  - [Configuration](#configuration)
+  - [Calls across networks (TURN)](#calls-across-networks-turn)
+  - [Troubleshooting](#troubleshooting)
+- [Apps](#apps)
+- [Privacy and encryption](#privacy-and-encryption)
+- [Development](#development)
+- [License](#license)
 
 ## Features
 
-- Simple sign-up and login (username + password, JWT)
-- Direct and group chats with real-time delivery (Socket.IO)
-- Online presence, last seen, typing indicators and read receipts
-- Replies, emoji picker, unread counters, pin and mute
-- Voice and video calls (WebRTC, peer-to-peer) with incoming-call screen, ringtone, quick replies, mute, camera, front/back camera switch, speakerphone, screen share (web/desktop) and reactions
-- Call history with missed-call filter
-- Contacts directory and profile settings
-- Responsive layouts: phone (bottom tabs) and desktop (rail + 3-column chat + contact panel)
-- Installable PWA with offline app shell
+- **Chats**: direct and group chats with real-time delivery, replies, emoji, clickable links, files up to 100 MB, typing indicators, read receipts, pin and mute
+- **Secret chats**: optional end-to-end encryption for a direct chat; the server stores only ciphertext ([details](#privacy-and-encryption))
+- **Groups**: owner and admins, group photo and description, add and remove members
+- **Calls**: voice and video calls, one-to-one or in groups, with screen sharing (web and desktop), per-person volume, noise cancellation (an on-device AI filter on web and desktop), floating reactions, a temporary in-call chat and a call that can be minimized and dragged around
+- **Meeting links**: create a room, share its link, and anyone can join from a browser, even without an account. The link works until the time you choose or until you close the room
+- **Contacts**: only the people you already chat with; anyone else is found by searching their username (3+ characters)
+- **Profile**: photo, display name, username (changeable), title and bio
+- **Admin**: the server's admin changes sign-up, guest access, upload size and file retention in the app, and sees the server's CPU, memory, disk and usage
+- **Light and dark themes**, English and Persian (right-to-left) interfaces
+- **Apps**: installable web app (PWA), Android APK and Windows installer, all pointing at your own server
 
-## Repository layout
+## Quick start
 
-```
-apps/
-  client/    Expo app (expo-router) → Android + Web/PWA
-  desktop/   Electron shell that packages the web build for Windows/macOS/Linux
-server/      Express + Socket.IO + PostgreSQL API
-docker-compose.yml
-```
-
-## Install on a Linux server (no Docker)
+On a fresh Ubuntu/Debian server whose domain already points at it:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Pourii83/Flock/main/deploy/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/Pourii83/Flock/main/deploy/install.sh | sudo bash -s -- --domain chat.example.com
 ```
 
-Add `--domain chat.example.com` for automatic HTTPS with Nginx + Let's Encrypt. Or download `flock-server-linux-x64.tar.gz` from Releases and install offline. See **[deploy/INSTALL.md](deploy/INSTALL.md)** for the one-line, offline and manual install methods.
+Open `https://chat.example.com`, create an account, and share the address with your friends. Read on for the other installation methods and the details.
 
-## Run everything with Docker
+## Installation
+
+Pick the method that suits your server:
+
+| | Method 1: Docker | Method 2: Script, online | Method 3: Script, offline |
+|---|---|---|---|
+| **Best for** | Servers that already run Docker | Most servers (recommended) | Servers without (reliable) internet |
+| **Needs on the server** | Docker + Compose | Internet, root | Root; PostgreSQL or a reachable database |
+| **What you get** | 3 containers (database, API, web) + optional HTTPS | One `flock` systemd service + PostgreSQL | Same as method 2 |
+| **HTTPS** | Built in (Caddy), with `--profile https` | Built in (Nginx + Let's Encrypt), with `--domain` | Same as method 2, if the server can reach Let's Encrypt |
+| **Updating** | `git pull` + `docker compose up -d --build` | Run the script again | Run the new package's script |
+
+### Before you start
+
+You need:
+
+1. **A Linux server.** 1 CPU and 1 GB RAM are enough for a group of friends. Methods 2 and 3 support 64-bit x64 or arm64 with glibc 2.28+ (Ubuntu 20.04+, Debian 10+, RHEL/Rocky/Alma 8+).
+2. **A domain name** (recommended), for example `chat.example.com`, with an **A record** pointing at the server's IP address. Browsers allow the camera and microphone only over HTTPS, so **calls from the web app need HTTPS**, and HTTPS needs a domain.
+3. **Open ports** in the server's firewall and in your hosting provider's panel:
+
+   | Port | Used for |
+   |---|---|
+   | 80, 443 (TCP) | Web app and API over HTTP/HTTPS |
+   | 4000 (TCP) | API without a domain (method 2/3, when you skip `--domain`) |
+   | 8080, 4000 (TCP) | Web app and API without a domain (method 1, when you skip the `https` profile) |
+   | 3478 (UDP/TCP), 5349 (TCP), 49160–49200 (UDP) | Only if you install the TURN relay ([why](#calls-across-networks-turn)) |
+
+### Method 1: Docker
+
+**Prerequisites:** Docker Engine 24+ with the Compose plugin, and `git`.
+
+**Step 1: Install Docker** (skip if `docker compose version` already works):
 
 ```bash
-cp .env.example .env   # then set JWT_SECRET
+curl -fsSL https://get.docker.com | sudo sh
+```
+
+**Step 2: Get Flock**
+
+```bash
+git clone https://github.com/Pourii83/Flock.git
+cd Flock
+```
+
+**Step 3: Configure**
+
+```bash
+cp .env.example .env
+nano .env
+```
+
+Set at least these values:
+
+| Variable | What to put |
+|---|---|
+| `JWT_SECRET` | A long random string: run `openssl rand -hex 32` and paste the result |
+| `POSTGRES_PASSWORD` | A strong database password |
+| `DOMAIN` | Your domain, e.g. `chat.example.com` (only for HTTPS in step 4) |
+
+**Step 4: Start**
+
+With HTTPS (recommended; needs `DOMAIN`, DNS and ports 80/443):
+
+```bash
+docker compose --profile https up -d --build
+```
+
+Without a domain (for testing on a local network):
+
+```bash
 docker compose up -d --build
-docker compose exec server node src/seed.js   # optional demo users (password: flock123)
 ```
 
-- PWA: http://localhost:8080
-- API: http://localhost:4000 (also proxied at `/api` and `/socket.io` by the web container)
+The first build takes a few minutes. Check that everything is running:
 
-## Local development
+```bash
+docker compose ps        # every service should be "running" or "healthy"
+```
+
+**Step 5: Create the admin account.** It asks for a password (at least 8 characters); like every password, it's stored only as a bcrypt hash:
+
+```bash
+docker compose exec server node src/create-admin.js admin
+```
+
+**Step 6: Open it**: `https://chat.example.com` (with HTTPS) or `http://<server-ip>:8080` (without), and sign in as `admin`.
+
+<details>
+<summary>Updating, backups and uninstalling (Docker)</summary>
+
+```bash
+# Update to the latest version
+git pull
+docker compose --profile https up -d --build      # drop "--profile https" if you don't use it
+
+# Back up the database
+docker compose exec db pg_dump -U flock flock > flock-backup.sql
+
+# Restore a backup
+docker compose exec -T db psql -U flock flock < flock-backup.sql
+
+# Logs
+docker compose logs -f server
+
+# Stop and remove the containers (data volumes are kept)
+docker compose --profile https down
+# ...and also delete all data (database, uploads, certificates)
+docker compose --profile https down -v
+```
+
+</details>
+
+### Method 2: Install script, online
+
+**Prerequisites:** root access (`sudo`) and internet access on the server. You don't need to install Node.js; it's bundled.
+
+**Step 1: Point your domain at the server** (see [Before you start](#before-you-start)).
+
+**Step 2: Run the installer**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Pourii83/Flock/main/deploy/install.sh | sudo bash -s -- --domain chat.example.com --email you@example.com
+```
+
+The script:
+
+1. downloads the latest `flock-server-linux-<arch>.tar.gz` from [Releases](https://github.com/Pourii83/Flock/releases)
+2. installs PostgreSQL if it's missing, and creates a `flock` database with a random password
+3. installs Flock to `/opt/flock`, writes `/etc/flock/flock.env` with a random `JWT_SECRET`, and starts the `flock` service
+4. with `--domain`, it also installs Nginx, gets a Let's Encrypt certificate (renewed automatically) and redirects HTTP to HTTPS
+
+**Step 3: Answer the questions.** On a first install the script asks, and Enter keeps the default:
+
+| Question | Default |
+|---|---|
+| Domain for HTTPS (skipped if you passed `--domain`) | none: use the server's IP |
+| Email for certificate notices | none |
+| Port (only without a domain) | `4000` |
+| Largest file people can send, in MB | `100` |
+| Keep sent files for how many days | `7` |
+| Let anyone sign up? | yes |
+| Install a TURN relay for calls? | no |
+| Admin username and password | `admin`, generated password |
+
+At the end it creates the **admin account**. If you left the password empty, it prints a generated one **once**, so save it. All passwords are stored as bcrypt hashes. Use `--yes` to skip the questions and take the defaults and options you passed.
+
+**Step 4: Open it**: `https://chat.example.com`, and sign in as the admin. You change most of these settings later in the app, under **Settings → App settings**.
+
+All installer options (add them after `bash -s --`):
+
+| Option | Meaning |
+|---|---|
+| `--domain NAME` | Serve Flock on `https://NAME` through Nginx + Let's Encrypt. Use it on a server dedicated to Flock; if Nginx already hosts other sites, see [deploy/INSTALL.md](deploy/INSTALL.md#server-that-already-runs-nginx) |
+| `--email ADDR` | Email for certificate expiry notices |
+| `--port N` | Port Flock listens on (default `4000`; first install only) |
+| `--version TAG` | Install a specific release, e.g. `v1.7.0` (default: latest) |
+| `--db-url URL` | Use an existing PostgreSQL database instead of installing one |
+| `--turn` | Also install a TURN relay for calls ([why](#calls-across-networks-turn)) |
+| `--upload-mb N` | Largest file people can send, in MB (default `100`) |
+| `--retention-days N` | Keep sent files this many days (default `7`) |
+| `--admin NAME` | Admin account to create (default `admin`). On an existing install it resets that account's password and makes it admin |
+| `--no-admin` | Don't create an admin account |
+| `--yes` | Don't ask questions |
+| `--no-start` | Install without starting the service |
+
+Without `--domain`, Flock answers on `http://<server-ip>:4000`. That's fine for testing, but calls from the web app won't work without HTTPS.
+
+<details>
+<summary>Updating and uninstalling (script)</summary>
+
+```bash
+# Update: run the installer again. Configuration and database are kept.
+curl -fsSL https://raw.githubusercontent.com/Pourii83/Flock/main/deploy/install.sh | sudo bash
+
+# Back up the database
+sudo -u postgres pg_dump flock > flock-backup.sql
+
+# Uninstall (keeps /etc/flock and the database)
+sudo /opt/flock/uninstall.sh
+# ...or remove everything, including the database
+sudo /opt/flock/uninstall.sh --purge
+```
+
+</details>
+
+### Method 3: Install script, offline
+
+Use this when the server can't download from GitHub (no internet, or GitHub is filtered).
+
+**Step 1: Download the package on another computer**, from [Releases](https://github.com/Pourii83/Flock/releases):
+
+- `flock-server-linux-x64.tar.gz` (most servers) or `flock-server-linux-arm64.tar.gz` (ARM servers; check with `uname -m`)
+- the matching `.sha256` file (optional, to verify the download)
+
+**Step 2: Copy them to the server**, for example:
+
+```bash
+scp flock-server-linux-x64.tar.gz* user@your-server:~
+```
+
+**Step 3: Unpack and verify**
+
+```bash
+sha256sum -c flock-server-linux-x64.tar.gz.sha256     # should print "OK"
+tar -xzf flock-server-linux-x64.tar.gz
+```
+
+**Step 4: Make sure PostgreSQL is available.** The package contains everything except the database. Either:
+
+- let the installer install PostgreSQL. This needs the OS package sources (`apt`/`dnf`), which often work even when GitHub doesn't, or
+- install it yourself from local media or a mirror (`sudo apt install postgresql` / `sudo dnf install postgresql-server`), or
+- use an existing database with `--db-url postgres://user:pass@host:5432/flock` in the next step.
+
+**Step 5: Install**
+
+```bash
+sudo ./flock-server/install.sh --domain chat.example.com
+```
+
+It accepts the same options as [method 2](#method-2-install-script-online). `--domain` needs the server to reach Let's Encrypt; without it, Flock answers on `http://<server-ip>:4000`.
+
+**Updating:** download the new package the same way and run its `install.sh`. Configuration and database are kept. Uninstalling works as in method 2.
+
+For a fully manual installation (no script), see [deploy/INSTALL.md](deploy/INSTALL.md#option-3-manual-install-step-by-step).
+
+### After installing
+
+1. **Sign in as the admin** and open **Settings → App settings**. There you can:
+   - open or close sign-up for new accounts
+   - allow or block guests (people without an account) in meeting links
+   - set the largest file people can send and how long sent files are kept
+   - watch server usage: CPU, memory, disk, Flock's database and files, users, messages and live calls
+
+   Forgot the admin password? Run the installer again with `--admin <name>` (Docker: `docker compose exec server node src/create-admin.js <name>`).
+2. **Install the apps** (optional): see [Apps](#apps). On first start they ask for the server address; enter the same address you use in the browser, e.g. `https://chat.example.com`.
+3. **Check calls between different networks** (e.g. Wi-Fi and mobile data). If they connect without audio or video, add a [TURN relay](#calls-across-networks-turn).
+4. **Service commands** (methods 2 and 3):
+
+   ```bash
+   sudo systemctl status flock          # is it running?
+   sudo systemctl restart flock         # after editing /etc/flock/flock.env
+   journalctl -u flock -f               # live logs
+   curl http://127.0.0.1:4000/api/health   # {"ok":true}
+   ```
+
+### Configuration
+
+Methods 2/3 keep settings in `/etc/flock/flock.env` (restart with `sudo systemctl restart flock` after a change). Docker keeps them in `.env` (apply with `docker compose up -d`).
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `JWT_SECRET` | random (installer) | Signs login sessions. Changing it signs everyone out |
+| `MAX_UPLOAD_MB` | `100` | First value for the largest upload. After that, **App settings** decides |
+| `ALLOW_REGISTRATION` | `1` | First value for open sign-up (`0` = closed). After that, **App settings** decides |
+| `DATABASE_URL` | set by installer | PostgreSQL connection string |
+| `PORT` / `HOST` | `4000` / `0.0.0.0` | Where the server listens (`127.0.0.1` behind Nginx) |
+| `CORS_ORIGIN` | `*` | Allowed web origins. Keep `*` for the Android and desktop apps |
+| `FILE_RETENTION_DAYS` | `7` | First value for how long uploaded files are kept; the messages stay. After that, **App settings** decides |
+| `UPLOAD_DIR` | `/var/lib/flock/uploads` | Where profile photos and files are stored |
+| `WEB_DIR` | `/opt/flock/web` | The built web app served by the same process |
+| `TURN_URLS` / `TURN_SECRET` | empty | TURN relay for calls (set by `--turn`) |
+| `TURN_EXTRA_URLS` | empty | More relays sharing `TURN_SECRET`, tried first (e.g. one on another server) |
+| `TURN_RELAY_ONLY` | empty | `1` sends all call media through the relay, which hides users' IP addresses from each other |
+
+### Calls across networks (TURN)
+
+Calls connect directly between devices. When both people are behind strict NATs (mobile data, office networks), a direct connection isn't possible, so a **TURN relay** forwards the encrypted media. Without one, such calls ring and "connect" but carry no sound or video.
+
+- **Methods 2/3:** add `--turn` to the installer. It installs coturn, opens its ports and fills in `TURN_URLS` / `TURN_SECRET`. Also open ports 3478, 5349 and 49160–49200/udp in your hosting provider's firewall.
+- **Docker, or a relay on another machine** (for example [eturnal](https://eturnal.net), which also runs on Windows): set `TURN_URLS` (or `TURN_EXTRA_URLS`) and `TURN_SECRET` to the relay's address and shared secret.
+
+The relay only ever sees encrypted call traffic. More in [deploy/INSTALL.md](deploy/INSTALL.md#turn-server-for-calls).
+
+### Troubleshooting
+
+| Problem | What to check |
+|---|---|
+| The site doesn't open | `systemctl status flock` / `docker compose ps`. Is port 80/443 (or 4000/8080) open in the provider's firewall? |
+| Certificate wasn't issued | The domain's A record must point at this server and port 80 must be reachable, then rerun: `sudo certbot --nginx -d chat.example.com --redirect` (Docker: `docker compose logs caddy`) |
+| Camera/microphone blocked in the browser | The web app must be opened over **https://** |
+| Calls connect but there's no sound/video | Add a [TURN relay](#calls-across-networks-turn) |
+| File upload fails for large files | The limit is in **App settings**. Behind Nginx, `client_max_body_size` must be a bit larger (the installer sets it from your answer); in Docker, edit `apps/client/nginx.conf` |
+| Apps say the server isn't reachable | Use the full address including `https://`, and make sure `CORS_ORIGIN` is `*` |
+| Something else | Logs: `journalctl -u flock -n 100` or `docker compose logs server` |
+
+## Apps
+
+Download them from [Releases](https://github.com/Pourii83/Flock/releases):
+
+- **Web app (PWA):** open your server's address. In Chrome/Edge choose *Install app*; on iPhone use *Share → Add to Home Screen*.
+- **Android:** `flock-<version>.apk`. Allow installing from your browser when Android asks.
+- **Windows:** `flock-<version>-windows-setup.exe`. The installer isn't code-signed yet, so Windows SmartScreen may warn; choose *More info → Run anyway*.
+
+The Android and Windows apps ask for the **server address** on the sign-in screen (e.g. `https://chat.example.com`). You can change it later in **Settings → Server**.
+
+## Privacy and encryption
+
+- **In transit:** with HTTPS everything between the apps and your server is encrypted (TLS).
+- **Calls** are encrypted between the participants (WebRTC DTLS-SRTP). A TURN relay only forwards encrypted packets.
+- **Normal chats** are stored on your server in readable form, so they work on all your devices with full history and files.
+- **Secret chats** are end-to-end encrypted (Curve25519 + XSalsa20-Poly1305, via [TweetNaCl](https://tweetnacl.js.org)). Each device creates its own key pair and only the public key goes to the server, so the server stores only ciphertext. A secret chat lives on one device on each side: it isn't visible on your other devices, and it's lost if you clear the browser data or reinstall the app. Both people see the same *safety code*; compare it in person or on a call to make sure nobody swapped the keys. Files can't be sent in secret chats yet.
+- Meeting guests (people without an account) get a pass for that one room only, valid at most until the room expires.
+
+## Development
 
 Requirements: Node 22.13+ and PostgreSQL (or `docker run -d -p 5433:5432 -e POSTGRES_USER=flock -e POSTGRES_PASSWORD=flock -e POSTGRES_DB=flock postgres:17-alpine`).
 
@@ -53,59 +356,23 @@ Requirements: Node 22.13+ and PostgreSQL (or `docker run -d -p 5433:5432 -e POST
 # server (defaults to postgres://flock:flock@localhost:5433/flock)
 cd server && npm install && npm run seed && npm run dev
 
-# client
+# web client
 cd apps/client && npm install
-npm run web        # browser at http://localhost:8081
-npm run android    # Android emulator / device (Expo)
+npx expo start --web
 ```
 
-Point the app at another server with `EXPO_PUBLIC_API_URL` (see `apps/client/.env.example`). The Android emulator reaches your machine at `http://10.0.2.2:4000`.
-
-### Server environment
-
-| Variable | Default | |
-|---|---|---|
-| `DATABASE_URL` | `postgres://flock:flock@localhost:5433/flock` | PostgreSQL connection |
-| `JWT_SECRET` | random per start | **Set in production** |
-| `PORT` | `4000` | |
-| `CORS_ORIGIN` | `*` | Comma-separated allowed origins |
-| `WEB_DIR` | — | Folder with the built PWA to serve from the same port |
-| `HOST` | `0.0.0.0` | Listen address |
-
-## Android
-
-Builds use EAS (Expo's cloud build service), so no local Android SDK is needed:
-
-```bash
-cd apps/client
-npx eas-cli@latest build -p android --profile preview   # installable APK
+```
+apps/
+  client/    Expo app (expo-router) → web/PWA + Android
+  desktop/   Electron shell around the web build (Windows installer)
+server/      Express + Socket.IO + PostgreSQL
+deploy/      install.sh, uninstall.sh, systemd unit, Caddyfile, INSTALL.md
+scripts/     package-server.sh (offline server package), build-android.sh
 ```
 
-Voice and video calls on Android use `react-native-webrtc` (speaker routing and ringtone via `react-native-incall-manager`), so they need a real build (`preview` APK or `development` dev-client). **Expo Go can't make calls**: it lacks these native modules, so there you get chat plus call signaling only.
-
-```bash
-npx eas-cli@latest build -p android --profile development   # dev client for `npm start`
-```
-
-## Desktop
-
-```bash
-cd apps/desktop && npm install
-npm run build:web   # exports the client into web-dist/
-npm start           # run the desktop app
-npm run dist:win    # build an installer (also dist:mac / dist:linux)
-```
-
-The desktop app suggests `http://localhost:4000` by default (override with the `FLOCK_SERVER_URL` env var or `{"serverUrl": "..."}` in `config.json` in the app's user-data folder).
-
-## Choosing a server (installed apps)
-
-The Android and desktop apps ask for the **server address** on the sign-in and sign-up screens, e.g. `https://chat.example.com` or `192.168.1.5:4000`. The app checks that it is a reachable Flock server before saving it. You can change it later in **Settings → Server**; switching signs you out so you can sign in on the new server. The hosted PWA always uses the server it is served from.
-
-## Notes
-
-- Calls between different networks need a TURN relay. Install with `--turn` (coturn, see [deploy/INSTALL.md](deploy/INSTALL.md#turn-server-for-calls)); the server hands out short-lived TURN credentials via `/api/ice`.
-- Messages are private to conversation members and protected by TLS when served over HTTPS. They are not end-to-end encrypted.
+- **Server package:** `scripts/package-server.sh x64` (or `arm64`) builds `dist/flock-server-linux-x64.tar.gz`. Pushing a tag like `v1.7.0` builds both with GitHub Actions and attaches them to a release.
+- **Android:** built locally with Gradle and signed with your own key: `scripts/build-android.sh` (needs the Android SDK and JDK 21). Calls need a real build; Expo Go can't make calls.
+- **Windows:** `cd apps/desktop && npm install && npm run dist:win`.
 
 ## License
 

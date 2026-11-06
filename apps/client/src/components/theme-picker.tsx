@@ -1,0 +1,54 @@
+import { router } from 'expo-router';
+import { useState } from 'react';
+import { Pressable, View } from 'react-native';
+
+import { t } from '@/lib/i18n';
+import { colors, getThemePreference, radius, setThemePreference, type ThemePreference } from '@/theme';
+import { Icon, T, type IconName } from './ui';
+
+const OPTIONS: { value: ThemePreference; label: string; icon: IconName }[] = [
+  { value: 'dark', label: 'Dark', icon: 'moon' },
+  { value: 'light', label: 'Light', icon: 'sun' },
+  { value: 'system', label: 'System', icon: 'smartphone' },
+];
+
+/** Dark / Light / System switch (Settings). The app repaints right away. */
+export function ThemePicker() {
+  const [value, setValue] = useState(getThemePreference());
+  return (
+    <View
+      accessibilityRole="radiogroup"
+      style={{ flexDirection: 'row', gap: 4, padding: 4, borderRadius: radius.pill, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.surfaceHigh }}>
+      {OPTIONS.map((o) => {
+        const active = o.value === value;
+        return (
+          <Pressable
+            key={o.value}
+            accessibilityRole="radio"
+            accessibilityState={{ selected: active }}
+            onPress={() => {
+              setValue(o.value);
+              void setThemePreference(o.value);
+              // The app root remounts to repaint; come back to Settings afterwards.
+              setTimeout(() => router.navigate('/settings'), 0);
+            }}
+            style={({ hovered }: any) => ({
+              flex: 1,
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
+              paddingVertical: 10,
+              borderRadius: radius.pill,
+              backgroundColor: active ? colors.amber : hovered ? colors.surfaceHigh : 'transparent',
+            })}>
+            <Icon name={o.icon} size={16} color={active ? colors.onAmber : colors.textMuted} />
+            <T variant="labelLg" color={active ? colors.onAmber : colors.text}>
+              {t(o.label)}
+            </T>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}

@@ -122,7 +122,7 @@ export function Button({
 }) {
   const palette = {
     primary: { bg: colors.amber, fg: colors.onAmber, border: colors.amber },
-    ghost: { bg: 'rgba(22, 29, 42, 0.8)', fg: colors.text, border: colors.surfaceHigh },
+    ghost: { bg: colors.surface, fg: colors.text, border: colors.surfaceHigh },
     danger: { bg: colors.danger, fg: colors.text, border: colors.danger },
     subtle: { bg: 'transparent', fg: colors.amber, border: 'transparent' },
   }[variant];
@@ -198,7 +198,7 @@ export const Field = forwardRef<
           height: 56,
           gap: 12,
         }}>
-        {icon && <Icon name={icon} size={18} color={focused ? colors.amber : colors.textMuted} />}
+        {icon && <Icon name={icon} size={18} color={focused ? colors.amberText : colors.textMuted} />}
         <TextInput
           ref={ref}
           placeholderTextColor={colors.textDim}

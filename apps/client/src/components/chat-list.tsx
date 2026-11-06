@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { ActivityIndicator, FlatList, Pressable, ScrollView, View } from 'react-native';
+import { ActivityIndicator, FlatList, Pressable, View } from 'react-native';
 
 import { shortTime } from '@/lib/format';
 import { systemText } from '@/lib/system-message';
@@ -8,8 +8,8 @@ import type { Conversation } from '@/lib/types';
 import { useAuth } from '@/state/auth';
 import { useChat } from '@/state/chat-store';
 import { colors, radius } from '@/theme';
-import { Avatar, ConversationAvatar } from './avatar';
-import { Button, Chip, Icon, SearchBar, SectionLabel, T, UnreadBadge, IconButton } from './ui';
+import { ConversationAvatar } from './avatar';
+import { Button, Chip, Icon, SearchBar, T, UnreadBadge, IconButton } from './ui';
 import { t } from '@/lib/i18n';
 
 type Filter = 'all' | 'unread' | 'groups';
@@ -34,7 +34,7 @@ function useFilteredConversations(query: string, filter: Filter) {
 function Preview({ c, meId, typing }: { c: Conversation; meId?: string; typing: boolean }) {
   if (typing)
     return (
-      <T variant="body" color={colors.amber} numberOfLines={1} style={{ flex: 1 }}>
+      <T variant="body" color={colors.amberText} numberOfLines={1} style={{ flex: 1 }}>
         {t('typing…')}
       </T>
     );
@@ -92,7 +92,7 @@ export function ChatRow({
         paddingVertical: card ? 16 : 12,
         minHeight: 68,
         borderRadius: radius.lg,
-        backgroundColor: selected || pressed ? colors.surface : hovered ? 'rgba(22,29,42,0.6)' : card ? (unread ? colors.surface : 'rgba(22,29,42,0.55)') : 'transparent',
+        backgroundColor: selected || pressed ? colors.surface : hovered ? colors.hover : card ? (unread ? colors.surface : colors.hover) : 'transparent',
         borderWidth: card ? 1 : 0,
         borderColor: colors.surfaceHigh,
       })}>
@@ -102,13 +102,14 @@ export function ChatRow({
       <ConversationAvatar conversation={c} meId={user?.id} size={card ? 52 : 48} ringBg={selected ? colors.surface : colors.canvas} />
       <View style={{ flex: 1, gap: 4 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          {!!c.secret && <Icon name="lock" size={13} color={colors.teal} />}
           <T variant="labelLg" numberOfLines={1} style={{ flexShrink: 1, fontSize: card ? 17 : 15, fontFamily: unread ? 'Inter_700Bold' : 'Inter_500Medium' }}>
             {c.name}
           </T>
           {c.pinned && <Icon name="bookmark" size={12} color={colors.textMuted} />}
           {c.muted && <Icon name="bell-off" size={12} color={colors.textMuted} />}
           <View style={{ flex: 1 }} />
-          <T variant="label" color={unread ? colors.amber : colors.textMuted} style={{ fontVariant: ['tabular-nums'] }}>
+          <T variant="label" color={unread ? colors.amberText : colors.textMuted} style={{ fontVariant: ['tabular-nums'] }}>
             {shortTime(c.updatedAt)}
           </T>
         </View>
@@ -118,50 +119,6 @@ export function ChatRow({
         </View>
       </View>
     </Pressable>
-  );
-}
-
-/** Online contacts strip ("stories" row) from the Stitch mobile home. */
-function OnlineStrip({ onOpen }: { onOpen: (c: Conversation) => void }) {
-  const { user } = useAuth();
-  const conversations = useChat((s) => s.conversations);
-  const sorted = conversations.filter((c) => c.type === 'direct').sort((a, b) => {
-    const ao = a.members.some((m) => m.id !== user?.id && m.online);
-    const bo = b.members.some((m) => m.id !== user?.id && m.online);
-    return Number(bo) - Number(ao);
-  });
-  return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 18, paddingHorizontal: 4 }}>
-      <Pressable onPress={() => router.push('/new-chat')} style={{ alignItems: 'center', gap: 8, width: 72 }}>
-        <View
-          style={{
-            width: 64,
-            height: 64,
-            borderRadius: 32,
-            backgroundColor: colors.surface,
-            borderWidth: 1,
-            borderColor: colors.surfaceHigh,
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}>
-          <Icon name="plus" size={26} color={colors.amber} />
-        </View>
-        <T variant="label" color={colors.textMuted}>
-          {t('New')}
-        </T>
-      </Pressable>
-      {sorted.slice(0, 12).map((c) => {
-        const peer = c.members.find((m) => m.id !== user?.id);
-        return (
-          <Pressable key={c.id} onPress={() => onOpen(c)} style={{ alignItems: 'center', gap: 8, width: 72 }}>
-            <Avatar user={peer} size={56} ring={peer?.online ? colors.teal : colors.surfaceHigh} />
-            <T variant="label" color={colors.textMuted} numberOfLines={1}>
-              {peer?.displayName.split(' ')[0]}
-            </T>
-          </Pressable>
-        );
-      })}
-    </ScrollView>
   );
 }
 
@@ -198,7 +155,7 @@ export function ChatList({
             </T>
           </View>
           <View style={{ flex: 1 }} />
-          <IconButton name="users" label={t('New group')} onPress={() => router.push('/new-group')} bg={colors.surface} size={36} iconSize={17} color={colors.amber} />
+          <IconButton name="users" label={t('New group')} onPress={() => router.push('/new-group')} bg={colors.surface} size={36} iconSize={17} color={colors.amberText} />
           <Button title={t('New Chat')} icon="plus" size="sm" onPress={onNewChat} />
         </View>
       )}
@@ -213,12 +170,6 @@ export function ChatList({
         <Chip label={t('Unread')} dot={unreadCount > 0} active={filter === 'unread'} onPress={() => setFilter('unread')} />
         <Chip label={t('Groups')} count={groupCount} active={filter === 'groups'} onPress={() => setFilter('groups')} />
       </View>
-      {!desktop && !query && filter === 'all' && all.length > 0 && (
-        <>
-          <OnlineStrip onOpen={onOpen} />
-          <SectionLabel>{t('Recent messages')}</SectionLabel>
-        </>
-      )}
     </View>
   );
 
@@ -233,7 +184,7 @@ export function ChatList({
       )}
       ListEmptyComponent={
         !loaded ? (
-          <ActivityIndicator color={colors.amber} style={{ marginTop: 40 }} />
+          <ActivityIndicator color={colors.amberText} style={{ marginTop: 40 }} />
         ) : (
           <View style={{ alignItems: 'center', gap: 12, paddingVertical: 48, paddingHorizontal: 24 }}>
             <Icon name={query ? 'search' : 'message-circle'} size={32} color={colors.textDim} />

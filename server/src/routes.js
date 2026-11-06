@@ -1,8 +1,10 @@
 import { Router } from 'express';
 import crypto from 'node:crypto';
-import { checkPassword, hashPassword, requireAuth, signToken } from './auth.js';
+import { checkPassword, hashPassword, requireAuth, signGuestToken, signToken } from './auth.js';
 import { deleteAvatar, saveAvatar } from './avatars.js';
 import { deleteStoredFile, receiveFile, safeMimeType, storedFilePath } from './files.js';
+import { getSettings, updateSettings } from './settings.js';
+import { serverUsage } from './usage.js';
 import * as repo from './repo.js';
 
 const USERNAME_RE = /^[a-zA-Z0-9_.]{3,24}$/;
@@ -10,11 +12,16 @@ const USERNAME_RE = /^[a-zA-Z0-9_.]{3,24}$/;
 export function createRouter(realtime) {
   const r = Router();
 
-  r.get('/health', (_req, res) => res.json({ ok: true }));
+  // Also tells the apps the server's limits.
+  r.get('/health', (_req, res) => {
+    const s = getSettings();
+    res.json({ ok: true, maxUploadMb: s.maxUploadMb, allowRegistration: s.allowRegistration });
+  });
 
   // ---------- auth ----------
 
   r.post('/auth/register', async (req, res) => {
+    if (!getSettings().allowRegistration) return res.status(403).json({ error: 'Sign-up is closed on this server' });
     const { username = '', displayName = '', password = '' } = req.body || {};
     const name = String(displayName).trim();
     if (!USERNAME_RE.test(username))
@@ -26,7 +33,7 @@ export function createRouter(realtime) {
       displayName: name.slice(0, 60) || username,
       passwordHash: await hashPassword(String(password)),
     });
-    res.status(201).json({ token: signToken(user.id), user: repo.publicUser(user) });
+    res.status(201).json({ token: signToken(user.id), user: repo.selfUser(user) });
   });
 
   r.post('/auth/login', async (req, res) => {
@@ -34,30 +41,107 @@ export function createRouter(realtime) {
     const user = await repo.getUserByUsername(String(username));
     if (!user || !(await checkPassword(String(password), user.password_hash)))
       return res.status(401).json({ error: 'Wrong username or password' });
-    res.json({ token: signToken(user.id), user: repo.publicUser(user) });
+    res.json({ token: signToken(user.id), user: repo.selfUser(user) });
+  });
+
+  // ---------- meeting rooms: public side (no account needed) ----------
+
+  const MAX_ROOM_MINUTES = 30 * 24 * 60;
+
+  r.get('/rooms/public/:code', async (req, res) => {
+    const room = await repo.getRoomByCode(req.params.code);
+    if (!room) return res.status(404).json({ error: 'This meeting link is not valid' });
+    const host = repo.publicUser(await repo.getUserRow(room.ownerId));
+    res.json({ code: room.code, title: room.title, expiresAt: room.expiresAt, open: repo.roomIsOpen(room), host: host && { displayName: host.displayName, avatarUrl: host.avatarUrl, avatarColor: host.avatarColor } });
+  });
+
+  // A guest picks a name and gets a pass for this one room, valid at most until the room expires.
+  r.post('/rooms/public/:code/guest', async (req, res) => {
+    if (!getSettings().allowGuestMeetings) return res.status(403).json({ error: 'Guests can’t join meetings on this server — sign in to join' });
+    const room = await repo.getRoomByCode(req.params.code);
+    if (!repo.roomIsOpen(room)) return res.status(410).json({ error: 'This meeting has ended' });
+    const name = String(req.body?.name ?? '').trim().slice(0, 40);
+    if (name.length < 2) return res.status(400).json({ error: 'Enter your name to join' });
+    const guestId = crypto.randomUUID();
+    const seconds = room.expiresAt ? (room.expiresAt - Date.now()) / 1000 : 24 * 3600;
+    const token = signGuestToken({ guestId, name, roomId: room.id }, seconds);
+    res.json({ token, user: repo.guestUser(guestId, name) });
   });
 
   r.use(requireAuth);
+
+  // ---------- admin: app settings and server usage ----------
+
+  const admin = async (req, res, next) => {
+    const me = await repo.getUserRow(req.userId);
+    if (!me?.is_admin) return res.status(403).json({ error: 'Only the server admin can do this' });
+    next();
+  };
+
+  r.get('/admin/settings', admin, (_req, res) => res.json(getSettings()));
+
+  r.patch('/admin/settings', admin, async (req, res) => {
+    try {
+      res.json(await updateSettings(req.body));
+    } catch (e) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+
+  r.get('/admin/usage', admin, async (_req, res) => res.json(await serverUsage(realtime.liveStats())));
+
+  // ---------- meeting rooms: owner side ----------
+
+  r.get('/rooms', async (req, res) => res.json(await repo.listOpenRooms(req.userId)));
+
+  r.post('/rooms', async (req, res) => {
+    const title = String(req.body?.title ?? '').trim().slice(0, 80);
+    const minutes = req.body?.expiresInMinutes;
+    // null = open until the owner closes it.
+    if (minutes != null && !(Number.isFinite(minutes) && minutes >= 5 && minutes <= MAX_ROOM_MINUTES))
+      return res.status(400).json({ error: 'Pick how long the link stays valid' });
+    const room = await repo.createRoom(req.userId, { title, expiresAt: minutes == null ? null : Date.now() + minutes * 60_000 });
+    res.status(201).json(room);
+  });
+
+  r.delete('/rooms/:id', async (req, res) => {
+    const room = await repo.closeRoom(req.params.id, req.userId);
+    if (!room) return res.status(404).json({ error: 'Not found' });
+    realtime.closeRoom(room.id);
+    res.json(room);
+  });
 
   // ---------- profile & people ----------
 
   r.get('/me', async (req, res) => {
     const user = await repo.getUserRow(req.userId);
     if (!user) return res.status(401).json({ error: 'Account no longer exists' });
-    res.json(repo.publicUser(user));
+    res.json(repo.selfUser(user));
   });
 
   r.patch('/me', async (req, res) => {
-    const { displayName, bio, title } = req.body || {};
-    const user = repo.publicUser(
-      await repo.updateUser(req.userId, {
+    const { displayName, bio, title, username } = req.body || {};
+    if (username !== undefined) {
+      if (typeof username !== 'string' || !USERNAME_RE.test(username))
+        return res.status(400).json({ error: 'Usernames are 3–24 letters, numbers, _ or .' });
+      const taken = await repo.getUserByUsername(username);
+      if (taken && taken.id !== req.userId) return res.status(409).json({ error: 'That username is taken' });
+    }
+    let row;
+    try {
+      row = await repo.updateUser(req.userId, {
         displayName: displayName?.trim()?.slice(0, 60) || undefined,
         bio: bio?.slice(0, 280),
         title: title?.slice(0, 60),
-      }),
-    );
-    realtime.broadcastUser(user);
-    res.json(user);
+        username,
+      });
+    } catch (e) {
+      // Lost a race for the same name against another sign-up or rename.
+      if (e?.code === '23505') return res.status(409).json({ error: 'That username is taken' });
+      throw e;
+    }
+    realtime.broadcastUser(repo.publicUser(row));
+    res.json(repo.selfUser(row));
   });
 
   r.put('/me/avatar', async (req, res) => {
@@ -68,21 +152,24 @@ export function createRouter(realtime) {
       return res.status(400).json({ error: e.message });
     }
     const previous = (await repo.getUserRow(req.userId))?.avatar_path;
-    const user = repo.publicUser(await repo.setAvatarPath(req.userId, file));
+    const row = await repo.setAvatarPath(req.userId, file);
     await deleteAvatar(previous);
-    realtime.broadcastUser(user);
-    res.json(user);
+    realtime.broadcastUser(repo.publicUser(row));
+    res.json(repo.selfUser(row));
   });
 
   r.delete('/me/avatar', async (req, res) => {
     const previous = (await repo.getUserRow(req.userId))?.avatar_path;
-    const user = repo.publicUser(await repo.setAvatarPath(req.userId, null));
+    const row = await repo.setAvatarPath(req.userId, null);
     await deleteAvatar(previous);
-    realtime.broadcastUser(user);
-    res.json(user);
+    realtime.broadcastUser(repo.publicUser(row));
+    res.json(repo.selfUser(row));
   });
 
-  r.get('/users', async (req, res) => res.json(await repo.searchUsers(req.userId, req.query.q)));
+  // ?scope=contacts lists people I already chat with; otherwise a 3+ character directory search.
+  r.get('/users', async (req, res) =>
+    res.json(req.query.scope === 'contacts' ? await repo.contactUsers(req.userId, req.query.q) : await repo.searchUsers(req.userId, req.query.q)),
+  );
 
   r.get('/users/:id', async (req, res) => {
     const user = repo.publicUser(await repo.getUserRow(req.params.id));
@@ -114,6 +201,37 @@ export function createRouter(realtime) {
     next();
   };
 
+  // ---------- end-to-end encrypted ("secret") chats ----------
+
+  // Each device registers the public half of its key pair; the private half never leaves it.
+  r.post('/devices', async (req, res) => {
+    try {
+      res.status(201).json({ id: await repo.registerDevice(req.userId, req.body?.publicKey) });
+    } catch (e) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+
+  r.post('/conversations/secret', async (req, res) => {
+    try {
+      const id = await repo.createSecretConversation(req.userId, req.body?.userId, req.body?.deviceId);
+      await realtime.notifyConversation(id);
+      res.status(201).json(await repo.getConversation(id, req.userId));
+    } catch (e) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+
+  r.post('/conversations/:id/secret/accept', member, async (req, res) => {
+    try {
+      await repo.acceptSecret(req.params.id, req.userId, req.body?.deviceId);
+      await realtime.notifyConversation(req.params.id);
+      res.json(await repo.getConversation(req.params.id, req.userId));
+    } catch (e) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+
   r.get('/conversations/:id', member, async (req, res) => res.json(await repo.getConversation(req.params.id, req.userId)));
 
   r.patch('/conversations/:id', member, async (req, res) => {
@@ -132,15 +250,31 @@ export function createRouter(realtime) {
   r.post('/conversations/:id/messages', member, async (req, res) => {
     const body = String(req.body?.body ?? '').trim();
     if (!body) return res.status(400).json({ error: 'Message is empty' });
-    if (body.length > 4000) return res.status(400).json({ error: 'Message is too long' });
+    const secret = await repo.getSecretState(req.params.id);
+    if (secret?.secret) {
+      // Only ciphertext envelopes, and only once both devices are known.
+      if (!secret.secret_recipient_device) return res.status(409).json({ error: 'Waiting for the other person to accept the secret chat' });
+      let envelope = null;
+      try {
+        envelope = JSON.parse(body);
+      } catch {
+        envelope = null;
+      }
+      if (envelope?.v !== 1 || typeof envelope.n !== 'string' || typeof envelope.c !== 'string' || body.length > 16000)
+        return res.status(400).json({ error: 'Secret chats only accept encrypted messages' });
+    } else if (body.length > 4000) return res.status(400).json({ error: 'Message is too long' });
     const message = await repo.addMessage(req.params.id, req.userId, { body, replyToId: req.body?.replyToId });
     await realtime.notifyMessage(message);
     res.status(201).json(message);
   });
 
   r.post('/conversations/:id/files', member, receiveFile, async (req, res) => {
+    if ((await repo.getSecretState(req.params.id))?.secret) {
+      if (req.file) await deleteStoredFile(req.file.filename);
+      return res.status(400).json({ error: 'Files are not available in secret chats yet' });
+    }
     if (!req.file) return res.status(400).json({ error: 'Choose a file to upload' });
-    const retention = Math.max(1, Number.parseInt(process.env.FILE_RETENTION_DAYS || '7', 10) || 7);
+    const retention = getSettings().fileRetentionDays;
     try {
       const message = await repo.addMessage(req.params.id, req.userId, {
         kind: 'file',

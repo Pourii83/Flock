@@ -8,24 +8,41 @@ import { colors, radius } from '@/theme';
 import { Avatar } from './avatar';
 import { Icon, SearchBar, T } from './ui';
 
-/** Searches people on this server (debounced), leaving out `excludeIds`. */
-export function usePeople(query: string, excludeIds: string[] = []) {
+/** The server's directory search answers only queries at least this long. */
+export const MIN_SEARCH = 3;
+const searchable = (query: string) => query.trim().replace(/^@/, '').length >= MIN_SEARCH;
+
+/**
+ * People to pick from (debounced), leaving out `excludeIds`.
+ * - `contacts`: people I already chat with, filtered by the query; with 3+ characters, anyone else who matches follows.
+ * - `directory`: nobody until the query has 3+ characters, then anyone who matches.
+ */
+export function usePeople(query: string, excludeIds: string[] = [], mode: 'contacts' | 'directory' = 'contacts') {
   const [people, setPeople] = useState<User[] | null>(null);
   const exclude = excludeIds.join(',');
   useEffect(() => {
     let cancelled = false;
-    const timer = setTimeout(() => {
-      api.users(query.trim()).then(
-        (list) => !cancelled && setPeople(list.filter((u) => !exclude.split(',').includes(u.id))),
-        () => !cancelled && setPeople([]),
-      );
+    const q = query.trim();
+    if (mode === 'directory' && !searchable(q)) return;
+    const timer = setTimeout(async () => {
+      try {
+        const [known, others] = await Promise.all([
+          mode === 'contacts' ? api.contacts(q) : Promise.resolve([]),
+          searchable(q) ? api.users(q) : Promise.resolve([]),
+        ]);
+        const seen = new Set([...exclude.split(','), ...known.map((u) => u.id)]);
+        if (!cancelled) setPeople([...known.filter((u) => !exclude.split(',').includes(u.id)), ...others.filter((u) => !seen.has(u.id))]);
+      } catch {
+        if (!cancelled) setPeople([]);
+      }
     }, 200);
     return () => {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [query, exclude]);
-  return people;
+  }, [query, exclude, mode]);
+  // Too short for the directory: show nobody (not the last search's results).
+  return mode === 'directory' && !searchable(query) ? [] : people;
 }
 
 export function PersonRow({
@@ -51,7 +68,7 @@ export function PersonRow({
         gap: 14,
         padding: 12,
         borderRadius: radius.lg,
-        backgroundColor: selected || pressed ? colors.surface : hovered ? 'rgba(22,29,42,0.6)' : 'transparent',
+        backgroundColor: selected || pressed ? colors.surface : hovered ? colors.hover : 'transparent',
       })}>
       <Avatar user={user} size={46} />
       <View style={{ flex: 1 }}>
@@ -110,10 +127,10 @@ export function MemberPicker({
               accessibilityLabel={t('Remove {name}', { name: u.displayName })}
               style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: colors.amberTint, borderRadius: radius.pill, paddingStart: 4, paddingEnd: 10, paddingVertical: 4 }}>
               <Avatar user={u} size={24} showPresence={false} />
-              <T variant="label" color={colors.amber}>
+              <T variant="label" color={colors.amberText}>
                 {u.displayName}
               </T>
-              <Icon name="x" size={12} color={colors.amber} />
+              <Icon name="x" size={12} color={colors.amberText} />
             </Pressable>
           ))}
         </View>
@@ -124,10 +141,10 @@ export function MemberPicker({
         contentContainerStyle={{ gap: 4, paddingBottom: 12 }}
         ListEmptyComponent={
           people === null ? (
-            <ActivityIndicator color={colors.amber} style={{ marginTop: 24 }} />
+            <ActivityIndicator color={colors.amberText} style={{ marginTop: 24 }} />
           ) : (
             <T variant="body" color={colors.textMuted} style={{ textAlign: 'center', marginTop: 24 }}>
-              {query ? t('Nobody found with that name.') : t('No one else to add yet.')}
+              {query ? t('Nobody found with that name.') : t('Search by username to add someone new.')}
             </T>
           )
         }

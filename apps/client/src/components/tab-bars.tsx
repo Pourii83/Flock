@@ -98,7 +98,7 @@ export function BottomTabBar(props: BottomTabBarProps) {
     <View
       style={{
         flexDirection: 'row',
-        backgroundColor: 'rgba(11, 14, 20, 0.96)',
+        backgroundColor: colors.barDeep,
         borderTopWidth: 1,
         borderTopColor: colors.surfaceHigh,
         paddingTop: 10,
@@ -120,7 +120,7 @@ export function BottomTabBar(props: BottomTabBarProps) {
               <Icon name={tab.icon} size={24} color={tint} />
               {route.name === 'index' && <UnreadBadge count={unread} style={{ position: 'absolute', top: -8, right: -14 }} />}
             </View>
-            <T variant="label" color={focused ? colors.amber : colors.textMuted}>
+            <T variant="label" color={focused ? colors.amberText : colors.textMuted}>
               {t(tab.label)}
             </T>
           </Pressable>

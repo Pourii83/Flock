@@ -1,3 +1,4 @@
+import * as Clipboard from 'expo-clipboard';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, RefreshControl, View } from 'react-native';
@@ -6,11 +7,12 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Avatar } from '@/components/avatar';
 import { EmptyStage } from '@/components/empty-state';
 import { DesktopTopBar, MobileHeader, PageTitle } from '@/components/shell';
-import { Button, Icon, SectionLabel, T } from '@/components/ui';
+import { Button, Field, Icon, SectionLabel, T } from '@/components/ui';
 import { useIsWide } from '@/hooks/use-layout';
 import { api } from '@/lib/api';
 import { dayAndTime, duration } from '@/lib/format';
-import type { CallLog } from '@/lib/types';
+import { meetingLink } from '@/lib/config';
+import type { CallLog, Room } from '@/lib/types';
 import { useCalls } from '@/state/calls';
 import { chatStore, useChat } from '@/state/chat-store';
 import { colors, radius } from '@/theme';
@@ -87,47 +89,136 @@ function Segmented({ value, onChange, total, missed }: { value: 'all' | 'missed'
   );
 }
 
-function FlockRoomCard() {
-  const conversations = useChat((s) => s.conversations);
-  const { startCall } = useCalls();
-  const latest = conversations[0];
+const DURATIONS: { minutes: number | null; label: string }[] = [
+  { minutes: 60, label: '1 hour' },
+  { minutes: 24 * 60, label: '1 day' },
+  { minutes: 7 * 24 * 60, label: '7 days' },
+  { minutes: null, label: 'Until I close it' },
+];
+
+function untilLabel(expiresAt: number | null) {
+  return expiresAt ? t('Valid until {time}', { time: dayAndTime(expiresAt) }) : t('Open until you close it');
+}
+
+/** Meeting links: rooms anyone can join from a link, even without an account. */
+function MeetingsCard() {
+  const { joinRoom, call } = useCalls();
+  const [rooms, setRooms] = useState<Room[] | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [title, setTitle] = useState('');
+  const [minutes, setMinutes] = useState<number | null>(60);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [copied, setCopied] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(() => {
+    api.rooms().then(setRooms, () => setRooms((r) => r ?? []));
+  }, []);
+  useFocusEffect(load);
+
+  const create = async () => {
+    setBusy('new');
+    setError(null);
+    try {
+      const room = await api.createRoom(title.trim(), minutes);
+      setRooms((list) => [room, ...(list ?? [])]);
+      setCreating(false);
+      setTitle('');
+      await copy(room);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+  const copy = async (room: Room) => {
+    await Clipboard.setStringAsync(meetingLink(room.code));
+    setCopied(room.id);
+    setTimeout(() => setCopied((id) => (id === room.id ? null : id)), 2000);
+  };
+  const close = async (room: Room) => {
+    setBusy(room.id);
+    try {
+      await api.closeRoom(room.id);
+      setRooms((list) => (list ?? []).filter((r) => r.id !== room.id));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+  const join = async (room: Room) => {
+    const problem = await joinRoom(room.code);
+    if (problem) setError(problem);
+  };
+
   return (
-    <View
-      style={{
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 14,
-        padding: 16,
-        borderRadius: radius.lg,
-        backgroundColor: colors.surface,
-        borderWidth: 1,
-        borderColor: colors.surfaceHigh,
-      }}>
-      <View style={{ width: 52, height: 52, borderRadius: 26, backgroundColor: colors.surfaceHigh, alignItems: 'center', justifyContent: 'center' }}>
-        <Icon name="share-2" size={22} color={colors.amber} />
+    <View style={{ gap: 12, padding: 16, borderRadius: radius.lg, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.surfaceHigh }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+        <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: colors.amberTint, alignItems: 'center', justifyContent: 'center' }}>
+          <Icon name="link" size={20} color={colors.amberText} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <T variant="labelLg" style={{ fontSize: 16 }}>
+            {t('Meeting links')}
+          </T>
+          <T variant="bodySm" color={colors.textMuted}>
+            {t('Anyone with the link can join, even without an account.')}
+          </T>
+        </View>
+        {!creating && <Button title={t('New link')} icon="plus" size="sm" onPress={() => setCreating(true)} />}
       </View>
-      <View style={{ flex: 1 }}>
-        <T variant="labelLg" style={{ fontSize: 17 }}>
-          {t('Start Flock Room')}
+
+      {creating && (
+        <View style={{ gap: 12, padding: 12, borderRadius: radius.lg, backgroundColor: colors.surfaceHigh }}>
+          <Field label={t('Meeting name (optional)')} icon="type" placeholder={t('Weekly sync')} value={title} onChangeText={setTitle} maxLength={80} />
+          <T variant="label">{t('Link stays valid for')}</T>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+            {DURATIONS.map((d) => {
+              const active = d.minutes === minutes;
+              return (
+                <Pressable
+                  key={d.label}
+                  onPress={() => setMinutes(d.minutes)}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: active }}
+                  style={{ paddingHorizontal: 14, paddingVertical: 8, borderRadius: radius.pill, borderWidth: 1, borderColor: active ? colors.amber : colors.surfaceHighest, backgroundColor: active ? colors.amberTint : colors.surface }}>
+                  <T variant="label" color={active ? colors.amberText : colors.text}>
+                    {t(d.label)}
+                  </T>
+                </Pressable>
+              );
+            })}
+          </View>
+          <View style={{ flexDirection: 'row', gap: 8, justifyContent: 'flex-end' }}>
+            <Button title={t('Cancel')} variant="ghost" size="sm" onPress={() => setCreating(false)} />
+            <Button title={t('Create and copy link')} icon="link" size="sm" loading={busy === 'new'} onPress={create} />
+          </View>
+        </View>
+      )}
+
+      {rooms?.map((room) => (
+        <View key={room.id} style={{ gap: 10, padding: 12, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.surfaceHigh }}>
+          <View style={{ gap: 2 }}>
+            <T variant="labelLg" numberOfLines={1}>
+              {room.title || t('Meeting')}
+            </T>
+            <T variant="bodySm" color={colors.textMuted} numberOfLines={1}>
+              {untilLabel(room.expiresAt)}
+            </T>
+          </View>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+            <Button title={copied === room.id ? t('Copied') : t('Copy link')} icon={copied === room.id ? 'check' : 'copy'} size="sm" variant="ghost" onPress={() => void copy(room)} />
+            <Button title={t('Join')} icon="video" size="sm" disabled={call.phase !== 'idle'} onPress={() => void join(room)} />
+            <Button title={t('Close room')} icon="x-circle" size="sm" variant="ghost" loading={busy === room.id} onPress={() => void close(room)} />
+          </View>
+        </View>
+      ))}
+      {!!error && (
+        <T variant="bodySm" color={colors.danger}>
+          {error}
         </T>
-        <T variant="body" color={colors.textMuted} numberOfLines={1}>
-          {latest ? t('Instant huddle with {name}', { name: latest.name }) : t('Start a chat first to call someone')}
-        </T>
-      </View>
-      <Pressable
-        disabled={!latest}
-        onPress={() => latest && startCall(latest, false)}
-        accessibilityLabel={t('Voice huddle')}
-        style={{ width: 46, height: 46, borderRadius: 23, backgroundColor: colors.surfaceHigh, alignItems: 'center', justifyContent: 'center', opacity: latest ? 1 : 0.4 }}>
-        <Icon name="mic" size={20} color={colors.text} />
-      </Pressable>
-      <Pressable
-        disabled={!latest}
-        onPress={() => latest && startCall(latest, true)}
-        accessibilityLabel={t('Video huddle')}
-        style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: colors.amber, alignItems: 'center', justifyContent: 'center', opacity: latest ? 1 : 0.4 }}>
-        <Icon name="video" size={22} color={colors.onAmber} />
-      </Pressable>
+      )}
     </View>
   );
 }
@@ -162,7 +253,7 @@ function CallRow({ log }: { log: CallLog }) {
       )}
       <View style={{ flex: 1, gap: 4 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-          <T variant="labelLg" color={log.missed ? '#FF8A80' : colors.text} style={{ fontSize: 17, flexShrink: 1 }} numberOfLines={1}>
+          <T variant="labelLg" color={log.missed ? colors.danger : colors.text} style={{ fontSize: 17, flexShrink: 1 }} numberOfLines={1}>
             {log.title}
           </T>
           {log.missed && (
@@ -194,7 +285,7 @@ function CallRow({ log }: { log: CallLog }) {
           alignItems: 'center',
           justifyContent: 'center',
         }}>
-        <Icon name={log.video ? 'video' : 'phone'} size={20} color={log.missed ? '#FF8A80' : log.video ? colors.amber : colors.teal} />
+        <Icon name={log.video ? 'video' : 'phone'} size={20} color={log.missed ? colors.danger : log.video ? colors.amberText : colors.teal} />
       </Pressable>
     </Pressable>
   );
@@ -215,7 +306,7 @@ function CallsList() {
       ListHeaderComponent={
         <View style={{ gap: 18, marginBottom: 6 }}>
           <Segmented value={filter} onChange={setFilter} total={calls?.length ?? 0} missed={missed.length} />
-          <FlockRoomCard />
+          <MeetingsCard />
           <SectionLabel right={<T variant="label" color={colors.textMuted}>{Intl.DateTimeFormat().resolvedOptions().timeZone}</T>}>
             {t('Recent activity')}
           </SectionLabel>
@@ -224,7 +315,7 @@ function CallsList() {
       renderItem={({ item }) => <CallRow log={item} />}
       ListEmptyComponent={
         calls === null ? (
-          <ActivityIndicator color={colors.amber} />
+          <ActivityIndicator color={colors.amberText} />
         ) : (
           <View style={{ alignItems: 'center', gap: 10, paddingVertical: 32 }}>
             <Icon name="phone" size={28} color={colors.textDim} />

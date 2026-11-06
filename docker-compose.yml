@@ -28,6 +28,7 @@ services:
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env (see .env.example)}
       CORS_ORIGIN: ${CORS_ORIGIN:-*}
       FILE_RETENTION_DAYS: ${FILE_RETENTION_DAYS:-7}
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-100}
       TURN_URLS: ${TURN_URLS:-}
       TURN_SECRET: ${TURN_SECRET:-}
     volumes:
@@ -45,6 +46,28 @@ services:
     ports:
       - "${WEB_PORT:-8080}:80"
 
+  # Optional HTTPS with automatic Let's Encrypt certificates:
+  #   set DOMAIN in .env, then: docker compose --profile https up -d
+  # Browsers allow camera and microphone (calls) only over HTTPS.
+  caddy:
+    image: caddy:2-alpine
+    profiles: [https]
+    restart: unless-stopped
+    depends_on:
+      - web
+    environment:
+      DOMAIN: ${DOMAIN:-}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
 volumes:
   pgdata:
   uploads:
+  caddy_data:
+  caddy_config:
