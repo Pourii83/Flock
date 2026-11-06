@@ -65,15 +65,23 @@ const miniDrag = (() => {
     offset = clamp(x, y);
     pan.setValue(offset);
   };
+  // Browsers still fire a click after the mouse is released at the end of a drag.
+  let draggedAt = 0;
+  const release = (x: number, y: number) => {
+    draggedAt = Date.now();
+    settle(x, y);
+  };
   const responder = PanResponder.create({
     // Capture only real drags so taps still reach the buttons underneath.
     onMoveShouldSetPanResponderCapture: (_, g) => Math.abs(g.dx) + Math.abs(g.dy) > 6,
     onPanResponderTerminationRequest: () => false,
     onPanResponderMove: (_, g) => pan.setValue(clamp(offset.x + g.dx, offset.y + g.dy)),
-    onPanResponderRelease: (_, g) => settle(offset.x + g.dx, offset.y + g.dy),
-    onPanResponderTerminate: (_, g) => settle(offset.x + g.dx, offset.y + g.dy),
+    onPanResponderRelease: (_, g) => release(offset.x + g.dx, offset.y + g.dy),
+    onPanResponderTerminate: (_, g) => release(offset.x + g.dx, offset.y + g.dy),
   });
   return {
+    /** True right after a drag ended: ignore the click that comes with letting go. */
+    justDragged: () => Date.now() - draggedAt < 350,
     handlers: responder.panHandlers,
     transform: pan.getTranslateTransform(),
     setScreen: (next: typeof screen) => {
@@ -116,7 +124,7 @@ function MiniCall() {
       ]}>
       {/* The header and the button row are drag handles; the participant list keeps its own scroll. */}
       <View {...drag.handlers}>
-        <Pressable onPress={() => setMinimized(false)} accessibilityLabel={t('Return to call')}>
+        <Pressable onPress={() => !drag.justDragged() && setMinimized(false)} accessibilityLabel={t('Return to call')}>
           {withVideo ? (
             <View style={{ height: wide ? 158 : 135, backgroundColor: colors.rail }}>
               <VideoView key={`mini-${withVideo.userId}-${call.mediaVersion}`} stream={withVideo.stream} contain={withVideo.screen} overlay />
@@ -153,7 +161,7 @@ function MiniCall() {
         {call.isGroup && (
           <MiniButton icon="users" active={peopleOpen} onPress={() => setPeopleOpen((open) => !open)} label={t('Show participants')} />
         )}
-        <MiniButton icon="maximize-2" active={false} onPress={() => setMinimized(false)} label={t('Return to call')} />
+        <MiniButton icon="maximize-2" active={false} onPress={() => !drag.justDragged() && setMinimized(false)} label={t('Return to call')} />
         <Pressable
           accessibilityLabel={t('Hang up')}
           onPress={hangUp}
@@ -725,13 +733,19 @@ function createCornerDrag(start: { x: number; y: number }) {
   const pos = new Animated.ValueXY(start);
   let geo: CornerGeometry | null = null;
   let dragging = false;
+  let draggedAt = 0;
   let origin = { x: 0, y: 0 };
-  const snap = (x: number, y: number) => {
+  // A short push or a flick toward a side is enough; it doesn't have to cross the middle of the screen.
+  const SWITCH_PX = 40;
+  const FLICK = 0.3;
+  const snap = (g: { dx: number; dy: number; vx: number; vy: number }) => {
     dragging = false;
+    draggedAt = Date.now();
     if (!geo) return;
-    const cx = x + geo.w / 2;
-    const cy = y + geo.h / 2;
-    selfCorner = `${cy < geo.stage.height / 2 ? 't' : 'b'}${cx < geo.stage.width / 2 ? 'l' : 'r'}` as Corner;
+    const [v, h] = selfCorner.split('') as ['t' | 'b', 'l' | 'r'];
+    const nextH = Math.abs(g.dx) > SWITCH_PX || Math.abs(g.vx) > FLICK ? (g.dx + g.vx * 100 < 0 ? 'l' : 'r') : h;
+    const nextV = Math.abs(g.dy) > SWITCH_PX || Math.abs(g.vy) > FLICK ? (g.dy + g.vy * 100 < 0 ? 't' : 'b') : v;
+    selfCorner = `${nextV}${nextH}` as Corner;
     Animated.spring(pos, { toValue: geo.spot(selfCorner), useNativeDriver: false, friction: 7, tension: 60 }).start();
   };
   const responder = PanResponder.create({
@@ -743,12 +757,14 @@ function createCornerDrag(start: { x: number; y: number }) {
     },
     onPanResponderTerminationRequest: () => false,
     onPanResponderMove: (_, g) => pos.setValue({ x: origin.x + g.dx, y: origin.y + g.dy }),
-    onPanResponderRelease: (_, g) => snap(origin.x + g.dx, origin.y + g.dy),
-    onPanResponderTerminate: (_, g) => snap(origin.x + g.dx, origin.y + g.dy),
+    onPanResponderRelease: (_, g) => snap(g),
+    onPanResponderTerminate: (_, g) => snap(g),
   });
   return {
     pos,
     responder,
+    /** True right after a drag ended: ignore the click that comes with letting go. */
+    justDragged: () => Date.now() - draggedAt < 350,
     update(next: CornerGeometry) {
       const moved = !geo || next.spot(selfCorner).x !== geo.spot(selfCorner).x || next.spot(selfCorner).y !== geo.spot(selfCorner).y;
       geo = next;
@@ -783,7 +799,8 @@ function SelfView({
     const top = corner === 'tl' || corner === 'tr';
     return {
       x: left ? insets.left + m : Math.max(m, stage.width - insets.right - m - w),
-      y: top ? topReserve : Math.max(topReserve, stage.height - bottomReserve - h),
+      // Top-left sits below the timer / minimize pill and the status tags.
+      y: top ? (left ? Math.max(topReserve, insets.top + 108) : topReserve) : Math.max(topReserve, stage.height - bottomReserve - h),
     };
   };
   const [drag] = useState(() => createCornerDrag(spot(selfCorner)));
@@ -809,7 +826,7 @@ function SelfView({
         },
         Platform.OS === 'web' ? ({ cursor: 'grab', userSelect: 'none', touchAction: 'none', boxShadow: '0 10px 30px rgba(0,0,0,0.45)' } as object) : null,
       ]}>
-      <Pressable style={{ flex: 1 }} onPress={onPress} accessibilityLabel={t('Your video — drag to move')}>
+      <Pressable style={{ flex: 1 }} onPress={() => !drag.justDragged() && onPress()} accessibilityLabel={t('Your video — drag to move')}>
         {children}
       </Pressable>
     </Animated.View>
@@ -969,7 +986,7 @@ function Popover({ title, onClose, bottom, children }: { title?: string; onClose
           </Pressable>
         </View>
       )}
-      <ScrollView style={{ flexGrow: 0 }} contentContainerStyle={{ gap: 14 }}>
+      <ScrollView style={{ flexGrow: 0 }} contentContainerStyle={{ gap: 14, paddingEnd: 12 }}>
         {children}
       </ScrollView>
     </View>
@@ -1172,7 +1189,7 @@ function AudioDevicePanel({ onClose }: { onClose: () => void }) {
   const outputs = call.audioDevices.filter((device) => device.kind === 'output');
   return (
     <PanelShell title={t('Audio devices')} onClose={onClose}>
-      <ScrollView style={{ maxHeight: 430 }} contentContainerStyle={{ gap: 20 }}>
+      <ScrollView style={{ maxHeight: 430 }} contentContainerStyle={{ gap: 20, paddingEnd: 14, paddingStart: 2 }}>
         {call.remotes.length > 0 && <T variant="labelLg">{t('Participant volume')}</T>}
         {call.remotes.map((remote) => (
           <View key={remote.userId} style={{ gap: 4 }}>

@@ -19,6 +19,14 @@ const browserAudioDevices = async (): Promise<AudioDeviceStatus> => {
       const index = kind === 'input' ? ++inputs : ++outputs;
       return { id: device.deviceId || 'default', label: device.label || t(kind === 'input' ? 'Microphone {n}' : 'Speaker {n}', { n: index }), kind };
     });
+  // Chrome lists a "Default" entry; Firefox doesn't. Calls start on the system default, so it must be
+  // in the list (and ticked) either way.
+  for (const kind of ['output', 'input'] as const) {
+    if (devices.some((d) => d.kind === kind) && !devices.some((d) => d.kind === kind && d.id === 'default')) {
+      const firstOfKind = devices.findIndex((d) => d.kind === kind);
+      devices.splice(firstOfKind, 0, { id: 'default', label: t('System default'), kind });
+    }
+  }
   return { devices, selectedInputId: 'default', selectedOutputId: 'default' };
 };
 

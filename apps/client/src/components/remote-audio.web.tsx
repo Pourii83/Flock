@@ -31,7 +31,8 @@ export function RemoteAudio({ stream, version, outputDeviceId = 'default', volum
 
   useEffect(() => {
     const el = ref.current as (HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> }) | null;
-    if (el?.setSinkId) el.setSinkId(outputDeviceId).catch(() => {});
+    // '' is the system default in every browser ('default' is a Chrome-only id).
+    if (el?.setSinkId) el.setSinkId(outputDeviceId === 'default' ? '' : outputDeviceId).catch(() => {});
   }, [outputDeviceId]);
 
   return (
