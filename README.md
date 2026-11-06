@@ -1,5 +1,7 @@
 # Flock
 
+**English** | [فارسی](README.fa.md)
+
 > Stay together, wherever you are.
 
 Flock is a self-hosted messenger for you and your friends: chats, voice and video calls, screen sharing and meeting links, all on your own server. It runs from one **React Native (Expo)** codebase as a **web app (PWA)**, an **Android app** and a **Windows app**, with a **Node.js + PostgreSQL** server.
