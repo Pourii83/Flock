@@ -32,7 +32,7 @@ const fa: Record<string, string> = {
   'Every device, in sync': 'همه‌ی دستگاه‌ها، همگام',
   'Phone, web and desktop share one live inbox in real time.': 'گوشی، وب و دسکتاپ یک صندوق پیام زنده و همگام دارند.',
   'One codebase · Android · Web · Desktop': 'یک کد · اندروید · وب · دسکتاپ',
-  'Flock Desktop & Web · v1.0': 'فلاک دسکتاپ و وب · نسخه ۱',
+  'Flock Desktop & Web · v{version}': 'فلاک دسکتاپ و وب · نسخه {version}',
   'Secure session': 'نشست امن',
   'Welcome back to Flock': 'به فلاک خوش برگشتید',
   'Sign in to pick up right where you left off': 'وارد شوید و از همان‌جایی که بودید ادامه دهید',

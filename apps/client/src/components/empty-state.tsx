@@ -1,3 +1,4 @@
+import Constants from 'expo-constants';
 import { View } from 'react-native';
 import Svg, { Defs, RadialGradient, Rect, Stop } from 'react-native-svg';
 
@@ -48,7 +49,7 @@ export function EmptyStage({
             }}>
             <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: colors.amber }} />
             <T variant="labelSm" color={colors.textMuted}>
-              v1.0
+              v{Constants.expoConfig?.version ?? ''}
             </T>
           </View>
         </View>

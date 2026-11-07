@@ -1,3 +1,4 @@
+import Constants from 'expo-constants';
 import { LinearGradient } from 'expo-linear-gradient';
 import type { ReactNode } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, View } from 'react-native';
@@ -74,7 +75,7 @@ export function AuthLayout({ title, subtitle, children }: { title: string; subti
       )}
       {children}
       <T variant="bodySm" color={colors.textDim} style={{ textAlign: 'center' }}>
-        {t('Flock Desktop & Web · v1.0')}
+        {t('Flock Desktop & Web · v{version}', { version: Constants.expoConfig?.version ?? '' })}
       </T>
     </View>
   );
