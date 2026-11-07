@@ -15,6 +15,8 @@ The script:
 2. installs PostgreSQL if it's missing (apt or dnf/yum) and creates a `flock` database with a random password
 3. installs Flock to `/opt/flock`, writes `/etc/flock/flock.env` (random `JWT_SECRET`) and starts the `flock` systemd service
 
+On a first install the script asks for every option below (and shows a summary to confirm), so `curl -fsSL .../install.sh | sudo bash` is enough. Passing an option skips its question; `--yes` skips them all.
+
 Useful options (after `bash -s --` when piping):
 
 ```bash

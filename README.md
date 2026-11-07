@@ -172,30 +172,40 @@ docker compose --profile https down -v
 **Step 2: Run the installer**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Pourii83/Flock/main/deploy/install.sh | sudo bash -s -- --domain chat.example.com --email you@example.com
+curl -fsSL https://raw.githubusercontent.com/Pourii83/Flock/main/deploy/install.sh | sudo bash
 ```
+
+That one line is enough: the script asks for everything else (step 3). You can also pass any answer as an option instead, for example `| sudo bash -s -- --domain chat.example.com --turn`, and it won't ask that question again.
 
 The script:
 
 1. downloads the latest `flock-server-linux-<arch>.tar.gz` from [Releases](https://github.com/Pourii83/Flock/releases)
 2. installs PostgreSQL if it's missing, and creates a `flock` database with a random password
 3. installs Flock to `/opt/flock`, writes `/etc/flock/flock.env` with a random `JWT_SECRET`, and starts the `flock` service
-4. with `--domain`, it also installs Nginx, gets a Let's Encrypt certificate (renewed automatically) and redirects HTTP to HTTPS
+4. with a domain, it also installs Nginx, gets a Let's Encrypt certificate (renewed automatically) and redirects HTTP to HTTPS
+5. with a TURN relay, it installs coturn and connects it to Flock
 
-**Step 3: Answer the questions.** On a first install the script asks, and Enter keeps the default:
+**Step 3: Answer the questions.** On a first install the script asks for every option, and Enter keeps the default. Options you passed on the command line aren't asked.
 
-| Question | Default |
-|---|---|
-| Domain for HTTPS (skipped if you passed `--domain`) | none: use the server's IP |
-| Email for certificate notices | none |
-| Port (only without a domain) | `4000` |
-| Largest file people can send, in MB | `100` |
-| Keep sent files for how many days | `7` |
-| Let anyone sign up? | yes |
-| Install a TURN relay for calls? | no |
-| Admin username and password | `admin`, generated password |
+| Question | Default | Same as option |
+|---|---|---|
+| Package file for an offline install | none: download from GitHub | `--package` |
+| Release to install | latest | `--version` |
+| Domain for HTTPS | none: use the server's IP | `--domain` |
+| Email for certificate notices (only with a domain) | none | `--email` |
+| Port | `4000` | `--port` |
+| Largest file people can send, in MB | `100` | `--upload-mb` |
+| Keep sent files for how many days | `7` | `--retention-days` |
+| Let anyone sign up? | yes | (Settings → App settings) |
+| Install a TURN relay for calls? | yes | `--turn` |
+| Existing PostgreSQL URL | none: install PostgreSQL here | `--db-url` |
+| Start Flock when the install finishes? | yes | `--no-start` |
+| Create an admin account? | yes | `--no-admin` |
+| Admin username and password | `admin`, generated password | `--admin` |
 
-At the end it creates the **admin account**. If you left the password empty, it prints a generated one **once**, so save it. All passwords are stored as bcrypt hashes. Use `--yes` to skip the questions and take the defaults and options you passed.
+Then it shows a **summary** of your answers and installs only when you confirm, so a wrong answer costs nothing: say no and run it again.
+
+At the end it creates the **admin account**. If you left the password empty, it prints a generated one **once**, so save it. All passwords are stored as bcrypt hashes. Use `--yes` to skip the questions: it takes the defaults and the options you passed (without `--turn`, no TURN relay).
 
 **Step 4: Open it**: `https://chat.example.com`, and sign in as the admin. You change most of these settings later in the app, under **Settings → App settings**.
 
@@ -319,7 +329,7 @@ Methods 2/3 keep settings in `/etc/flock/flock.env` (restart with `sudo systemct
 
 Calls connect directly between devices. When both people are behind strict NATs (mobile data, office networks), a direct connection isn't possible, so a **TURN relay** forwards the encrypted media. Without one, such calls ring and "connect" but carry no sound or video.
 
-- **Methods 2/3:** add `--turn` to the installer. It installs coturn, opens its ports and fills in `TURN_URLS` / `TURN_SECRET`. Also open ports 3478, 5349 and 49160–49200/udp in your hosting provider's firewall.
+- **Methods 2/3:** answer yes when the installer asks about a TURN relay (or pass `--turn`). It installs coturn, opens its ports and fills in `TURN_URLS` / `TURN_SECRET`. Also open ports 3478, 5349 and 49160–49200/udp in your hosting provider's firewall.
 - **Docker, or a relay on another machine** (for example [eturnal](https://eturnal.net), which also runs on Windows): set `TURN_URLS` (or `TURN_EXTRA_URLS`) and `TURN_SECRET` to the relay's address and shared secret.
 
 The relay only ever sees encrypted call traffic. More in [deploy/INSTALL.md](deploy/INSTALL.md#turn-server-for-calls).

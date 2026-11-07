@@ -25,7 +25,9 @@
 #   --yes             don't ask questions; use the options and defaults
 #
 # On a first install the script asks for these settings when it runs in a terminal (also when
-# piped from curl), and creates the admin account at the end. Passwords are stored as bcrypt hashes.
+# piped from curl): domain and certificate email (or port), upload limit, retention, open sign-up,
+# TURN relay, an existing database, and the admin account. It shows a summary to confirm before
+# installing, and creates the admin account at the end. Passwords are stored as bcrypt hashes.
 #
 # Re-running the installer upgrades Flock and keeps /etc/flock/flock.env and the database.
 # Private repository? Export GITHUB_TOKEN=<token with repo read access> before running.
@@ -53,6 +55,7 @@ ADMIN_PASS=""
 ADMIN_GENERATED=0
 NO_ADMIN=0
 ASSUME_YES=0
+PASSED=" "  # switches given on the command line (not asked again)
 
 info() { printf '\033[1;33m==>\033[0m %s\n' "$*"; }
 ok() { printf '\033[1;32m✔\033[0m %s\n' "$*"; }
@@ -60,18 +63,18 @@ die() { printf '\033[1;31m✖ %s\033[0m\n' "$*" >&2; exit 1; }
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --package) PACKAGE="$2"; shift 2 ;;
-    --version) VERSION="$2"; shift 2 ;;
-    --port) PORT="$2"; shift 2 ;;
-    --db-url) DB_URL="$2"; shift 2 ;;
-    --no-start) START=0; shift ;;
-    --domain) DOMAIN="$2"; shift 2 ;;
-    --email) EMAIL="$2"; shift 2 ;;
-    --turn) WITH_TURN=1; shift ;;
+    --package) PACKAGE="$2"; PASSED+="package "; shift 2 ;;
+    --version) VERSION="$2"; PASSED+="version "; shift 2 ;;
+    --port) PORT="$2"; PASSED+="port "; shift 2 ;;
+    --db-url) DB_URL="$2"; PASSED+="db "; shift 2 ;;
+    --no-start) START=0; PASSED+="start "; shift ;;
+    --domain) DOMAIN="$2"; PASSED+="domain "; shift 2 ;;
+    --email) EMAIL="$2"; PASSED+="email "; shift 2 ;;
+    --turn) WITH_TURN=1; PASSED+="turn "; shift ;;
     --upload-mb) UPLOAD_MB="$2"; shift 2 ;;
     --retention-days) RETENTION="$2"; shift 2 ;;
     --admin) ADMIN_USER="$2"; shift 2 ;;
-    --no-admin) NO_ADMIN=1; shift ;;
+    --no-admin) NO_ADMIN=1; PASSED+="admin "; shift ;;
     --yes|-y) ASSUME_YES=1; shift ;;
     -h|--help) sed -n '2,35p' "$0"; exit 0 ;;
     *) die "Unknown option: $1 (see --help)" ;;
@@ -104,7 +107,8 @@ ask() { # ask VAR "question" default
   local ans=""
   if [ "$TTY" = 1 ]; then
     printf '\033[1;36m?\033[0m %s [%s]: ' "$2" "$3" >/dev/tty
-    IFS= read -r ans </dev/tty || true
+    # End of input (Ctrl-D) would otherwise loop on a question forever.
+    IFS= read -r ans </dev/tty || [ -n "$ans" ] || die "No answer given; nothing was installed."
   fi
   printf -v "$1" '%s' "${ans:-$3}"
 }
@@ -126,15 +130,39 @@ ask_yn() { # ask_yn VAR "question" y|n  → VAR=1/0
   done
 }
 
+passed() { [[ "$PASSED" == *" $1 "* ]]; }
+# Already running from an extracted package (offline)? Then there's nothing to download.
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd || echo /nonexistent)"
+FROM_PACKAGE=0
+[ -f "$HERE/node/bin/node" ] && [ -d "$HERE/server" ] && FROM_PACKAGE=1
+
+# Every option can be answered here instead of passed; options given on the command line aren't asked.
 if [ "$FIRST_INSTALL" = 1 ] && [ "$TTY" = 1 ]; then
   info "A few questions — press Enter to keep the value in [brackets]"
-  if [ -z "$DOMAIN" ]; then ask DOMAIN "Domain for HTTPS, e.g. chat.example.com (empty = no domain, use the IP)" ""; fi
-  if [ -n "$DOMAIN" ] && [ -z "$EMAIL" ]; then ask EMAIL "Email for certificate expiry notices (optional)" ""; fi
-  if [ -z "$DOMAIN" ]; then ask_num PORT "Port for Flock" "$PORT" 1 65535; fi
+  if [ "$FROM_PACKAGE" = 0 ] && ! passed package && ! passed version; then
+    ask PACKAGE "Package file for an offline install, e.g. /root/flock-server-linux-$ARCH.tar.gz (empty = download from GitHub)" ""
+    if [ -z "$PACKAGE" ]; then ask VERSION "Release to install, e.g. v1.7.2" "$VERSION"; fi
+  fi
+  if ! passed domain; then ask DOMAIN "Domain for HTTPS, e.g. chat.example.com (empty = no domain, use the IP)" ""; fi
+  if [ -n "$DOMAIN" ] && ! passed email; then ask EMAIL "Email for certificate expiry notices (optional)" ""; fi
+  if ! passed port; then
+    if [ -n "$DOMAIN" ]; then ask_num PORT "Internal port for Flock (Nginx forwards HTTPS to it)" "$PORT" 1 65535
+    else ask_num PORT "Port for Flock" "$PORT" 1 65535; fi
+  fi
   ask_num UPLOAD_MB "Largest file people can send, in MB" "$UPLOAD_MB" 1 4096
   ask_num RETENTION "Keep sent files for how many days" "$RETENTION" 1 365
   ask_yn OPEN_SIGNUP "Let anyone who reaches the server sign up?" y
-  if [ "$WITH_TURN" = 0 ]; then ask_yn WITH_TURN "Install a TURN relay (coturn) so calls work across networks?" n; fi
+  if ! passed turn; then
+    ask_yn WITH_TURN "Install a TURN relay (coturn) so calls work between different networks? Needs ports 3478, 5349 and 49160-49200/udp open" y
+  fi
+  if ! passed db; then
+    ask DB_URL "Existing PostgreSQL URL, e.g. postgres://user:pass@host:5432/flock (empty = install PostgreSQL here)" ""
+  fi
+  if ! passed start; then ask_yn START "Start Flock when the install finishes?" y; fi
+  if ! passed admin && [ -z "$ADMIN_USER" ]; then
+    ask_yn MAKE_ADMIN "Create an admin account?" y
+    [ "$MAKE_ADMIN" = 1 ] || NO_ADMIN=1
+  fi
 fi
 [[ "$UPLOAD_MB" =~ ^[0-9]+$ ]] && [ "$UPLOAD_MB" -ge 1 ] && [ "$UPLOAD_MB" -le 4096 ] || die "--upload-mb must be 1–4096"
 [[ "$RETENTION" =~ ^[0-9]+$ ]] && [ "$RETENTION" -ge 1 ] && [ "$RETENTION" -le 365 ] || die "--retention-days must be 1–365"
@@ -162,6 +190,30 @@ if [ "$NO_ADMIN" = 0 ] && { [ "$FIRST_INSTALL" = 1 ] || [ -n "$ADMIN_USER" ]; };
     done
   fi
   if [ -z "$ADMIN_PASS" ]; then ADMIN_PASS="$(random 20)"; ADMIN_GENERATED=1; fi
+fi
+
+# Last look before anything is installed.
+if [ "$FIRST_INSTALL" = 1 ] && [ "$TTY" = 1 ]; then
+  yn() { [ "$1" = 1 ] && echo yes || echo no; }
+  {
+    echo
+    if [ "$FROM_PACKAGE" = 1 ]; then echo "   Install from: this package (offline)"
+    elif [ -n "$PACKAGE" ]; then echo "   Install from: $PACKAGE (offline)"
+    else echo "   Install from: GitHub, release $VERSION"; fi
+    echo "   Address:      $([ -n "$DOMAIN" ] && echo "https://$DOMAIN" || echo "http://<server-ip>:$PORT")"
+    [ -n "$DOMAIN" ] && echo "   Cert email:   ${EMAIL:-none}"
+    echo "   Uploads:      up to $UPLOAD_MB MB, kept $RETENTION days"
+    echo "   Open sign-up: $(yn "$OPEN_SIGNUP")"
+    echo "   TURN relay:   $(yn "$WITH_TURN")"
+    if [ -n "$DB_URL" ]; then echo "   Database:     existing, $(printf '%s' "$DB_URL" | sed -E 's#(://[^:/@]+):[^@]*@#\1:***@#')"
+    else echo "   Database:     install PostgreSQL here"; fi
+    echo "   Admin:        $([ "$CREATE_ADMIN" = 1 ] && echo "$ADMIN_USER" || echo none)"
+    echo "   Port:         $PORT"
+    echo "   Start now:    $(yn "$START")"
+    echo
+  } >/dev/tty
+  ask_yn GO "Install with these settings?" y
+  [ "$GO" = 1 ] || { echo "Nothing was installed." >/dev/tty; exit 0; }
 fi
 
 # ---------- 1. locate the package ----------
