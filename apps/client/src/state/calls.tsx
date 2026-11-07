@@ -25,6 +25,24 @@ export type StreamFps = 60 | 30 | 15;
 /** Connection quality, from loss, delay and jitter (see the quality effect in CallProvider). */
 export type NetQuality = 'good' | 'fair' | 'poor';
 
+/** The microphone / speaker picked last time (web: device ids are per site, so they keep). */
+const DEVICE_KEYS = { input: 'flock.audioInput', output: 'flock.audioOutput' } as const;
+function savedDevice(kind: keyof typeof DEVICE_KEYS) {
+  if (Platform.OS !== 'web') return 'default';
+  try {
+    return globalThis.localStorage?.getItem(DEVICE_KEYS[kind]) || 'default';
+  } catch {
+    return 'default';
+  }
+}
+function saveDevice(kind: keyof typeof DEVICE_KEYS, id: string) {
+  if (Platform.OS !== 'web') return;
+  try {
+    if (id === 'default') globalThis.localStorage?.removeItem(DEVICE_KEYS[kind]);
+    else globalThis.localStorage?.setItem(DEVICE_KEYS[kind], id);
+  } catch {}
+}
+
 export type CallRemote = {
   volume?: number;
   speaking?: boolean;
@@ -203,6 +221,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const peers = useRef(new Map<string, Peer>());
   /** What each participant last said about their own connection, and when. */
   const netReports = useRef(new Map<string, { q: NetQuality; at: number }>());
+  /** replaceMicrophone, for code defined above it (the device watcher). */
+  const replaceMicRef = useRef<((mode: NoiseMode, deviceId?: string) => Promise<void>) | null>(null);
   // Signaling from each participant is handled strictly in order (offer before its candidates).
   const queues = useRef(new Map<string, Promise<void>>());
   const iceConfig = useRef<RTCConfiguration | null>(null);
@@ -307,6 +327,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
   const refreshAudioDevices = useCallback(async () => {
     const status = await callAudio.devices();
+    const c = callRef.current;
+    const unplugged =
+      Platform.OS === 'web' && c.audioInputId !== 'default' && status.devices.length > 0 && !status.devices.some((d) => d.kind === 'input' && d.id === c.audioInputId);
+    if (unplugged) await replaceMicRef.current?.(c.noiseMode, 'default');
     setCall((current) => {
       const inputs = status.devices.filter((device) => device.kind === 'input');
       const outputs = status.devices.filter((device) => device.kind === 'output');
@@ -385,7 +409,17 @@ export function CallProvider({ children }: { children: ReactNode }) {
       }
       let stream: MediaStream;
       try {
-        [stream, iceConfig.current] = await Promise.all([getLocalMedia(video, micConstraints(getNoisePreference())), loadIceConfig(api.ice)]);
+        const base = micConstraints(getNoisePreference());
+        const wanted = savedDevice('input');
+        const open = (id: string) => getLocalMedia(video, id === 'default' ? base : { ...base, deviceId: { exact: id } });
+        const media = open(wanted).then(
+          (s) => ({ s, id: wanted }),
+          (e) => (wanted === 'default' ? Promise.reject(e) : open('default').then((s) => ({ s, id: 'default' }))),
+        );
+        let opened: { s: MediaStream; id: string };
+        [opened, iceConfig.current] = await Promise.all([media, loadIceConfig(api.ice)]);
+        stream = opened.s;
+        patch({ audioInputId: opened.id, audioOutputId: savedDevice('output') });
       } catch (e: any) {
         patch({ notice: e.message });
         return false;
@@ -893,12 +927,18 @@ export function CallProvider({ children }: { children: ReactNode }) {
     [patch, setCall, setSenders],
   );
 
+  useEffect(() => {
+    replaceMicRef.current = replaceMicrophone;
+  }, [replaceMicrophone]);
+
   const setNoiseMode = useCallback((mode: NoiseMode) => replaceMicrophone(mode), [replaceMicrophone]);
 
   const selectAudioInput = useCallback(
     async (deviceId: string) => {
       if (Platform.OS === 'web') {
+        if (deviceId === callRef.current.audioInputId) return;
         await replaceMicrophone(callRef.current.noiseMode, deviceId);
+        if (callRef.current.audioInputId === deviceId) saveDevice('input', deviceId);
         await refreshAudioDevices();
         return;
       }
@@ -912,6 +952,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     async (deviceId: string) => {
       if (Platform.OS === 'web') {
         patch({ audioOutputId: deviceId });
+        saveDevice('output', deviceId);
         return;
       }
       await callAudio.selectRoute(deviceId);

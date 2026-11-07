@@ -309,6 +309,7 @@ const fa: Record<string, string> = {
   'Your connection is weak': 'اتصال شما ضعیف است',
   'Your connection is very weak': 'اتصال شما خیلی ضعیف است',
   'System default': 'پیش‌فرض سیستم',
+  'System default ({name})': 'پیش‌فرض سیستم ({name})',
   '{d}d {h}h': '{d} روز {h} ساعت',
   '{h}h {m}m': '{h} ساعت {m} دقیقه',
   '{m}m': '{m} دقیقه',
