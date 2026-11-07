@@ -72,8 +72,9 @@ export function CallChatPanel({ onClose }: { onClose: () => void }) {
           ? { top: 16, bottom: 16, end: 16, width: 340, borderRadius: radius.xl }
           : keyboard
             ? // Keyboard up: sit right above it and use the space that's left.
-              { start: 8, end: 8, bottom: keyboard + 8, top: insets.top + 8, borderRadius: radius.xl }
-            : { start: 8, end: 8, bottom: 8, height: '58%', borderRadius: radius.xl },
+              // Android draws behind the navigation bar, and the reported keyboard height leaves it out.
+              { start: 8, end: 8, bottom: keyboard + insets.bottom + 8, top: insets.top + 8, borderRadius: radius.xl }
+            : { start: 8, end: 8, bottom: insets.bottom + 8, height: '58%', borderRadius: radius.xl },
       ]}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14, borderBottomWidth: 1, borderBottomColor: colors.hairline }}>
         <Icon name="message-square" size={18} color={colors.amberText} />
