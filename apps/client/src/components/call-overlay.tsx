@@ -450,12 +450,15 @@ function ActiveCall() {
   const insets = useSafeAreaInsets();
   // Tap the stage to hide the controls (less visual noise), tap again to bring them back.
   const [controlsHidden, setControlsHidden] = useState(false);
+  /** I chose not to see my own camera (it still goes out to the others). */
+  const [selfHidden, setSelfHidden] = useState(false);
   // One panel at a time.
   const [panel, setPanel] = useState<Panel>(null);
   const toggle = (p: Exclude<Panel, null>) => setPanel((open) => (open === p ? null : p));
   const [focusedScreen, setFocusedScreen] = useState<string | null>(null);
   const [stage, setStage] = useState({ width: 0, height: 0 });
   const [dockHeight, setDockHeight] = useState(180);
+  const [headerHeight, setHeaderHeight] = useState(116);
   // Plain opacity (+ a CSS fade on web); Animated's JS driver doesn't apply reliably on web here.
   const chrome = {
     opacity: controlsHidden ? 0 : 1,
@@ -476,8 +479,8 @@ function ActiveCall() {
       id: 'local',
       user,
       self: true,
-      stream: camOn ? call.localStream : null,
-      video: camOn,
+      stream: camOn && !selfHidden ? call.localStream : null,
+      video: camOn && !selfHidden,
       mirror: call.frontCamera,
       speaking: !!call.localSpeaking,
       net: call.localNet,
@@ -511,7 +514,8 @@ function ActiveCall() {
   // One-to-one video: their camera fills the screen and mine floats in a corner.
   const fullBleed = !shownScreen && !!single && hasVideo(single) && !single.screen;
   // With the controls hidden, the stage takes the room they leave.
-  const padTop = controlsHidden ? insets.top + 12 : insets.top + 96;
+  // Clear the status pill and tags (they can wrap to a second line), with a little air below them.
+  const padTop = controlsHidden ? insets.top + 12 : insets.top + headerHeight + 6;
   const padBottom = controlsHidden ? insets.bottom + 12 : dockHeight + insets.bottom + 4;
 
   // Meeting rooms are invited to by sharing their link; group calls by picking people.
@@ -529,6 +533,7 @@ function ActiveCall() {
   const moreItems: MenuItem[] = [
     ...(canFlip ? [{ icon: 'refresh-ccw' as const, label: t('Switch camera'), onPress: flipCamera }] : []),
     ...(canShare ? [{ icon: 'monitor' as const, label: call.sharingScreen ? t('Stop sharing') : t('Share screen'), active: call.sharingScreen, onPress: toggleScreenShare }] : []),
+    ...(camOn ? [{ icon: selfHidden ? ('eye' as const) : ('eye-off' as const), label: selfHidden ? t('Show my video') : t('Hide my video'), onPress: () => setSelfHidden((h) => !h) }] : []),
     { icon: 'headphones', label: t('Audio devices'), onPress: () => setPanel('audio') },
     { icon: 'sliders', label: t('Call quality'), onPress: () => setPanel('quality') },
     ...(canInvite ? [{ icon: 'user-plus' as const, label: t('Invite to call'), onPress: () => setPanel('invite') }] : []),
@@ -592,7 +597,10 @@ function ActiveCall() {
 
       <SafeAreaView style={{ flex: 1, justifyContent: 'space-between' }} pointerEvents="box-none">
         {/* Top status */}
-        <View style={[{ padding: 16, gap: 8, alignItems: 'flex-start' }, chrome]} pointerEvents={chromePointer}>
+        <View
+          style={[{ padding: 16, gap: 8, alignItems: 'flex-start' }, chrome]}
+          pointerEvents={chromePointer}
+          onLayout={(e) => setHeaderHeight(e.nativeEvent.layout.height)}>
           <View style={[styles.glass, { flexDirection: 'row', alignItems: 'center', gap: 10, paddingStart: 16, paddingEnd: 6, paddingVertical: 6, maxWidth: '100%' }]}>
             <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: colors.amber }} />
             <T variant="labelLg" style={{ fontSize: 16, fontVariant: ['tabular-nums'] }}>
@@ -693,6 +701,9 @@ function ActiveCall() {
               <DockButton icon="message-square" active={panel === 'chat'} onPress={() => toggle('chat')} label={t('Call chat')} badge={panel === 'chat' ? 0 : call.chatUnread} />
               {wide ? (
                 <>
+                  {camOn && (
+                    <DockButton icon={selfHidden ? 'eye' : 'eye-off'} active={selfHidden} onPress={() => setSelfHidden((h) => !h)} label={selfHidden ? t('Show my video') : t('Hide my video')} />
+                  )}
                   <DockButton icon="headphones" active={panel === 'audio'} onPress={() => toggle('audio')} label={t('Audio devices')} />
                   <DockButton icon="sliders" active={panel === 'quality'} onPress={() => toggle('quality')} label={t('Call quality')} />
                   {canInvite && <DockButton icon="user-plus" active={panel === 'invite'} onPress={() => toggle('invite')} label={t('Invite to call')} />}
@@ -723,14 +734,14 @@ function ActiveCall() {
         </View>
       </SafeAreaView>
 
-      {fullBleed && camOn && (
+      {fullBleed && camOn && !selfHidden && (
         <SelfView
           stage={stage}
           topReserve={controlsHidden ? insets.top + 16 : insets.top + (wide ? 16 : 108)}
           bottomReserve={padBottom + 4}
           speaking={!!call.localSpeaking}
           onPress={() => {}}>
-          <VideoView key={`local-cam-${call.mediaVersion}`} stream={call.localStream} mirror={call.frontCamera} muted overlay />
+          <VideoView key={`local-cam-${call.mediaVersion}-${single?.stream?.id ?? ''}`} stream={call.localStream} mirror={call.frontCamera} muted overlay />
           <T variant="label" style={{ position: 'absolute', start: 10, bottom: 8 }}>
             {t('You')}
           </T>

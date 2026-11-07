@@ -303,6 +303,8 @@ const fa: Record<string, string> = {
   'Until I close it': 'تا وقتی خودم ببندم',
   'Copy meeting link': 'کپی لینک جلسه',
   'Weak connection': 'اتصال ضعیف',
+  'Hide my video': 'پنهان کردن تصویر خودم',
+  'Show my video': 'نمایش تصویر خودم',
   'Very weak connection': 'اتصال خیلی ضعیف',
   'Your connection is weak': 'اتصال شما ضعیف است',
   'Your connection is very weak': 'اتصال شما خیلی ضعیف است',

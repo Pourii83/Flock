@@ -170,6 +170,11 @@ export function createRealtime(httpServer, corsOrigin) {
       }),
     );
 
+    // Lets each client time its own round trip to the server (guests too): their link, not the call's.
+    socket.on('net:ping', (_payload, ack) => {
+      if (typeof ack === 'function') ack(Date.now());
+    });
+
     // Everything below needs an account.
     const member = (handler) => guard(async (payload) => {
       if (guest) throw new Error('not allowed');

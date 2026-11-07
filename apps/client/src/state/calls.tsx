@@ -201,6 +201,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
   // One peer connection per other participant, keyed by user id.
   const peers = useRef(new Map<string, Peer>());
+  /** What each participant last said about their own connection, and when. */
+  const netReports = useRef(new Map<string, { q: NetQuality; at: number }>());
   // Signaling from each participant is handled strictly in order (offer before its candidates).
   const queues = useRef(new Map<string, Promise<void>>());
   const iceConfig = useRef<RTCConfiguration | null>(null);
@@ -443,6 +445,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       if (__DEV__) {
         (globalThis as any).__flockPc = pc;
         (globalThis as any).__flockPeers = peers.current;
+        (globalThis as any).__flockNet = netReports.current;
       }
       upsertRemote(userId);
       return entry;
@@ -496,6 +499,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
       if (data?.type === 'reaction' && typeof data.emoji === 'string') {
         const name = memberOf(callRef.current.conversationId, from)?.displayName ?? callRef.current.remotes.find((r) => r.userId === from)?.user?.displayName ?? callRef.current.peer?.displayName ?? '';
         addReaction(data.emoji.slice(0, 16), name);
+        return;
+      }
+      if (data?.type === 'net' && (data.q === 'good' || data.q === 'fair' || data.q === 'poor')) {
+        netReports.current.set(from, { q: data.q, at: Date.now() });
         return;
       }
       if (data?.type === 'quality' && (data.voiceBitrate === 160 || data.voiceBitrate === 320) && typeof data.at === 'number') {
@@ -1112,57 +1119,94 @@ export function CallProvider({ children }: { children: ReactNode }) {
     setCall((current) => ({ ...current, remotes: current.remotes.map((remote) => remote.userId === userId ? { ...remote, volume: Math.max(0, Math.min(1, volume)) } : remote) }));
   }, [setCall]);
 
-  // Connection quality per participant, every 2 s: packet loss and jitter of what arrives from them,
-  // loss reported back for what I send, and the round-trip time of the link.
+  // Connection quality, every 2 s. Both ends of a link see the same loss and round trip, so a link
+  // alone can't say whose internet is weak. Each of us judges our own connection (our round trip to the
+  // server, plus our call links when they agree) and tells the others; their badge shows what they said.
   useEffect(() => {
     if (call.phase !== 'active') return;
     let disposed = false;
     const previous = new Map<string, { received: number; lost: number }>();
+    const pings: number[] = [];
+    const rank = { good: 0, fair: 1, poor: 2 } as const;
+    const levels = ['good', 'fair', 'poor'] as const;
+    netReports.current.clear();
+
+    /** My round trip to the server in ms, or Infinity when it doesn't answer in time. */
+    const ping = () =>
+      new Promise<number>((resolve) => {
+        const socket = chatStore.socket;
+        if (!socket?.connected) return resolve(Infinity);
+        const started = Date.now();
+        socket.timeout(3000).emit('net:ping', null, (err: unknown) => resolve(err ? Infinity : Date.now() - started));
+      });
+
     const timer = setInterval(async () => {
-      const results = new Map<string, NetQuality>();
-      for (const [userId, { pc }] of peers.current) {
-        if (pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed') {
-          results.set(userId, 'poor');
-          continue;
-        }
-        if (!['connected', 'completed'].includes(pc.iceConnectionState)) continue;
-        const stats = await pc.getStats().catch(() => null);
-        if (!stats || disposed) return;
-        let rtt = 0;
-        let jitter = 0;
-        let received = 0;
-        let lost = 0;
-        let upLoss = 0;
-        stats.forEach((r: any) => {
-          if (r.type === 'candidate-pair' && r.nominated && r.state === 'succeeded' && typeof r.currentRoundTripTime === 'number') rtt = Math.max(rtt, r.currentRoundTripTime);
-          if (r.type === 'inbound-rtp' && (r.kind ?? r.mediaType) === 'audio') {
-            received += r.packetsReceived ?? 0;
-            lost += Math.max(0, r.packetsLost ?? 0);
-            jitter = Math.max(jitter, r.jitter ?? 0);
+      const links = new Map<string, NetQuality>();
+      const [serverRtt] = await Promise.all([
+        ping(),
+        (async () => {
+          for (const [userId, { pc }] of peers.current) {
+            if (pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed') {
+              links.set(userId, 'poor');
+              continue;
+            }
+            if (!['connected', 'completed'].includes(pc.iceConnectionState)) continue;
+            const stats = await pc.getStats().catch(() => null);
+            if (!stats) continue;
+            let rtt = 0;
+            let jitter = 0;
+            let received = 0;
+            let lost = 0;
+            let upLoss = 0;
+            stats.forEach((r: any) => {
+              if (r.type === 'candidate-pair' && r.nominated && r.state === 'succeeded' && typeof r.currentRoundTripTime === 'number') rtt = Math.max(rtt, r.currentRoundTripTime);
+              if (r.type === 'inbound-rtp' && (r.kind ?? r.mediaType) === 'audio') {
+                received += r.packetsReceived ?? 0;
+                lost += Math.max(0, r.packetsLost ?? 0);
+                jitter = Math.max(jitter, r.jitter ?? 0);
+              }
+              if (r.type === 'remote-inbound-rtp' && (r.kind ?? r.mediaType) === 'audio') {
+                upLoss = Math.max(upLoss, r.fractionLost ?? 0);
+                if (typeof r.roundTripTime === 'number') rtt = Math.max(rtt, r.roundTripTime);
+              }
+            });
+            const before = previous.get(userId);
+            previous.set(userId, { received, lost });
+            const dReceived = before ? received - before.received : 0;
+            const dLost = before ? lost - before.lost : 0;
+            const downLoss = dReceived + dLost > 0 ? dLost / (dReceived + dLost) : 0;
+            const loss = Math.max(downLoss, upLoss);
+            links.set(userId, loss > 0.1 || rtt > 0.7 || jitter > 0.12 ? 'poor' : loss > 0.03 || rtt > 0.35 || jitter > 0.05 ? 'fair' : 'good');
           }
-          if (r.type === 'remote-inbound-rtp' && (r.kind ?? r.mediaType) === 'audio') {
-            upLoss = Math.max(upLoss, r.fractionLost ?? 0);
-            if (typeof r.roundTripTime === 'number') rtt = Math.max(rtt, r.roundTripTime);
-          }
-        });
-        const before = previous.get(userId);
-        previous.set(userId, { received, lost });
-        const dReceived = before ? received - before.received : 0;
-        const dLost = before ? lost - before.lost : 0;
-        const downLoss = dReceived + dLost > 0 ? dLost / (dReceived + dLost) : 0;
-        const loss = Math.max(downLoss, upLoss);
-        const quality: NetQuality =
-          loss > 0.1 || rtt > 0.7 || jitter > 0.12 ? 'poor' : loss > 0.03 || rtt > 0.35 || jitter > 0.05 ? 'fair' : 'good';
-        results.set(userId, quality);
-      }
-      if (disposed || !results.size) return;
-      const rank = { good: 0, fair: 1, poor: 2 } as const;
-      // Mine is weak when most of my links are: one weak link points at them, all weak points at me.
-      const ranked = [...results.values()].map((q) => rank[q]).sort((a, b) => a - b);
-      const median = ranked[Math.floor((ranked.length - 1) / 2)]!;
-      const localNet = (['good', 'fair', 'poor'] as const)[median];
+        })(),
+      ]);
+      if (disposed) return;
+
+      // My own connection: the round trip to the server (median of the last three) says the most.
+      pings.push(serverRtt);
+      if (pings.length > 3) pings.shift();
+      const typical = [...pings].sort((a, b) => a - b)[Math.floor((pings.length - 1) / 2)]!;
+      let own: number = rank[typical > 900 ? 'poor' : typical > 400 ? 'fair' : 'good'];
+      // Call links count against me only when most of them are weak (one weak link points at them),
+      // or, with just one other person, when my server round trip already looks shaky.
+      const linkRanks = [...links.values()].map((q) => rank[q]).sort((a, b) => a - b);
+      if (linkRanks.length >= 2) own = Math.max(own, linkRanks[Math.floor((linkRanks.length - 1) / 2)]!);
+      else if (linkRanks.length === 1 && own >= rank.fair) own = Math.max(own, linkRanks[0]!);
+      const localNet = levels[Math.min(own, 2)]!;
+      signal({ type: 'net', q: localNet });
+
+      // Everyone else: what they last reported; a dropped link is poor whatever they said; someone who
+      // doesn't report (an older app) falls back to the link measurement.
+      const now = Date.now();
       setCall((current) => {
-        const remotes = current.remotes.map((r) => (results.has(r.userId) && results.get(r.userId) !== r.net ? { ...r, net: results.get(r.userId) } : r));
+        const remotes = current.remotes.map((r) => {
+          const report = netReports.current.get(r.userId);
+          const link = links.get(r.userId);
+          const pc = peers.current.get(r.userId)?.pc;
+          const dropped = pc?.iceConnectionState === 'disconnected' || pc?.iceConnectionState === 'failed';
+          const net: NetQuality | undefined = dropped ? 'poor' : report && now - report.at < 7000 ? report.q : link;
+          return net !== r.net ? { ...r, net } : r;
+        });
         if (current.localNet === localNet && remotes.every((r, i) => r === current.remotes[i])) return current;
         return { ...current, localNet, remotes };
       });
@@ -1171,7 +1215,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       disposed = true;
       clearInterval(timer);
     };
-  }, [call.phase, setCall]);
+  }, [call.phase, setCall, signal]);
 
   useEffect(() => {
     if (call.phase !== 'active') return;
