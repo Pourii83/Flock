@@ -330,8 +330,10 @@ function SecretBanner({ conversation }: { conversation: Conversation }) {
       </View>
       {codeOpen && status.state === 'ready' && device && (
         <View style={{ gap: 4 }}>
-          <T variant="labelLg" style={{ fontVariant: ['tabular-nums'], letterSpacing: 1 }}>
-            {safetyCode(device.publicKey, status.peerKey)}
+          {/* Always left to right: in Persian the groups would otherwise come out in reverse order and the
+              code wouldn't match the other phone's at a glance. */}
+          <T variant="labelLg" style={{ fontVariant: ['tabular-nums'], letterSpacing: 1, writingDirection: 'ltr', ...(Platform.OS === 'web' ? ({ direction: 'ltr', unicodeBidi: 'isolate' } as object) : {}) }}>
+            {`⁦${safetyCode(device.publicKey, status.peerKey)}⁩`}
           </T>
           <T variant="bodySm" color={colors.textMuted}>
             {t('Compare this code with {name} (in person or on a call). If it matches on both devices, nobody is in the middle.', { name })}
