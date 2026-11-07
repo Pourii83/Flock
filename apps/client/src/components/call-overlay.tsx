@@ -1,13 +1,12 @@
 import * as Clipboard from 'expo-clipboard';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Image } from 'expo-image';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Animated, Easing, PanResponder, Platform, Pressable, ScrollView, StyleSheet, useWindowDimensions, View, type LayoutChangeEvent, type LayoutRectangle } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useIsWide } from '@/hooks/use-layout';
 import { api } from '@/lib/api';
-import { getApiUrl, meetingLink } from '@/lib/config';
+import { meetingLink } from '@/lib/config';
 import { timer } from '@/lib/format';
 import { canSwitchCamera } from '@/lib/native-media';
 import { getNoisePreference, strongNoiseSupported } from '@/lib/noise';
@@ -441,18 +440,6 @@ function useElapsed(since: number | null) {
   return since ? Math.max(0, Math.floor((now - since) / 1000)) : 0;
 }
 
-function ParticipantBackdrop({ user }: { user: User | null | undefined }) {
-  if (!user?.avatarUrl) {
-    return <LinearGradient colors={[`${user?.avatarColor ?? colors.amber}38`, colors.canvas]} style={StyleSheet.absoluteFill} />;
-  }
-  return (
-    <>
-      <Image source={{ uri: `${getApiUrl()}${user.avatarUrl}` }} style={StyleSheet.absoluteFill} contentFit="cover" blurRadius={28} />
-      <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(8,11,17,0.62)' }]} />
-    </>
-  );
-}
-
 type Panel = 'chat' | 'quality' | 'invite' | 'audio' | 'mic' | 'more' | null;
 
 /** Stitch "Active Video Call": full-bleed remote, draggable self view, glass control dock. */
@@ -478,17 +465,54 @@ function ActiveCall() {
   const elapsed = useElapsed(call.answeredAt);
   // Each participant announces when their video slot carries camera or screen.
   const hasVideo = (r: CallRemote) => r.video && !!r.stream?.getVideoTracks().length;
-  const single = call.remotes.length <= 1 ? call.remotes[0] : undefined;
-  const grid = call.remotes.length > 1;
-  const remoteHasVideo = !!single && hasVideo(single);
-  // Local preview: the shared screen wins over the camera.
-  const localPreview = call.sharingScreen ? call.screenStream : !call.cameraOff ? call.localStream : null;
-  const anyVideo = call.remotes.some(hasVideo) || !!localPreview;
-  const anyScreen = call.remotes.some((r) => r.screen);
-  const stageUser = single?.user ?? call.peer;
-  const stageName = call.isGroup ? (single?.user?.displayName ?? call.title) : callName(call, single?.user);
-  const focusedRemote = call.remotes.find((remote) => remote.userId === focusedScreen && remote.screen);
-  const focusedLocal = focusedScreen === 'local' && call.sharingScreen;
+  const single = !call.isGroup && call.remotes.length <= 1 ? call.remotes[0] : undefined;
+  const anyVideo = call.remotes.some(hasVideo) || !call.cameraOff || call.sharingScreen;
+  const anyScreen = call.remotes.some((r) => r.screen) || call.sharingScreen;
+  const camOn = !call.cameraOff && !!call.localStream?.getVideoTracks().length;
+
+  // Everyone on screen, me first.
+  const people: Person[] = [
+    {
+      id: 'local',
+      user,
+      self: true,
+      stream: camOn ? call.localStream : null,
+      video: camOn,
+      mirror: call.frontCamera,
+      speaking: !!call.localSpeaking,
+      net: call.localNet,
+      muted: call.micMuted,
+      screen: call.sharingScreen,
+    },
+    ...call.remotes.map((r) => ({
+      id: r.userId,
+      user: r.user,
+      stream: r.stream,
+      video: hasVideo(r) && !r.screen,
+      speaking: !!r.speaking,
+      net: r.net,
+      screen: r.screen && hasVideo(r),
+      connecting: !r.stream,
+    })),
+  ];
+  if (!call.remotes.length) {
+    people.push(
+      call.isGroup || !call.peer
+        ? { id: 'waiting', user: null, stream: null, video: false, placeholder: t('Waiting for others to join…') }
+        : { id: 'peer', user: call.peer, stream: null, video: false, connecting: true },
+    );
+  }
+
+  // A shared screen goes to the middle by itself; the minimize button on it hides it until someone else shares.
+  const sharers = [...call.remotes.filter((r) => r.screen && hasVideo(r)).map((r) => r.userId), ...(call.sharingScreen ? ['local'] : [])];
+  const [dismissedScreen, setDismissedScreen] = useState<string | null>(null);
+  const shownScreen = focusedScreen && sharers.includes(focusedScreen) ? focusedScreen : (sharers.find((id) => id !== dismissedScreen) ?? null);
+  const shownRemote = call.remotes.find((r) => r.userId === shownScreen);
+  // One-to-one video: their camera fills the screen and mine floats in a corner.
+  const fullBleed = !shownScreen && !!single && hasVideo(single) && !single.screen;
+  // With the controls hidden, the stage takes the room they leave.
+  const padTop = controlsHidden ? insets.top + 12 : insets.top + 96;
+  const padBottom = controlsHidden ? insets.bottom + 12 : dockHeight + insets.bottom + 4;
 
   // Meeting rooms are invited to by sharing their link; group calls by picking people.
   const canInvite = call.isGroup && !call.guest && !call.room;
@@ -523,33 +547,39 @@ function ActiveCall() {
         }}
         accessibilityLabel={t('Show or hide controls')}
         {...(Platform.OS === 'web' ? { tabIndex: -1 } : {})}>
-        {focusedRemote || focusedLocal ? (
+        {shownScreen ? (
           <ScreenStage
-            stream={focusedLocal ? call.screenStream : focusedRemote?.stream}
-            owner={focusedLocal ? user : focusedRemote?.user}
-            remotes={call.remotes}
-            localUser={user}
+            stream={shownScreen === 'local' ? call.screenStream : shownRemote?.stream}
+            ownerName={shownScreen === 'local' ? t('You') : (shownRemote?.user?.displayName ?? t('Someone'))}
+            ownerSpeaking={shownScreen === 'local' ? !!call.localSpeaking : !!shownRemote?.speaking}
+            people={people}
             version={call.mediaVersion}
-            onClose={() => setFocusedScreen(null)}
+            padTop={padTop}
+            padBottom={padBottom}
+            onClose={() => {
+              setDismissedScreen(shownScreen);
+              setFocusedScreen(null);
+            }}
           />
-        ) : grid ? (
-          <ParticipantGrid remotes={call.remotes} version={call.mediaVersion} onFocusScreen={setFocusedScreen} />
-        ) : remoteHasVideo && single ? (
+        ) : fullBleed && single ? (
           <View style={{ flex: 1, borderWidth: 2, borderColor: single.speaking ? colors.amber : 'transparent' }}>
-            <VideoView key={`remote-${single.userId}-${call.mediaVersion}`} stream={single.stream} contain={single.screen} />
+            <VideoView key={`remote-${single.userId}-${call.mediaVersion}`} stream={single.stream} />
+            <View style={[styles.glass, { position: 'absolute', start: 16, bottom: padBottom, paddingHorizontal: 12, paddingVertical: 5, flexDirection: 'row', gap: 6, alignItems: 'center' }]}>
+              <T variant="label">{callName(call, single.user)}</T>
+              <NetBadge q={single.net} size={18} />
+            </View>
           </View>
         ) : (
-          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 16, paddingBottom: dockHeight / 2 }}>
-            <LinearGradient colors={['rgba(255,184,77,0.08)', `${colors.canvas}00`]} style={StyleSheet.absoluteFill} />
-            <View>
-              <Avatar user={stageUser} size={wide ? 160 : 132} ring={single?.speaking ? colors.amber : colors.hairline} />
-              <NetBadge q={single?.net} size={30} style={{ position: 'absolute', top: 4, end: 4 }} />
-            </View>
-            <T variant="headline">{stageName}</T>
-            <T variant="body" color={colors.textMuted}>
-              {single?.stream ? t('Voice call') : call.isGroup && !single ? t('Waiting for others to join…') : t('Connecting…')}
-            </T>
-          </View>
+          <TileGrid
+            people={people}
+            version={call.mediaVersion}
+            padTop={padTop}
+            padBottom={padBottom}
+            onOpenScreen={(id) => {
+              setDismissedScreen(null);
+              setFocusedScreen(id);
+            }}
+          />
         )}
       </Pressable>
 
@@ -693,23 +723,16 @@ function ActiveCall() {
         </View>
       </SafeAreaView>
 
-      {localPreview && (
+      {fullBleed && camOn && (
         <SelfView
           stage={stage}
-          topReserve={insets.top + (wide ? 16 : 108)}
-          bottomReserve={dockHeight + insets.bottom + 8}
+          topReserve={controlsHidden ? insets.top + 16 : insets.top + (wide ? 16 : 108)}
+          bottomReserve={padBottom + 4}
           speaking={!!call.localSpeaking}
-          onPress={() => call.sharingScreen && setFocusedScreen('local')}>
-          <VideoView
-            key={`local-${call.sharingScreen ? 'screen' : 'cam'}-${call.mediaVersion}`}
-            stream={localPreview}
-            mirror={!call.sharingScreen && call.frontCamera}
-            contain={call.sharingScreen}
-            muted
-            overlay
-          />
+          onPress={() => {}}>
+          <VideoView key={`local-cam-${call.mediaVersion}`} stream={call.localStream} mirror={call.frontCamera} muted overlay />
           <T variant="label" style={{ position: 'absolute', start: 10, bottom: 8 }}>
-            {call.sharingScreen ? (call.sharingAudio ? t('Your screen + audio') : t('Your screen')) : t('You')}
+            {t('You')}
           </T>
         </SelfView>
       )}
@@ -1033,71 +1056,164 @@ function Popover({ title, onClose, bottom, children }: { title?: string; onClose
   );
 }
 
-/** Group calls: one tile per participant (video, or their avatar while voice-only). */
-function ParticipantGrid({ remotes, version, onFocusScreen }: { remotes: CallRemote[]; version: number; onFocusScreen: (userId: string) => void }) {
-  const cols = remotes.length <= 4 ? 2 : 3;
-  const rows = Math.ceil(remotes.length / cols);
+/** Someone on the call screen: me or a remote participant (or a placeholder while waiting). */
+type Person = {
+  id: string;
+  user: User | null;
+  self?: boolean;
+  stream: MediaStream | null;
+  /** Show their camera (not a shared screen) in the tile. */
+  video: boolean;
+  mirror?: boolean;
+  speaking?: boolean;
+  net?: NetQuality;
+  /** They're sharing their screen (it can be opened on the stage). */
+  screen?: boolean;
+  muted?: boolean;
+  connecting?: boolean;
+  /** No one here yet: show this text instead of a person. */
+  placeholder?: string;
+};
+
+/** One person's tile: camera video, or their photo on a plain card; the name sits in a corner. */
+function Tile({ p, width, height, version, compact, onOpenScreen }: { p: Person; width: number; height: number; version: number; compact?: boolean; onOpenScreen?: () => void }) {
+  const avatar = Math.round(Math.max(36, Math.min(120, Math.min(width, height) * 0.32)));
+  const name = p.self ? t('You') : (p.user?.displayName ?? '…');
   return (
-    <View style={{ flex: 1, flexDirection: 'row', flexWrap: 'wrap', padding: 6, paddingTop: 96, paddingBottom: 170 }}>
-      {remotes.map((r) => {
-        const video = r.video && !!r.stream?.getVideoTracks().length;
-        return (
-          <View key={r.userId} style={{ width: `${100 / cols}%`, height: `${100 / rows}%`, padding: 6 }}>
-            <Pressable
-              disabled={!r.screen}
-              onPress={() => onFocusScreen(r.userId)}
-              accessibilityLabel={r.screen ? t('Focus shared screen') : r.user?.displayName}
-              style={{ flex: 1, borderRadius: radius.lg, overflow: 'hidden', backgroundColor: colors.surface, borderWidth: 2, borderColor: r.speaking ? colors.amber : colors.hairline }}>
-              {video ? (
-                <VideoView key={`tile-${r.userId}-${version}`} stream={r.stream} contain={r.screen} />
-              ) : (
-                <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-                  <ParticipantBackdrop user={r.user} />
-                  <Avatar user={r.user} size={88} showPresence={false} />
-                </View>
-              )}
-              {r.screen && (
-                <View style={[styles.tag, { position: 'absolute', top: 10, end: 10, backgroundColor: colors.amberTint }]}>
-                  <Icon name="maximize-2" size={13} color={colors.amberText} />
-                  <T variant="label" color={colors.amberText}>{t('Open screen')}</T>
-                </View>
-              )}
-              <View style={[styles.glass, { position: 'absolute', start: 10, bottom: 10, paddingHorizontal: 10, paddingVertical: 4, flexDirection: 'row', gap: 6, alignItems: 'center' }]}>
-                {!r.stream && <Icon name="loader" size={12} color={colors.textMuted} />}
-                <T variant="label" numberOfLines={1}>
-                  {r.user?.displayName ?? '…'}
-                </T>
-                <NetBadge q={r.net} size={18} />
-              </View>
-            </Pressable>
-          </View>
-        );
-      })}
+    <Pressable
+      disabled={!p.screen || !onOpenScreen}
+      onPress={onOpenScreen}
+      accessibilityLabel={p.screen && onOpenScreen ? t('Focus shared screen') : name}
+      style={{
+        width,
+        height,
+        borderRadius: compact ? radius.md : radius.lg,
+        overflow: 'hidden',
+        backgroundColor: colors.surface,
+        borderWidth: 2,
+        borderColor: p.speaking ? colors.amber : 'transparent',
+      }}>
+      {p.placeholder ? (
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, padding: 12 }}>
+          <Icon name="users" size={compact ? 18 : 26} color={colors.textMuted} />
+          <T variant={compact ? 'bodySm' : 'body'} color={colors.textMuted} style={{ textAlign: 'center' }}>
+            {p.placeholder}
+          </T>
+        </View>
+      ) : p.video && p.stream ? (
+        <VideoView key={`tile-${p.id}-${version}`} stream={p.stream} mirror={p.mirror} muted={p.self} />
+      ) : (
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+          <Avatar user={p.user} size={avatar} showPresence={false} />
+        </View>
+      )}
+      {p.screen && onOpenScreen && !compact && (
+        <View style={[styles.tag, { position: 'absolute', top: 10, end: 10, backgroundColor: colors.amberTint }]}>
+          <Icon name="maximize-2" size={13} color={colors.amberText} />
+          <T variant="label" color={colors.amberText}>
+            {t('Open screen')}
+          </T>
+        </View>
+      )}
+      {!p.placeholder && (
+        <View
+          style={[
+            styles.glass,
+            {
+              position: 'absolute',
+              start: compact ? 6 : 10,
+              bottom: compact ? 6 : 10,
+              maxWidth: width - (compact ? 12 : 20),
+              paddingHorizontal: compact ? 7 : 10,
+              paddingVertical: compact ? 2 : 4,
+              flexDirection: 'row',
+              gap: 5,
+              alignItems: 'center',
+            },
+          ]}>
+          {p.connecting && <Icon name="loader" size={12} color={colors.textMuted} />}
+          {p.muted && <Icon name="mic-off" size={12} color={colors.danger} />}
+          {p.screen && <Icon name="monitor" size={12} color={colors.amberText} />}
+          <T variant={compact ? 'labelSm' : 'label'} numberOfLines={1} style={{ flexShrink: 1 }}>
+            {name}
+          </T>
+          <NetBadge q={p.net} size={compact ? 16 : 18} />
+        </View>
+      )}
+    </Pressable>
+  );
+}
+
+/** Tile size that fills the area best for n tiles (about 16:9 each). */
+function tileLayout(n: number, width: number, height: number, gap: number) {
+  let best = { cols: 1, w: 0, h: 0 };
+  for (let cols = 1; cols <= n; cols++) {
+    const rows = Math.ceil(n / cols);
+    const cellW = (width - gap * (cols - 1)) / cols;
+    const cellH = (height - gap * (rows - 1)) / rows;
+    // Keep tiles between portrait-ish and wide; a lone tile may fill the space.
+    const w = Math.max(0, Math.min(cellW, cellH * 1.9));
+    const h = Math.max(0, Math.min(cellH, w * 1.1));
+    if (w * h > best.w * best.h) best = { cols, w, h };
+  }
+  return best;
+}
+
+/** Everyone as tiles, me first (Google Meet style). */
+function TileGrid({ people, version, padTop, padBottom, onOpenScreen }: { people: Person[]; version: number; padTop: number; padBottom: number; onOpenScreen: (id: string) => void }) {
+  const [area, setArea] = useState({ width: 0, height: 0 });
+  const gap = 10;
+  const { w, h } = tileLayout(people.length, area.width, area.height, gap);
+  return (
+    <View style={{ flex: 1, paddingTop: padTop, paddingBottom: padBottom, paddingHorizontal: 10 }}>
+      <View
+        style={{ flex: 1, flexDirection: 'row', flexWrap: 'wrap', alignContent: 'center', justifyContent: 'center', gap }}
+        onLayout={(e) => setArea({ width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height })}>
+        {area.width > 0 &&
+          people.map((p) => <Tile key={p.id} p={p} width={w} height={h} version={version} onOpenScreen={p.screen ? () => onOpenScreen(p.id) : undefined} />)}
+      </View>
     </View>
   );
 }
 
+/** A shared screen in the middle; everyone (me first) in a strip beside it, or below it on phones. */
 function ScreenStage({
   stream,
-  owner,
-  remotes,
-  localUser,
+  ownerName,
+  ownerSpeaking,
+  people,
   version,
+  padTop,
+  padBottom,
   onClose,
 }: {
   stream: MediaStream | null | undefined;
-  owner: User | null | undefined;
-  remotes: CallRemote[];
-  localUser: User | null;
+  ownerName: string;
+  ownerSpeaking: boolean;
+  people: Person[];
   version: number;
+  padTop: number;
+  padBottom: number;
   onClose: () => void;
 }) {
-  const { call } = useCalls();
-  const isSpeaking = (id: string | undefined) => id === localUser?.id ? call.localSpeaking : remotes.find((remote) => remote.userId === id)?.speaking;
+  const wide = useIsWide();
+  const stripTile = wide ? { width: 200, height: 118 } : { width: 124, height: 88 };
+  const strip = (
+    <ScrollView
+      horizontal={!wide}
+      style={wide ? { width: stripTile.width, flexGrow: 0, flexShrink: 0 } : { height: stripTile.height, flexGrow: 0, flexShrink: 0 }}
+      contentContainerStyle={{ gap: 8 }}
+      showsVerticalScrollIndicator={false}
+      showsHorizontalScrollIndicator={false}>
+      {people.map((p) => (
+        <Tile key={p.id} p={{ ...p, screen: false }} width={stripTile.width} height={stripTile.height} version={version} compact />
+      ))}
+    </ScrollView>
+  );
   return (
-    <View style={{ flex: 1, minHeight: 0, flexDirection: 'row', direction: 'ltr', paddingTop: 88, paddingBottom: 150, paddingHorizontal: 10, gap: 10 }}>
-      <View style={{ flex: 1, minWidth: 0, borderRadius: radius.lg, overflow: 'hidden', backgroundColor: '#05070A', borderWidth: 2, borderColor: isSpeaking(owner?.id) ? colors.amber : colors.hairline }}>
-        {!!stream && <VideoView key={`focused-screen-${owner?.id}-${version}`} stream={stream} contain />}
+    <View style={{ flex: 1, minHeight: 0, flexDirection: wide ? 'row' : 'column', paddingTop: padTop, paddingBottom: padBottom, paddingHorizontal: 10, gap: 10 }}>
+      <View style={{ flex: 1, minWidth: 0, minHeight: 0, borderRadius: radius.lg, overflow: 'hidden', backgroundColor: '#05070A', borderWidth: 2, borderColor: ownerSpeaking ? colors.amber : colors.hairline }}>
+        {!!stream && <VideoView key={`focused-screen-${ownerName}-${version}`} stream={stream} contain />}
         <Pressable
           onPress={onClose}
           accessibilityLabel={t('Close focused screen')}
@@ -1105,22 +1221,10 @@ function ScreenStage({
           <Icon name="minimize-2" size={18} />
         </Pressable>
         <View style={[styles.glass, { position: 'absolute', start: 12, bottom: 12, paddingHorizontal: 12, paddingVertical: 6 }]}>
-          <T variant="label">{t('{name} is sharing', { name: owner?.displayName ?? t('Someone') })}</T>
+          <T variant="label">{t('{name} is sharing', { name: ownerName })}</T>
         </View>
       </View>
-      <ScrollView
-        style={{ width: 76, flexGrow: 0, flexShrink: 0, flexBasis: 76 }}
-        contentContainerStyle={{ alignItems: 'center', gap: 12, paddingVertical: 4 }}
-        showsVerticalScrollIndicator={false}>
-        {[localUser, ...remotes.map((remote) => remote.user)].filter((person) => person && person.id !== owner?.id).map((person) => (
-          <View
-            key={person!.id}
-            style={{ width: 64, height: 64, borderRadius: 32, borderWidth: 2, borderColor: isSpeaking(person!.id) ? colors.amber : colors.hairline, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' }}>
-            <Avatar user={person} size={56} showPresence={false} />
-            <NetBadge q={remotes.find((remote) => remote.userId === person!.id)?.net} size={18} style={{ position: 'absolute', top: -2, end: -2 }} />
-          </View>
-        ))}
-      </ScrollView>
+      {strip}
     </View>
   );
 }
