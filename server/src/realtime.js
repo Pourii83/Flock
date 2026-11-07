@@ -294,7 +294,8 @@ export function createRealtime(httpServer, corsOrigin) {
           video: c.video,
           isGroup: c.isGroup,
           conversationId: c.conversationId,
-          title: c.title,
+          // Direct conversations are named after "the other person", seen from the caller: only groups have a shared title.
+          title: c.isGroup ? c.title : undefined,
           guest: !member,
         };
       }),

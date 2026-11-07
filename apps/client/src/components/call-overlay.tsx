@@ -12,7 +12,7 @@ import { timer } from '@/lib/format';
 import { canSwitchCamera } from '@/lib/native-media';
 import { getNoisePreference, strongNoiseSupported } from '@/lib/noise';
 import { screenShareSupported } from '@/lib/rtc';
-import { REACTION_MS, STREAM_PRESETS, useCalls, type CallReaction, type CallRemote, type StreamFps, type StreamQuality, type VoiceBitrate } from '@/state/calls';
+import { REACTION_MS, STREAM_PRESETS, useCalls, type CallReaction, type CallRemote, type NetQuality, type StreamFps, type StreamQuality, type VoiceBitrate } from '@/state/calls';
 import { useConversation } from '@/state/chat-store';
 import { colors, onThemeChange, radius } from '@/theme';
 import { Avatar, ConversationAvatar } from './avatar';
@@ -25,6 +25,29 @@ import { VideoView } from './video-view';
 import { num, t } from '@/lib/i18n';
 
 const REACTIONS = ['❤️', '👏', '💡', '🔥'];
+
+/** Small badge for a weak connection (nothing while it's fine): amber = weak, red = very weak. */
+function NetBadge({ q, size = 22, style }: { q?: NetQuality; size?: number; style?: object }) {
+  if (!q || q === 'good') return null;
+  const color = q === 'poor' ? colors.danger : colors.amber;
+  return (
+    <View
+      accessibilityLabel={q === 'poor' ? t('Very weak connection') : t('Weak connection')}
+      {...(Platform.OS === 'web' ? ({ title: q === 'poor' ? t('Very weak connection') : t('Weak connection') } as object) : {})}
+      style={[
+        { width: size, height: size, borderRadius: size / 2, backgroundColor: colors.panel, borderWidth: 1.5, borderColor: color, alignItems: 'center', justifyContent: 'center' },
+        style,
+      ]}>
+      <Icon name={q === 'poor' ? 'wifi-off' : 'wifi'} size={Math.round(size * 0.55)} color={color} />
+    </View>
+  );
+}
+
+/** What a call is called: the group's title, or for a direct call the other person's name. */
+function callName(call: { isGroup: boolean; title: string; peer: User | null }, other?: User | null) {
+  if (call.isGroup) return call.title;
+  return other?.displayName ?? call.peer?.displayName ?? call.title;
+}
 
 export function CallOverlay() {
   const { call } = useCalls();
@@ -133,9 +156,12 @@ function MiniCall() {
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, paddingBottom: 6 }}>
             {!withVideo && <Avatar user={shown?.user ?? call.peer} size={36} showPresence={false} ring={shown?.speaking ? colors.amber : colors.hairline} />}
             <View style={{ flex: 1, minWidth: 0 }}>
-              <T variant="labelLg" numberOfLines={1}>
-                {call.title || shown?.user?.displayName}
-              </T>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <T variant="labelLg" numberOfLines={1} style={{ flexShrink: 1 }}>
+                  {callName(call, shown?.user)}
+                </T>
+                <NetBadge q={shown?.net} size={18} />
+              </View>
               <T variant="bodySm" color={colors.amberText} style={{ fontVariant: ['tabular-nums'] }}>
                 {timer(elapsed)}
                 {call.isGroup ? ` · ${t('{n} in call', { n: num(call.remotes.length + 1) })}` : ''}
@@ -157,7 +183,7 @@ function MiniCall() {
         </ScrollView>
       )}
       <View {...drag.handlers} style={{ flexDirection: 'row', gap: 8, padding: 12, paddingTop: 6, justifyContent: 'flex-end' }}>
-        <MiniButton icon={call.micMuted ? 'mic-off' : 'mic'} active={!call.micMuted} onPress={toggleMic} label={t('Microphone')} />
+        <MiniButton icon={call.micMuted ? 'mic-off' : 'mic'} active={!call.micMuted} ring={!!call.localSpeaking} onPress={toggleMic} label={t('Microphone')} />
         {call.isGroup && (
           <MiniButton icon="users" active={peopleOpen} onPress={() => setPeopleOpen((open) => !open)} label={t('Show participants')} />
         )}
@@ -180,7 +206,7 @@ function MiniCall() {
   );
 }
 
-function MiniButton({ icon, active, onPress, label }: { icon: IconName; active: boolean; onPress: () => void; label: string }) {
+function MiniButton({ icon, active, onPress, label, ring }: { icon: IconName; active: boolean; onPress: () => void; label: string; ring?: boolean }) {
   return (
     <Pressable
       accessibilityLabel={label}
@@ -189,6 +215,9 @@ function MiniButton({ icon, active, onPress, label }: { icon: IconName; active: 
         width: 40,
         height: 40,
         borderRadius: 20,
+        // Lights up while I'm talking (others see the same on my avatar).
+        borderWidth: 2,
+        borderColor: ring ? colors.amber : 'transparent',
         backgroundColor: active ? 'rgba(255,184,77,0.22)' : pressed ? colors.surfaceHighest : colors.surfaceHigh,
         alignItems: 'center',
         justifyContent: 'center',
@@ -312,7 +341,7 @@ function RingingCall() {
             )}
           </View>
           <T variant="display" style={{ fontSize: 40, textAlign: 'center' }}>
-            {call.title || call.peer?.displayName}
+            {callName(call)}
           </T>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             <T variant="bodyLg" color={colors.amberSoftText} style={{ fontSize: 18, textAlign: 'center' }}>
@@ -457,7 +486,7 @@ function ActiveCall() {
   const anyVideo = call.remotes.some(hasVideo) || !!localPreview;
   const anyScreen = call.remotes.some((r) => r.screen);
   const stageUser = single?.user ?? call.peer;
-  const stageName = call.isGroup ? (single?.user?.displayName ?? call.title) : call.title || call.peer?.displayName;
+  const stageName = call.isGroup ? (single?.user?.displayName ?? call.title) : callName(call, single?.user);
   const focusedRemote = call.remotes.find((remote) => remote.userId === focusedScreen && remote.screen);
   const focusedLocal = focusedScreen === 'local' && call.sharingScreen;
 
@@ -512,7 +541,10 @@ function ActiveCall() {
         ) : (
           <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 16, paddingBottom: dockHeight / 2 }}>
             <LinearGradient colors={['rgba(255,184,77,0.08)', `${colors.canvas}00`]} style={StyleSheet.absoluteFill} />
-            <Avatar user={stageUser} size={wide ? 160 : 132} ring={single?.speaking ? colors.amber : colors.hairline} />
+            <View>
+              <Avatar user={stageUser} size={wide ? 160 : 132} ring={single?.speaking ? colors.amber : colors.hairline} />
+              <NetBadge q={single?.net} size={30} style={{ position: 'absolute', top: 4, end: 4 }} />
+            </View>
             <T variant="headline">{stageName}</T>
             <T variant="body" color={colors.textMuted}>
               {single?.stream ? t('Voice call') : call.isGroup && !single ? t('Waiting for others to join…') : t('Connecting…')}
@@ -540,7 +572,7 @@ function ActiveCall() {
               •
             </T>
             <T variant="labelLg" style={{ fontSize: 16, flexShrink: 1 }} numberOfLines={1}>
-              {call.title || call.peer?.displayName}
+              {callName(call, single?.user)}
             </T>
             <Pressable
               accessibilityLabel={t('Minimize call')}
@@ -561,6 +593,14 @@ function ActiveCall() {
               <View style={[styles.tag, { backgroundColor: colors.surfaceHigh }]}>
                 <Icon name="users" size={13} color={colors.text} />
                 <T variant="label">{t('{n} in call', { n: num(call.remotes.length + 1) })}</T>
+              </View>
+            )}
+            {!!call.localNet && call.localNet !== 'good' && (
+              <View style={[styles.tag, { backgroundColor: call.localNet === 'poor' ? colors.dangerTint : colors.amberTint }]}>
+                <Icon name={call.localNet === 'poor' ? 'wifi-off' : 'wifi'} size={13} color={call.localNet === 'poor' ? colors.danger : colors.amberText} />
+                <T variant="label" color={call.localNet === 'poor' ? colors.danger : colors.amberText}>
+                  {call.localNet === 'poor' ? t('Your connection is very weak') : t('Your connection is weak')}
+                </T>
               </View>
             )}
             {call.noiseMode !== 'off' && (
@@ -614,7 +654,7 @@ function ActiveCall() {
           </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: wide ? 14 : 10, maxWidth: '100%' }}>
             <View style={[styles.glass, { flexDirection: 'row', alignItems: 'center', gap: wide ? 10 : 8, padding: 8, flexShrink: 1 }]}>
-              <MicButton muted={call.micMuted} panelOpen={panel === 'mic'} onToggle={toggleMic} onOpenPanel={() => toggle('mic')} />
+              <MicButton muted={call.micMuted} speaking={!!call.localSpeaking} panelOpen={panel === 'mic'} onToggle={toggleMic} onOpenPanel={() => toggle('mic')} />
               <DockButton icon={call.cameraOff ? 'video-off' : 'video'} active={!call.cameraOff} onPress={toggleCamera} label={call.cameraOff ? t('Turn camera on') : t('Turn camera off')} />
               {wide && canFlip && <DockButton icon="refresh-ccw" active={false} onPress={flipCamera} label={t('Switch camera')} />}
               {wide && canShare && (
@@ -834,10 +874,10 @@ function SelfView({
 }
 
 /** Mic toggle with a small handle that opens the microphone settings. */
-function MicButton({ muted, panelOpen, onToggle, onOpenPanel }: { muted: boolean; panelOpen: boolean; onToggle: () => void; onOpenPanel: () => void }) {
+function MicButton({ muted, speaking, panelOpen, onToggle, onOpenPanel }: { muted: boolean; speaking: boolean; panelOpen: boolean; onToggle: () => void; onOpenPanel: () => void }) {
   return (
     <View>
-      <DockButton icon={muted ? 'mic-off' : 'mic'} active={!muted} danger={muted} onPress={onToggle} label={muted ? t('Unmute') : t('Mute')} />
+      <DockButton icon={muted ? 'mic-off' : 'mic'} active={!muted} danger={muted} ring={speaking} onPress={onToggle} label={muted ? t('Unmute') : t('Mute')} />
       <Pressable
         accessibilityLabel={t('Microphone settings')}
         onPress={onOpenPanel}
@@ -1027,6 +1067,7 @@ function ParticipantGrid({ remotes, version, onFocusScreen }: { remotes: CallRem
                 <T variant="label" numberOfLines={1}>
                   {r.user?.displayName ?? '…'}
                 </T>
+                <NetBadge q={r.net} size={18} />
               </View>
             </Pressable>
           </View>
@@ -1076,6 +1117,7 @@ function ScreenStage({
             key={person!.id}
             style={{ width: 64, height: 64, borderRadius: 32, borderWidth: 2, borderColor: isSpeaking(person!.id) ? colors.amber : colors.hairline, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' }}>
             <Avatar user={person} size={56} showPresence={false} />
+            <NetBadge q={remotes.find((remote) => remote.userId === person!.id)?.net} size={18} style={{ position: 'absolute', top: -2, end: -2 }} />
           </View>
         ))}
       </ScrollView>
@@ -1272,7 +1314,7 @@ function CallInvitePanel({ onClose }: { onClose: () => void }) {
   );
 }
 
-function DockButton({ icon, active, onPress, label, badge = 0, danger }: { icon: IconName; active: boolean; onPress: () => void; label: string; badge?: number; danger?: boolean }) {
+function DockButton({ icon, active, onPress, label, badge = 0, danger, ring }: { icon: IconName; active: boolean; onPress: () => void; label: string; badge?: number; danger?: boolean; ring?: boolean }) {
   const wide = useIsWide();
   const size = wide ? 54 : 50;
   return (
@@ -1288,6 +1330,9 @@ function DockButton({ icon, active, onPress, label, badge = 0, danger }: { icon:
         alignItems: 'center',
         justifyContent: 'center',
         transform: [{ scale: pressed ? 0.94 : 1 }],
+        // The mic lights up while I'm talking (others see the same on my avatar).
+        borderWidth: 2,
+        borderColor: ring ? colors.amber : 'transparent',
       })}>
       <Icon name={icon} size={22} color={danger ? colors.danger : active ? colors.amberText : colors.text} />
       {badge > 0 && <UnreadBadge count={badge} style={{ position: 'absolute', top: 2, end: 2 }} />}
