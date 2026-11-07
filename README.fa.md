@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="apps/client/assets/images/icon.png" width="120" alt="فلاک" />
+</p>
+
 # فلاک (Flock)
 
 [English](README.md) | **فارسی**

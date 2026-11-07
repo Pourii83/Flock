@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="apps/client/assets/images/icon.png" width="120" alt="Flock" />
+</p>
+
 # Flock
 
 **English** | [فارسی](README.fa.md)
