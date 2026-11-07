@@ -53,10 +53,10 @@
 روی یک سرور تازه‌ی Ubuntu یا Debian که دامنه‌اش به آن اشاره می‌کند:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Pourii83/Flock/main/deploy/install.sh | sudo bash -s -- --domain chat.example.com
+curl -fsSL https://raw.githubusercontent.com/Pourii83/Flock/main/deploy/install.sh | sudo bash
 ```
 
-بعد `https://chat.example.com` را باز کنید، وارد حساب ادمین شوید و آدرس را برای دوستانتان بفرستید. روش‌های دیگر و جزئیات در ادامه آمده است.
+اسکریپت دامنه، رله‌ی TURN برای تماس، حساب ادمین و بقیه را می‌پرسد و قبل از نصب خلاصه‌ای برای تأیید نشان می‌دهد. بعد `https://chat.example.com` را باز کنید، وارد حساب ادمین شوید و آدرس را برای دوستانتان بفرستید. روش‌های دیگر و جزئیات در ادامه آمده است.
 
 ## نصب
 
