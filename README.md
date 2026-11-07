@@ -225,26 +225,58 @@ All installer options (add them after `bash -s --`):
 | `--no-admin` | Don't create an admin account |
 | `--yes` | Don't ask questions |
 | `--no-start` | Install without starting the service |
+| `--github-mirror URL` / `--apt-mirror URL` | Download through mirrors ([details](#managing-the-server-flockctl)) |
 
 Without `--domain`, Flock answers on `http://<server-ip>:4000`. That's fine for testing, but calls from the web app won't work without HTTPS.
 
-<details>
-<summary>Updating and uninstalling (script)</summary>
+#### Managing the server: `flockctl`
+
+The installer adds a `flockctl` command. Run it with no arguments for a menu:
 
 ```bash
-# Update: run the installer again. Configuration and database are kept.
-curl -fsSL https://raw.githubusercontent.com/Pourii83/Flock/main/deploy/install.sh | sudo bash
-
-# Back up the database
-sudo -u postgres pg_dump flock > flock-backup.sql
-
-# Uninstall (keeps /etc/flock and the database)
-sudo /opt/flock/uninstall.sh
-# ...or remove everything, including the database
-sudo /opt/flock/uninstall.sh --purge
+sudo flockctl
 ```
 
-</details>
+```
+  Flock server manager  (installed: v1.7.2)
+
+  1) Install
+  2) Update
+  3) Status
+  4) Restart
+  5) Logs
+  6) Reset an admin password
+  7) Download mirrors
+  8) Uninstall
+  0) Exit
+```
+
+Every item is also a command:
+
+| Command | What it does |
+|---|---|
+| `sudo flockctl update` | Install the latest release (asks which one; `--version v1.7.2` to pick it). Configuration and database are kept |
+| `sudo flockctl status` | Version, service, health check, address, TURN relay and mirrors |
+| `sudo flockctl restart` | Restart Flock and wait until it answers |
+| `sudo flockctl logs` | The last 100 log lines |
+| `sudo flockctl admin` | Make an account admin and set its password (forgot the admin password?) |
+| `sudo flockctl mirrors` | Download mirrors, see below |
+| `sudo flockctl uninstall` | Remove Flock. It asks whether to also delete the database, uploaded files and settings (`--purge` without asking) |
+
+**Download mirrors**, for servers where GitHub or the Ubuntu/Debian archives are slow or blocked:
+
+- **GitHub mirror:** a prefix put in front of github.com download links (proxy style, `https://gh-proxy.example.com/https://github.com/...`). Used for Flock releases.
+- **Package (apt) mirror:** replaces the Ubuntu/Debian archive address in the apt sources, used for PostgreSQL, Nginx, certbot and coturn. The original sources are backed up, checked with `apt-get update`, and put back exactly as they were when you restore the defaults.
+
+```bash
+sudo flockctl mirrors --github-mirror https://gh-proxy.example.com/
+sudo flockctl mirrors --apt-mirror https://mirror.example.com/ubuntu
+sudo flockctl mirrors --reset-mirrors          # both back to the defaults
+```
+
+The mirror options also work on the first install (`... | sudo bash -s -- --apt-mirror https://mirror.example.com/ubuntu`) and are remembered for later updates.
+
+Back up the database with `sudo -u postgres pg_dump flock > flock-backup.sql`.
 
 ### Method 3: Install script, offline
 
@@ -282,7 +314,7 @@ sudo ./flock-server/install.sh --domain chat.example.com
 
 It accepts the same options as [method 2](#method-2-install-script-online). `--domain` needs the server to reach Let's Encrypt; without it, Flock answers on `http://<server-ip>:4000`.
 
-**Updating:** download the new package the same way and run its `install.sh`. Configuration and database are kept. Uninstalling works as in method 2.
+**Updating:** download the new package the same way and run its `install.sh` (or `sudo flockctl update --package /path/to/package.tar.gz`). Configuration and database are kept. `flockctl` works as in [method 2](#managing-the-server-flockctl).
 
 For a fully manual installation (no script), see [deploy/INSTALL.md](deploy/INSTALL.md#option-3-manual-install-step-by-step).
 

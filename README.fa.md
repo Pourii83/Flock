@@ -232,26 +232,58 @@ curl -fsSL https://raw.githubusercontent.com/Pourii83/Flock/main/deploy/install.
 | `--no-admin` | حساب ادمین ساخته نشود |
 | `--yes` | سؤالی پرسیده نشود |
 | `--no-start` | نصب بدون اجرای سرویس |
+| `--github-mirror URL` / `--apt-mirror URL` | دانلود از طریق میرور ([جزئیات](#مدیریت-سرور-flockctl)) |
 
 بدون `--domain`، فلاک روی `http://<IP-سرور>:4000` در دسترس است. برای آزمایش کافی است، ولی تماس از وب‌اپ بدون HTTPS کار نمی‌کند.
 
-<details>
-<summary>به‌روزرسانی و حذف (اسکریپت)</summary>
+#### مدیریت سرور: `flockctl`
+
+نصب‌کننده یک فرمان به اسم `flockctl` اضافه می‌کند. بدون آرگومان اجرایش کنید تا منو بیاید:
 
 ```bash
-# به‌روزرسانی: اسکریپت را دوباره اجرا کنید. تنظیمات و دیتابیس می‌مانند.
-curl -fsSL https://raw.githubusercontent.com/Pourii83/Flock/main/deploy/install.sh | sudo bash
-
-# پشتیبان از دیتابیس
-sudo -u postgres pg_dump flock > flock-backup.sql
-
-# حذف (تنظیمات /etc/flock و دیتابیس می‌مانند)
-sudo /opt/flock/uninstall.sh
-# ...یا حذف همه‌چیز، از جمله دیتابیس
-sudo /opt/flock/uninstall.sh --purge
+sudo flockctl
 ```
 
-</details>
+```
+  Flock server manager  (installed: v1.7.2)
+
+  1) Install
+  2) Update
+  3) Status
+  4) Restart
+  5) Logs
+  6) Reset an admin password
+  7) Download mirrors
+  8) Uninstall
+  0) Exit
+```
+
+هر گزینه یک فرمان هم هست:
+
+| فرمان | کارش |
+|---|---|
+| `sudo flockctl update` | نصب آخرین نسخه (می‌پرسد کدام نسخه؛ با `--version v1.7.2` هم می‌شود انتخاب کرد). تنظیمات و دیتابیس می‌مانند |
+| `sudo flockctl status` | نسخه، سرویس، بررسی سلامت، آدرس، رله‌ی TURN و میرورها |
+| `sudo flockctl restart` | راه‌اندازی دوباره و صبر تا فلاک جواب دهد |
+| `sudo flockctl logs` | ۱۰۰ خط آخر لاگ |
+| `sudo flockctl admin` | ادمین کردن یک حساب و تعیین رمزش (اگر رمز ادمین یادتان رفته) |
+| `sudo flockctl mirrors` | میرورهای دانلود، پایین‌تر |
+| `sudo flockctl uninstall` | حذف فلاک. می‌پرسد دیتابیس، فایل‌های آپلودشده و تنظیمات هم پاک شوند یا نه (`--purge` بدون پرسیدن) |
+
+**میرورهای دانلود**، برای سرورهایی که GitHub یا مخزن‌های Ubuntu/Debian رویشان کند یا بسته است:
+
+- **میرور GitHub:** پیشوندی که جلوی لینک‌های دانلود github.com گذاشته می‌شود (به سبک پراکسی: `https://gh-proxy.example.com/https://github.com/...`). برای دانلود نسخه‌های فلاک.
+- **میرور پکیج‌ها (apt):** آدرس مخزن Ubuntu/Debian را در منابع apt عوض می‌کند؛ برای PostgreSQL، Nginx، certbot و coturn. از منابع اصلی نسخه‌ی پشتیبان گرفته می‌شود، میرور با `apt-get update` امتحان می‌شود، و با برگرداندن به پیش‌فرض، منابع دقیقاً مثل قبل برمی‌گردند.
+
+```bash
+sudo flockctl mirrors --github-mirror https://gh-proxy.example.com/
+sudo flockctl mirrors --apt-mirror https://mirror.example.com/ubuntu
+sudo flockctl mirrors --reset-mirrors          # هر دو به پیش‌فرض
+```
+
+گزینه‌های میرور در نصب اول هم کار می‌کنند (`... | sudo bash -s -- --apt-mirror https://mirror.example.com/ubuntu`) و برای به‌روزرسانی‌های بعدی می‌مانند.
+
+برای پشتیبان از دیتابیس: `sudo -u postgres pg_dump flock > flock-backup.sql`
 
 ### روش ۳: اسکریپت نصب، آفلاین
 

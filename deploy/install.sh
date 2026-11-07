@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Flock server installer for Linux (no Docker needed).
+# Flock server installer and manager for Linux (no Docker needed).
 #
 # Online (downloads the latest release from GitHub):
 #   curl -fsSL https://raw.githubusercontent.com/Pourii83/Flock/main/deploy/install.sh | sudo bash
@@ -7,6 +7,10 @@
 # Offline (from a downloaded package):
 #   tar -xzf flock-server-linux-x64.tar.gz && sudo ./flock-server/install.sh
 #   # or: sudo ./install.sh --package /path/to/flock-server-linux-x64.tar.gz
+#
+# Once installed, the same script is the `flockctl` command. Run it with no arguments for a menu,
+# or give a command:
+#   sudo flockctl install | update | status | restart | logs | admin | mirrors | uninstall
 #
 # Options:
 #   --package FILE    install from a local package (offline)
@@ -22,14 +26,19 @@
 #   --retention-days N  keep sent files this many days (default 7)
 #   --admin NAME      admin account to create (default: admin; asked when interactive)
 #   --no-admin        don't create an admin account
+#   --github-mirror URL  prefix for github.com downloads (proxy style); empty = default
+#   --apt-mirror URL  Ubuntu/Debian package mirror; empty = default (original sources restored)
+#   --reset-mirrors   put both mirrors back to the defaults
+#   --purge           with uninstall: also delete the database, uploaded files and settings
 #   --yes             don't ask questions; use the options and defaults
 #
 # On a first install the script asks for these settings when it runs in a terminal (also when
-# piped from curl): domain and certificate email (or port), upload limit, retention, open sign-up,
-# TURN relay, an existing database, and the admin account. It shows a summary to confirm before
-# installing, and creates the admin account at the end. Passwords are stored as bcrypt hashes.
+# piped from curl): release, domain and certificate email, port, upload limit, retention, open
+# sign-up, TURN relay, an existing database, starting the service and the admin account. It shows a
+# summary to confirm before installing, and creates the admin account at the end. Passwords are
+# stored as bcrypt hashes.
 #
-# Re-running the installer upgrades Flock and keeps /etc/flock/flock.env and the database.
+# Re-running the installer (or `flockctl update`) upgrades Flock and keeps /etc/flock/flock.env and the database.
 # Private repository? Export GITHUB_TOKEN=<token with repo read access> before running.
 set -euo pipefail
 
@@ -55,16 +64,30 @@ ADMIN_PASS=""
 ADMIN_GENERATED=0
 NO_ADMIN=0
 ASSUME_YES=0
+CLI=flockctl
+MIRRORS_FILE=$CONF_DIR/mirrors.conf
+GITHUB_MIRROR="$(grep -E '^GITHUB_MIRROR=' "$MIRRORS_FILE" 2>/dev/null | cut -d= -f2- || true)"
+APT_MIRROR="$(grep -E '^APT_MIRROR=' "$MIRRORS_FILE" 2>/dev/null | cut -d= -f2- || true)"
+PURGE=0
+VERSION_PASSED=0
+MIRROR_ACTION=""
+MIRROR_VALUE=""
+CMD=""
+case "${1:-}" in
+  install|update|upgrade|status|restart|logs|admin|mirrors|uninstall|menu) CMD="${1/upgrade/update}"; shift ;;
+esac
+ARGC=$#
 PASSED=" "  # switches given on the command line (not asked again)
 
 info() { printf '\033[1;33m==>\033[0m %s\n' "$*"; }
 ok() { printf '\033[1;32m✔\033[0m %s\n' "$*"; }
+warn() { printf '\033[1;33m! %s\033[0m\n' "$*"; }
 die() { printf '\033[1;31m✖ %s\033[0m\n' "$*" >&2; exit 1; }
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --package) PACKAGE="$2"; PASSED+="package "; shift 2 ;;
-    --version) VERSION="$2"; PASSED+="version "; shift 2 ;;
+    --version) VERSION="$2"; VERSION_PASSED=1; PASSED+="version "; shift 2 ;;
     --port) PORT="$2"; PASSED+="port "; shift 2 ;;
     --db-url) DB_URL="$2"; PASSED+="db "; shift 2 ;;
     --no-start) START=0; PASSED+="start "; shift ;;
@@ -75,8 +98,12 @@ while [ $# -gt 0 ]; do
     --retention-days) RETENTION="$2"; shift 2 ;;
     --admin) ADMIN_USER="$2"; shift 2 ;;
     --no-admin) NO_ADMIN=1; PASSED+="admin "; shift ;;
+    --github-mirror) MIRROR_ACTION=github; MIRROR_VALUE="${2:-}"; shift 2 ;;
+    --apt-mirror) MIRROR_ACTION=apt; MIRROR_VALUE="${2:-}"; shift 2 ;;
+    --reset-mirrors) MIRROR_ACTION=reset; shift ;;
+    --purge) PURGE=1; shift ;;
     --yes|-y) ASSUME_YES=1; shift ;;
-    -h|--help) sed -n '2,35p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,/^set -euo/p' "${BASH_SOURCE[0]:-$0}" | sed '$d'; exit 0 ;;
     *) die "Unknown option: $1 (see --help)" ;;
   esac
 done
@@ -129,6 +156,302 @@ ask_yn() { # ask_yn VAR "question" y|n  → VAR=1/0
     echo "  Answer y or n." >/dev/tty
   done
 }
+
+
+# ---------- management: flockctl menu and commands ----------
+
+installed_version() { head -1 "$PREFIX/VERSION" 2>/dev/null || true; }
+has_systemd() { command -v systemctl >/dev/null && [ -d /run/systemd/system ]; }
+need_installed() { [ -f "$ENV_FILE" ] && [ -d "$PREFIX/server" ] || die "Flock isn't installed here. Run: sudo $CLI install"; }
+env_get() { { grep -E "^$1=" "$ENV_FILE" 2>/dev/null || true; } | tail -1 | cut -d= -f2-; }
+health() { # health PORT → 0 when the API answers
+  "$PREFIX/node/bin/node" -e "fetch('http://127.0.0.1:$1/api/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))" 2>/dev/null
+}
+pause() { [ "$TTY" = 1 ] || return 0; printf '\nPress Enter to go back to the menu… ' >/dev/tty; IFS= read -r _ </dev/tty || true; }
+
+cmd_status() {
+  need_installed
+  local port domain conf
+  port="$(env_get PORT)"
+  conf="$(ls /etc/nginx/sites-available/flock.conf /etc/nginx/conf.d/flock.conf 2>/dev/null | head -1 || true)"
+  domain=""
+  [ -z "$conf" ] || domain="$(awk '/server_name/ {gsub(";","",$2); print $2; exit}' "$conf" || true)"
+  echo
+  echo "   Version:      $(installed_version)"
+  if has_systemd; then echo "   Service:      $(systemctl is-active $SERVICE 2>/dev/null || true)"; fi
+  echo "   Health:       $(health "${port:-4000}" && echo OK || echo "not answering on port ${port:-4000}")"
+  echo "   Address:      $([ -n "$domain" ] && echo "https://$domain" || echo "http://<server-ip>:${port:-4000}")"
+  echo "   TURN relay:   $([ -n "$(env_get TURN_URLS)$(env_get TURN_EXTRA_URLS)" ] && echo "$(env_get TURN_URLS) $(env_get TURN_EXTRA_URLS)" || echo none)"
+  echo "   Config:       $ENV_FILE"
+  echo "   GitHub mirror: ${GITHUB_MIRROR:-default}"
+  echo "   Apt mirror:    ${APT_MIRROR:-default}"
+}
+
+cmd_logs() {
+  need_installed
+  has_systemd || die "systemd not found."
+  journalctl -u $SERVICE -n 100 --no-pager
+}
+
+cmd_restart() {
+  need_installed
+  has_systemd || die "systemd not found."
+  info "Restarting Flock"
+  systemctl restart $SERVICE
+  local port; port="$(env_get PORT)"
+  for _ in $(seq 1 30); do health "${port:-4000}" && { ok "Flock is running"; return 0; }; sleep 1; done
+  die "Flock didn't come back. See: sudo $CLI logs"
+}
+
+cmd_admin() {
+  need_installed
+  local user="$ADMIN_USER" pass="" again=""
+  while :; do
+    ask user "Admin username (an existing account is made admin and gets the new password)" "${user:-admin}"
+    [[ "$user" =~ ^[a-zA-Z0-9_.]{3,24}$ ]] && break
+    [ "$TTY" = 1 ] || die "Admin username must be 3–24 letters, numbers, _ or ."
+    echo "  3–24 letters, numbers, _ or ." >/dev/tty
+  done
+  if [ "$TTY" = 1 ]; then
+    while :; do
+      printf '\033[1;36m?\033[0m New password (min 8 characters, empty = generate one): ' >/dev/tty
+      IFS= read -rs pass </dev/tty || true; echo >/dev/tty
+      [ -z "$pass" ] && break
+      if [ "${#pass}" -lt 8 ]; then echo "  At least 8 characters." >/dev/tty; continue; fi
+      printf '\033[1;36m?\033[0m Repeat the password: ' >/dev/tty
+      IFS= read -rs again </dev/tty || true; echo >/dev/tty
+      [ "$again" = "$pass" ] && break
+      echo "  The passwords don't match." >/dev/tty
+    done
+  fi
+  local generated=0
+  [ -n "$pass" ] || { pass="$(random 20)"; generated=1; }
+  # The password goes through stdin (never on a command line) and is stored as a bcrypt hash.
+  printf '%s\n' "$pass" | runuser -u flock -- env $(grep -Ev '^\s*(#|$)' "$ENV_FILE" | xargs) \
+    "$PREFIX/node/bin/node" "$PREFIX/server/src/create-admin.js" "$user" "Admin" >/dev/null \
+    || die "Couldn't update the admin account."
+  ok "Admin '$user' is ready"
+  [ "$generated" = 1 ] && echo "   Password: $pass   ← shown only once; save it"
+  return 0
+}
+
+# --- mirrors ---------------------------------------------------------------
+# GitHub mirror: a prefix put in front of github.com download links (proxy style, e.g.
+# https://gh-proxy.example.com/https://github.com/...). Apt mirror: replaces the Ubuntu/Debian
+# archive hosts in the apt sources; the original files are backed up and restored on reset.
+
+APT_BACKUP=/var/backups/flock-apt
+apt_files() { ls /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true; }
+
+save_mirrors() {
+  mkdir -p "$CONF_DIR"
+  { echo "# Download mirrors, managed by: sudo $CLI mirrors"
+    echo "GITHUB_MIRROR=$GITHUB_MIRROR"
+    echo "APT_MIRROR=$APT_MIRROR"; } > "$MIRRORS_FILE"
+  chmod 644 "$MIRRORS_FILE"
+}
+
+apt_restore() {
+  [ -d "$APT_BACKUP" ] || return 0
+  local f
+  while IFS= read -r f; do cp -a "$APT_BACKUP/files$f" "$f"; done < "$APT_BACKUP/list"
+  rm -rf "$APT_BACKUP"
+}
+
+apt_set_mirror() { # apt_set_mirror URL
+  command -v apt-get >/dev/null || die "The apt mirror is only for Ubuntu/Debian."
+  local url="${1%/}" f
+  apt_restore
+  mkdir -p "$APT_BACKUP"
+  apt_files > "$APT_BACKUP/list"
+  while IFS= read -r f; do mkdir -p "$APT_BACKUP/files$(dirname "$f")"; cp -a "$f" "$APT_BACKUP/files$f"; done < "$APT_BACKUP/list"
+  while IFS= read -r f; do
+    sed -i -E \
+      -e "s#https?://([a-z0-9-]+\.)?archive\.ubuntu\.com/ubuntu/?#$url/#g" \
+      -e "s#https?://security\.ubuntu\.com/ubuntu/?#$url/#g" \
+      -e "s#https?://ports\.ubuntu\.com/ubuntu-ports/?#$url/#g" \
+      -e "s#https?://deb\.debian\.org/debian/?([[:space:]]|\$)#$url/\1#g" "$f"
+  done < "$APT_BACKUP/list"
+}
+
+valid_url() { [[ "$1" =~ ^https?://[^[:space:]\#]+$ ]]; }
+
+set_github_mirror() { # value may be empty (= default)
+  [ -z "$1" ] || valid_url "$1" || die "Not a URL: $1"
+  GITHUB_MIRROR="$1"
+  save_mirrors
+  ok "GitHub mirror: ${GITHUB_MIRROR:-default}"
+}
+
+set_apt_mirror() { # value may be empty (= default)
+  if [ -z "$1" ]; then
+    apt_restore
+    APT_MIRROR=""
+    save_mirrors
+    ok "Apt sources restored to the defaults"
+    return 0
+  fi
+  valid_url "$1" || die "Not a URL: $1"
+  apt_set_mirror "$1"
+  APT_MIRROR="$1"
+  save_mirrors
+  info "Checking the apt mirror"
+  # apt-get update exits 0 even when sources fail; look at what it printed instead.
+  local out; out="$(apt-get update 2>&1 || true)"
+  if ! printf '%s
+' "$out" | grep -qE '^(Err:|E: |W: Failed)'; then ok "Apt mirror: $APT_MIRROR"
+  else warn "apt-get update failed with this mirror. Check the address, or restore the defaults (sudo $CLI mirrors --reset-mirrors)."; fi
+}
+
+reset_mirrors() {
+  apt_restore
+  GITHUB_MIRROR=""
+  APT_MIRROR=""
+  save_mirrors
+  ok "All mirrors are back to the defaults"
+}
+
+cmd_mirrors() {
+  # Non-interactive: flockctl mirrors --github-mirror URL | --apt-mirror URL | --reset-mirrors (an empty URL means default)
+  if [ "$MIRROR_ACTION" = reset ]; then reset_mirrors; return 0; fi
+  if [ -n "$MIRROR_ACTION" ]; then
+    case "$MIRROR_ACTION" in github) set_github_mirror "$MIRROR_VALUE" ;; apt) set_apt_mirror "$MIRROR_VALUE" ;; esac
+    return 0
+  fi
+  [ "$TTY" = 1 ] || die "Use: $CLI mirrors --github-mirror URL | --apt-mirror URL | --reset-mirrors"
+  local choice url
+  while :; do
+    {
+      echo
+      echo "  Download mirrors"
+      echo "     GitHub (Flock releases): ${GITHUB_MIRROR:-default}"
+      echo "     Packages (apt):          ${APT_MIRROR:-default}"
+      echo
+      echo "  1) Set the GitHub mirror"
+      echo "  2) Set the package (apt) mirror"
+      echo "  3) Restore all mirrors to the defaults"
+      echo "  0) Back"
+    } >/dev/tty
+    ask choice "Choose" 0
+    case "$choice" in
+      1) ask url "Prefix for github.com links, e.g. https://gh-proxy.example.com/ (empty = default)" "$GITHUB_MIRROR"
+         set_github_mirror "$url" ;;
+      2) ask url "Ubuntu/Debian mirror, e.g. https://mirror.example.com/ubuntu (empty = default)" "$APT_MIRROR"
+         set_apt_mirror "$url" ;;
+      3) reset_mirrors ;;
+      0) return 0 ;;
+      *) echo "  Choose 0–3." >/dev/tty ;;
+    esac
+  done
+}
+
+cmd_uninstall() {
+  [ -d "$PREFIX" ] || [ -f "$ENV_FILE" ] || die "Flock isn't installed here."
+  local purge="$PURGE" go=1 mirrors=0
+  if [ "$TTY" = 1 ]; then
+    ask_yn go "Remove Flock from this server?" n
+    [ "$go" = 1 ] || { echo "Nothing was removed." >/dev/tty; return 0; }
+    [ "$purge" = 1 ] || ask_yn purge "Also delete all data: the database, uploaded files and settings? This can't be undone" n
+    if [ -n "$APT_MIRROR" ]; then ask_yn mirrors "Restore the default apt sources?" y; fi
+  fi
+  info "Removing Flock"
+  if has_systemd; then
+    systemctl disable --now $SERVICE >/dev/null 2>&1 || true
+    rm -f /etc/systemd/system/$SERVICE.service
+    systemctl daemon-reload
+  fi
+  # Nginx site and the coturn setup that the installer added (other sites and configs are left alone).
+  if [ -f /etc/nginx/sites-available/flock.conf ] || [ -f /etc/nginx/conf.d/flock.conf ]; then
+    rm -f /etc/nginx/sites-enabled/flock.conf /etc/nginx/sites-available/flock.conf /etc/nginx/conf.d/flock.conf
+    has_systemd && { nginx -t >/dev/null 2>&1 && systemctl reload nginx >/dev/null 2>&1 || true; }
+  fi
+  if [ -f /etc/turnserver.conf ] && grep -q 'generated by Flock' /etc/turnserver.conf; then
+    has_systemd && systemctl disable --now coturn >/dev/null 2>&1 || true
+    if [ -f /etc/turnserver.conf.orig ]; then mv /etc/turnserver.conf.orig /etc/turnserver.conf; else rm -f /etc/turnserver.conf; fi
+    rm -rf /etc/coturn/certs /etc/letsencrypt/renewal-hooks/deploy/flock-coturn.sh
+  fi
+  rm -rf "$PREFIX"
+  if [ "$purge" = 1 ]; then
+    if command -v psql >/dev/null && id postgres >/dev/null 2>&1; then
+      runuser -u postgres -- psql -qc 'drop database if exists flock' >/dev/null 2>&1 || true
+      runuser -u postgres -- psql -qc 'drop role if exists flock' >/dev/null 2>&1 || true
+    fi
+    rm -rf /var/lib/flock
+    [ "$mirrors" = 1 ] && apt_restore
+    rm -rf "$CONF_DIR"
+    userdel flock 2>/dev/null || true
+  elif [ "$mirrors" = 1 ]; then
+    apt_restore; APT_MIRROR=""; save_mirrors
+  fi
+  rm -f "/usr/local/bin/$CLI"
+  if [ "$purge" = 1 ]; then ok "Flock removed, with its database, files and settings."
+  else ok "Flock removed. The database, uploaded files (/var/lib/flock) and settings ($CONF_DIR) were kept; reinstalling picks them up."; fi
+}
+
+# Installs this script as the `flockctl` command (from this file, or the package's copy when piped from curl).
+install_cli() {
+  local from="" self="${BASH_SOURCE[0]:-}"
+  if [ -n "$self" ] && [ -f "$self" ] && grep -q 'Flock server installer' "$self"; then from="$self"
+  elif [ -f "${SRC:-}/install.sh" ]; then from="$SRC/install.sh"; fi
+  [ -n "$from" ] || return 0
+  [ "$(readlink -f "$from")" = "/usr/local/bin/$CLI" ] && return 0
+  # A new file, then a rename: a running flockctl keeps reading its old copy safely.
+  install -m 755 "$from" "/usr/local/bin/$CLI.new" && mv -f "/usr/local/bin/$CLI.new" "/usr/local/bin/$CLI"
+}
+
+menu() {
+  local choice v
+  while :; do
+    v="$(installed_version)"
+    {
+      echo
+      printf '\033[1m  Flock server manager\033[0m  %s\n' "$([ -n "$v" ] && echo "(installed: $v)" || echo "(not installed)")"
+      echo
+      echo "  1) Install"
+      echo "  2) Update"
+      echo "  3) Status"
+      echo "  4) Restart"
+      echo "  5) Logs"
+      echo "  6) Reset an admin password"
+      echo "  7) Download mirrors"
+      echo "  8) Uninstall"
+      echo "  0) Exit"
+    } >/dev/tty
+    ask choice "Choose" 0
+    case "$choice" in
+      1) if [ -n "$v" ]; then echo "  Flock $v is already installed. Choose 2 to update it." >/dev/tty; continue; fi
+         CMD=install; return ;;
+      2) if [ -z "$v" ]; then echo "  Flock isn't installed yet. Choose 1." >/dev/tty; continue; fi
+         CMD=update; return ;;
+      3) ( cmd_status ) || true; pause ;;
+      4) ( cmd_restart ) || true; pause ;;
+      5) ( cmd_logs ) || true; pause ;;
+      6) ( cmd_admin ) || true; pause ;;
+      7) ( cmd_mirrors ) || true ;;
+      8) cmd_uninstall; exit 0 ;;
+      0) exit 0 ;;
+      *) echo "  Choose 0–8." >/dev/tty ;;
+    esac
+  done
+}
+
+# Mirrors passed as options apply to every command (and are saved for the next run).
+if [ -n "$MIRROR_ACTION" ] && [ "$CMD" != mirrors ] && [ "$CMD" != uninstall ]; then cmd_mirrors; fi
+
+[ -z "$CMD" ] && { if [ "$TTY" = 1 ] && [ "$ARGC" = 0 ]; then CMD=menu; else CMD=install; fi; }
+[ "$CMD" = menu ] && menu
+case "$CMD" in
+  status) cmd_status; exit 0 ;;
+  logs) cmd_logs; exit 0 ;;
+  restart) cmd_restart; exit 0 ;;
+  admin) cmd_admin; exit 0 ;;
+  mirrors) cmd_mirrors; exit 0 ;;
+  uninstall) cmd_uninstall; exit 0 ;;
+  update)
+    need_installed
+    if [ "$TTY" = 1 ] && [ "$VERSION_PASSED" = 0 ] && [ -z "$PACKAGE" ]; then ask VERSION "Release to install" "$VERSION"; fi ;;
+  install) ;;
+esac
 
 passed() { [[ "$PASSED" == *" $1 "* ]]; }
 # Already running from an extracted package (offline)? Then there's nothing to download.
@@ -241,6 +564,7 @@ else
   else
     if [ "$VERSION" = latest ]; then URL="https://github.com/$REPO/releases/latest/download/$ASSET"
     else URL="https://github.com/$REPO/releases/download/$VERSION/$ASSET"; fi
+    [ -n "$GITHUB_MIRROR" ] && URL="${GITHUB_MIRROR%/}/$URL" && info "Through the mirror $GITHUB_MIRROR"
     curl -fSL "$URL" -o "$WORK/$ASSET" || die "Download failed. Private repo? Set GITHUB_TOKEN, or use --package."
   fi
   tar -xzf "$WORK/$ASSET" -C "$WORK"
@@ -369,7 +693,6 @@ PORT="$(grep -E '^PORT=' "$ENV_FILE" | cut -d= -f2)"
 
 # ---------- 4. HTTPS via Nginx + Let's Encrypt (optional) ----------
 
-warn() { printf '\033[1;33m! %s\033[0m\n' "$*"; }
 
 if [ -n "$DOMAIN" ]; then
   # Flock listens only locally; Nginx terminates TLS on ports 80/443.
@@ -566,6 +889,8 @@ else
   echo "  sudo -u flock env \$(grep -v '^#' $ENV_FILE | xargs) $PREFIX/node/bin/node $PREFIX/server/src/index.js"
 fi
 
+install_cli
+
 # ---------- 7. admin account ----------
 
 ADMIN_OK=0
@@ -589,9 +914,9 @@ echo "   Web app:     $ADDR"
 echo "   Mobile/desktop apps: use server address $ADDR"
 echo "   Config:      $ENV_FILE"
 echo "   Logs:        journalctl -u $SERVICE -f"
-echo "   Uninstall:   sudo $PREFIX/uninstall.sh"
+echo "   Manage:      sudo $CLI   (update, status, logs, mirrors, uninstall…)"
 if [ "$ADMIN_OK" = 1 ]; then
   echo "   Admin:       $ADMIN_USER  (Settings → App settings in the app)"
-  [ "$ADMIN_GENERATED" = 1 ] && echo "   Admin password: $ADMIN_PASS   ← shown only once; save it, then change it by re-running with --admin $ADMIN_USER"
+  [ "$ADMIN_GENERATED" = 1 ] && echo "   Admin password: $ADMIN_PASS   ← shown only once; save it, then change it with: sudo $CLI admin"
 fi
 [ -n "$DOMAIN" ] || echo "   Tip: re-run with --domain your.domain for automatic HTTPS (needed for calls in browsers)."

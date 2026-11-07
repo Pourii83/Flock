@@ -87,9 +87,10 @@ sudo -u flock env $(grep -v '^#' /etc/flock/flock.env | xargs) /opt/flock/node/b
 ## After installing
 
 - Web app: `http://<server-ip>:4000`. Android/desktop apps: enter the same address as the server.
-- Logs: `journalctl -u flock -f`. Restart: `sudo systemctl restart flock`
-- **Upgrade:** run the installer again (online, or with the new package). Your config and database are kept.
-- **Uninstall:** `sudo /opt/flock/uninstall.sh` (add `--purge` to also delete config and database)
+- **Manage with `sudo flockctl`**: a menu for update, status, restart, logs, admin password, download mirrors and uninstall. Each is also a command, e.g. `sudo flockctl update`, `sudo flockctl logs`.
+- **Upgrade:** `sudo flockctl update` (or run the installer again, online or with the new package). Your config and database are kept.
+- **Uninstall:** `sudo flockctl uninstall` (asks whether to delete the database, files and settings too; `--purge` deletes them without asking)
+- **Mirrors:** `sudo flockctl mirrors --github-mirror URL` / `--apt-mirror URL` / `--reset-mirrors`
 - **HTTPS:** use `--domain` (above) or the Nginx setup below. Browsers only allow camera/microphone (calls) on HTTPS or localhost, so HTTPS is required for calls from the web app.
 
 ## Server that already runs Nginx
