@@ -5,7 +5,8 @@ import type { DocumentPickerAsset } from 'expo-document-picker';
 import { api } from '@/lib/api';
 import { getApiUrl } from '@/lib/config';
 import { decryptText, encryptText, forgetLoadedDevice, loadDevice, onDeviceChange, secretStatus } from '@/lib/e2e';
-import type { Conversation, Message, User, ActiveCall } from '@/lib/types';
+import { callPreview, parseCallLog } from '@/lib/call-log';
+import type { Conversation, Message, Reaction, User, ActiveCall } from '@/lib/types';
 import { t } from '@/lib/i18n';
 
 type State = {
@@ -78,6 +79,9 @@ class ChatStore {
     });
     socket.on('disconnect', () => this.set({ connected: false }));
     socket.on('message:new', (m: Message) => this.receiveMessage(m));
+    socket.on('message:reactions', ({ conversationId, messageId, reactions }: { conversationId: string; messageId: string; reactions: Reaction[] }) =>
+      this.setReactions(conversationId, messageId, reactions),
+    );
     socket.on('conversation:new', (c: Conversation) => c && this.upsertConversation(c));
     socket.on('conversation:removed', ({ conversationId }: { conversationId: string }) => this.dropConversation(conversationId));
     socket.on('call:state', (c: ActiveCall & { callId: string | null }) =>
@@ -116,6 +120,12 @@ class ChatStore {
 
   /** Decrypts a secret-chat message for display (and its quoted reply); other messages pass through. */
   private reveal(m: Message, conversation?: Conversation): Message {
+    // Call log entries are plaintext metadata: parse once, and give list previews a readable one-liner.
+    if (m.kind === 'call') {
+      if (m.call) return m;
+      const call = parseCallLog(m, this.me?.id);
+      return { ...m, call, body: callPreview(call) };
+    }
     const c = conversation ?? this.state.conversations.find((x) => x.id === m.conversationId);
     if (!c?.secret || m.kind !== 'text' || m.secret === 'ok') return m;
     const status = secretStatus(c, this.me?.id);
@@ -131,7 +141,9 @@ class ChatStore {
   }
 
   private revealConversation(c: Conversation): Conversation {
-    return c.secret && c.lastMessage ? { ...c, lastMessage: this.reveal(c.lastMessage, c) } : c;
+    // Saved Messages is named on the client so the title follows the app language.
+    const named = c.isSaved ? { ...c, name: t('Saved Messages') } : c;
+    return named.lastMessage ? { ...named, lastMessage: this.reveal(named.lastMessage, named) } : named;
   }
 
   /** Re-run decryption on everything loaded (this device's key arrived, or a chat was accepted). */
@@ -339,6 +351,55 @@ class ChatStore {
   async sendFile(conversationId: string, asset: DocumentPickerAsset, replyTo?: Message | null) {
     const saved = await api.uploadFile(conversationId, asset, replyTo?.id);
     // Socket delivery and the HTTP response can race; receiveMessage de-duplicates by id.
+    this.receiveMessage(saved);
+    return saved;
+  }
+
+  // ---------- reactions ----------
+
+  private patchMessage(conversationId: string, id: string, fn: (m: Message) => Partial<Message>) {
+    this.set((s) => {
+      const list = s.messages[conversationId];
+      if (!list?.some((m) => m.id === id)) return {};
+      return { messages: { ...s.messages, [conversationId]: list.map((m) => (m.id === id ? { ...m, ...fn(m) } : m)) } };
+    });
+  }
+
+  private setReactions(conversationId: string, messageId: string, reactions: Reaction[]) {
+    this.patchMessage(conversationId, messageId, () => ({ reactions }));
+  }
+
+  /** Toggles my reaction on a message (optimistic; the server's list wins once it answers). */
+  async react(m: Message, emoji: string) {
+    const meId = this.me?.id;
+    if (!meId || m.pending || m.failed) return;
+    const on = !m.reactions?.find((r) => r.emoji === emoji)?.userIds.includes(meId);
+    const apply = (list: Reaction[] | undefined, add: boolean): Reaction[] => {
+      const rest = (list ?? []).map((r) => (r.emoji === emoji ? { ...r, userIds: r.userIds.filter((u) => u !== meId) } : r));
+      const next = add ? (rest.some((r) => r.emoji === emoji) ? rest.map((r) => (r.emoji === emoji ? { ...r, userIds: [...r.userIds, meId] } : r)) : [...rest, { emoji, userIds: [meId] }]) : rest;
+      return next.filter((r) => r.userIds.length > 0);
+    };
+    this.patchMessage(m.conversationId, m.id, (x) => ({ reactions: apply(x.reactions, on) }));
+    try {
+      const res = await api.react(m.id, emoji, on);
+      this.setReactions(m.conversationId, m.id, res.reactions);
+    } catch {
+      this.patchMessage(m.conversationId, m.id, (x) => ({ reactions: apply(x.reactions, !on) }));
+    }
+  }
+
+  // ---------- saved messages ----------
+
+  /** Opens (creating on first use) my Saved Messages chat; resolves to its conversation id. */
+  async openSavedMessages(): Promise<string> {
+    const c = await api.savedMessages();
+    this.upsertConversation(c);
+    return c.id;
+  }
+
+  /** Copies a message into Saved Messages ("forwarded from <name>"). */
+  async saveMessage(m: Message) {
+    const saved = await api.saveMessage(m.id);
     this.receiveMessage(saved);
     return saved;
   }

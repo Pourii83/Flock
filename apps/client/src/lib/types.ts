@@ -37,7 +37,7 @@ export type Message = {
   id: string;
   conversationId: string;
   senderId: string;
-  kind: 'text' | 'system' | 'file' | 'call_invite';
+  kind: 'text' | 'system' | 'file' | 'call_invite' | 'call';
   body: string;
   attachment: {
     name: string;
@@ -49,7 +49,16 @@ export type Message = {
     url: string | null;
   } | null;
   replyTo: { id: string; body: string; senderId: string; senderName: string } | null;
+  /** Set on copies made into Saved Messages: the original sender's name. */
+  forwardedFrom?: string | null;
+  /** Emoji reactions, oldest first. Plaintext metadata (also in secret chats). */
+  reactions?: Reaction[];
   createdAt: number;
+  /**
+   * Client-only, kind 'call': the parsed call log. The store also rewrites `body` into a localized
+   * one-line summary ("Missed voice call") so list previews can show it as-is.
+   */
+  call?: CallLogEntry;
   /** Client-only: optimistic message not yet confirmed by the server. */
   pending?: boolean;
   failed?: boolean;
@@ -57,11 +66,25 @@ export type Message = {
   secret?: 'ok' | 'locked';
 };
 
+export type Reaction = { emoji: string; userIds: string[] };
+
+/** What the server stores in the body of a 'call' message when a call in the conversation ends. */
+export type CallLogEntry = {
+  callId: string;
+  video: boolean;
+  status: 'completed' | 'missed' | 'declined' | 'cancelled';
+  durationSec: number;
+  /** I placed this call. */
+  outgoing: boolean;
+};
+
 export type GroupRole = 'owner' | 'admin' | 'member';
 
 export type Conversation = {
   id: string;
   type: 'direct' | 'group';
+  /** My personal "Saved Messages" chat (type is 'direct' with me as the only member). */
+  isSaved?: boolean;
   name: string;
   /** Members carry their group role (groups only). */
   members: (User & { role?: GroupRole })[];

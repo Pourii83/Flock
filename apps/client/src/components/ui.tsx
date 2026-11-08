@@ -1,8 +1,10 @@
 import Feather from '@expo/vector-icons/Feather';
-import { forwardRef, useState, type ComponentProps, type ReactNode } from 'react';
+import { forwardRef, isValidElement, useState, type ComponentProps, type ReactNode } from 'react';
 import {
   ActivityIndicator,
+  Platform,
   Pressable,
+  StyleSheet,
   Text,
   TextInput,
   View,
@@ -29,7 +31,33 @@ export function T({
   style,
   ...rest
 }: TextProps & { variant?: TypeVariant; color?: string }) {
-  return <Text {...rest} style={[type[variant], { color }, style]} />;
+  return <Text {...rest} style={[type[variant], { color }, style, persianFont(plainText(rest.children), [type[variant], style])]} />;
+}
+
+// Arabic, Arabic Supplement, Arabic Extended-A, Presentation Forms A and B (covers Persian letters).
+const PERSIAN = /[؀-ۿݐ-ݿࢠ-ࣿﭐ-﷿ﹰ-﻿]/;
+export const hasPersian = (text: string | null | undefined): boolean => !!text && PERSIAN.test(text);
+
+const plainText = (node: ReactNode): string => {
+  if (typeof node === 'string') return node;
+  if (typeof node === 'number') return String(node);
+  if (Array.isArray(node)) return node.map(plainText).join('');
+  // Nested <Text> children.
+  if (isValidElement(node)) return plainText((node.props as { children?: ReactNode }).children);
+  return '';
+};
+
+/**
+ * Style patch for text that contains Persian. Negative or positive letter-spacing breaks the joined
+ * Arabic-script letters on every platform. Web already falls back to Vazirmatn per glyph (theme.ts);
+ * native has no fallback, so Inter_* is swapped for the matching Vazirmatn_* weight. When the UI
+ * language is Persian, i18n.ts has already pointed `fonts` and `type` at Vazirmatn.
+ */
+export function persianFont(text: string | null | undefined, style: StyleProp<TextStyle>): TextStyle | null {
+  if (!hasPersian(text)) return null;
+  const family = StyleSheet.flatten(style)?.fontFamily;
+  if (Platform.OS !== 'web' && family?.startsWith('Inter_')) return { letterSpacing: 0, fontFamily: family.replace('Inter_', 'Vazirmatn_') };
+  return { letterSpacing: 0 };
 }
 
 // ---------- icons ----------
@@ -214,6 +242,7 @@ export const Field = forwardRef<
             { flex: 1, minWidth: 0, color: colors.text, fontFamily: fonts.medium, fontSize: 16, height: '100%' },
             noOutline,
             style,
+            persianFont(rest.value || rest.defaultValue || rest.placeholder, [{ fontFamily: fonts.medium }, style]),
           ]}
           {...rest}
         />
@@ -269,7 +298,11 @@ export function SearchBar({
         placeholderTextColor={colors.textMuted}
         autoFocus={autoFocus}
         autoCapitalize="none"
-        style={[{ flex: 1, minWidth: 0, color: colors.text, fontFamily: fonts.regular, fontSize: 14, height: '100%' }, noOutline]}
+        style={[
+          { flex: 1, minWidth: 0, color: colors.text, fontFamily: fonts.regular, fontSize: 14, height: '100%' },
+          noOutline,
+          persianFont(value || placeholder, [{ fontFamily: fonts.regular }]),
+        ]}
       />
       {!!value && (
         <Pressable onPress={() => onChangeText('')} accessibilityLabel={t('Clear search')} hitSlop={8}>

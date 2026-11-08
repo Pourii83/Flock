@@ -2,7 +2,7 @@ import { Router } from 'express';
 import crypto from 'node:crypto';
 import { checkPassword, hashPassword, requireAuth, signGuestToken, signToken } from './auth.js';
 import { deleteAvatar, saveAvatar } from './avatars.js';
-import { deleteStoredFile, receiveFile, safeMimeType, storedFilePath } from './files.js';
+import { copyStoredFile, deleteStoredFile, receiveFile, safeMimeType, storedFilePath } from './files.js';
 import { getSettings, updateSettings } from './settings.js';
 import { serverUsage } from './usage.js';
 import * as repo from './repo.js';
@@ -196,10 +196,75 @@ export function createRouter(realtime) {
     }
   });
 
+  // Saved Messages: the user's own notes conversation, created on first use. (Registered before /conversations/:id.)
+  r.get('/conversations/saved', async (req, res) => {
+    const { id, created } = await repo.getOrCreateSaved(req.userId);
+    if (created) await realtime.notifyConversation(id);
+    res.json(await repo.getConversation(id, req.userId));
+  });
+
   const member = async (req, res, next) => {
     if (!(await repo.isMember(req.params.id, req.userId))) return res.status(404).json({ error: 'Conversation not found' });
     next();
   };
+
+  // ---------- reactions and saving messages ----------
+
+  /** Loads the message and checks the caller can see its conversation. */
+  async function visibleMessage(req, res) {
+    const message = await repo.getMessageRow(req.params.messageId);
+    if (!message || !(await repo.isMember(message.conversation_id, req.userId))) {
+      res.status(404).json({ error: 'Message not found' });
+      return null;
+    }
+    return message;
+  }
+
+  // Add (`on: true`), remove (`on: false`) or toggle (no `on`) one emoji reaction of mine.
+  r.post('/messages/:messageId/react', async (req, res) => {
+    const emoji = String(req.body?.emoji ?? '');
+    if (!emoji || emoji.length > 16 || !/\p{Extended_Pictographic}/u.test(emoji)) return res.status(400).json({ error: 'Pick an emoji' });
+    const message = await visibleMessage(req, res);
+    if (!message) return;
+    if (message.kind === 'system' || message.kind === 'call') return res.status(400).json({ error: 'You can’t react to this message' });
+    const on = typeof req.body?.on === 'boolean' ? req.body.on : undefined;
+    const reactions = await repo.setReaction(message.id, req.userId, emoji, on);
+    await realtime.notifyReactions(message.conversation_id, { conversationId: message.conversation_id, messageId: message.id, reactions });
+    res.json({ messageId: message.id, reactions });
+  });
+
+  // Copies a message into my Saved Messages, noting who it came from.
+  r.post('/messages/:messageId/save', async (req, res) => {
+    const src = await visibleMessage(req, res);
+    if (!src) return;
+    const srcConv = await repo.getConversationRow(src.conversation_id);
+    if (srcConv.secret) return res.status(400).json({ error: 'Messages from secret chats can’t be saved' });
+    if (srcConv.saved) return res.status(400).json({ error: 'This message is already in Saved Messages' });
+    if (src.kind !== 'text' && src.kind !== 'file') return res.status(400).json({ error: 'This message can’t be saved' });
+    const { id, created } = await repo.getOrCreateSaved(req.userId);
+    if (created) await realtime.notifyConversation(id);
+    const sender = await repo.getUserRow(src.sender_id);
+    let attachment = null;
+    if (src.attachment_name) {
+      const live = src.attachment_path && src.attachment_expires_at > Date.now();
+      const copy = live ? await copyStoredFile(src.attachment_path) : null;
+      if (!copy) return res.status(410).json({ error: 'File expired' });
+      attachment = { name: src.attachment_name, mimeType: src.attachment_mime, size: src.attachment_size, path: copy, expiresAt: src.attachment_expires_at };
+    }
+    try {
+      const message = await repo.addMessage(id, req.userId, {
+        kind: src.kind,
+        body: src.body,
+        attachment,
+        forwardedFrom: src.forwarded_from ?? sender?.display_name ?? '',
+      });
+      await realtime.notifyMessage(message);
+      res.status(201).json(message);
+    } catch (error) {
+      if (attachment) await deleteStoredFile(attachment.path);
+      throw error;
+    }
+  });
 
   // ---------- end-to-end encrypted ("secret") chats ----------
 

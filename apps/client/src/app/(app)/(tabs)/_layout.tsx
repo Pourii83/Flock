@@ -19,6 +19,8 @@ export default function TabsLayout() {
       <Tabs.Screen name="calls" options={{ title: t('Calls') }} />
       <Tabs.Screen name="contacts" options={{ title: t('Contacts') }} />
       <Tabs.Screen name="settings" options={{ title: t('Settings') }} />
+      {/* Hidden tab: opened from the avatar, not listed in the tab bar (see TABS in tab-bars.tsx). */}
+      <Tabs.Screen name="profile" options={{ title: t('Profile') }} />
     </Tabs>
   );
 }

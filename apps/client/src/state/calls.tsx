@@ -89,6 +89,8 @@ export type CallState = {
   noiseMode: NoiseMode;
   /** The call shrank to a floating window so the rest of the app can be used. */
   minimized: boolean;
+  /** Show the live stream preview in the minimized window (the choice lasts for the call). */
+  miniPreview: boolean;
   /** Temporary chat for this call only (never stored). */
   chat: CallChatMessage[];
   chatUnread: number;
@@ -132,6 +134,7 @@ const IDLE: CallState = {
   sharingAudio: false,
   noiseMode: 'standard',
   minimized: false,
+  miniPreview: true,
   chat: [],
   chatUnread: 0,
   notice: null,
@@ -173,6 +176,7 @@ type CallApi = {
   setNoiseMode: (mode: NoiseMode) => Promise<void>;
   flipCamera: () => void;
   setMinimized: (minimized: boolean) => void;
+  setMiniPreview: (show: boolean) => void;
   sendReaction: (emoji: string) => void;
   sendChat: (text: string) => void;
   /** Marks the in-call chat as read (panel opened). */
@@ -1129,6 +1133,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
   }, [patch]);
 
   const setMinimized = useCallback((minimized: boolean) => patch({ minimized }), [patch]);
+  const setMiniPreview = useCallback((miniPreview: boolean) => patch({ miniPreview }), [patch]);
 
   const sendReaction = useCallback(
     (emoji: string) => {
@@ -1325,6 +1330,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       setNoiseMode,
       flipCamera,
       setMinimized,
+      setMiniPreview,
       sendReaction,
       sendChat,
       readChat,
@@ -1355,6 +1361,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       setNoiseMode,
       flipCamera,
       setMinimized,
+      setMiniPreview,
       sendReaction,
       sendChat,
       readChat,

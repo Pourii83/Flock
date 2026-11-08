@@ -1,7 +1,7 @@
 import type { DocumentPickerAsset } from 'expo-document-picker';
 
 import { getApiUrl } from './config';
-import type { ActiveCall, CallLog, Conversation, Message, PublicRoom, Room, User } from './types';
+import type { ActiveCall, CallLog, Conversation, Message, PublicRoom, Reaction, Room, User } from './types';
 import { t } from '@/lib/i18n';
 
 export class ApiError extends Error {
@@ -144,6 +144,12 @@ export const api = {
   sendMessage: (id: string, body: string, replyToId?: string) =>
     request<Message>('POST', `/conversations/${id}/messages`, { body, replyToId }),
   uploadFile,
+  /** Add (`on` true), remove (false) or toggle (omitted) my reaction. */
+  react: (messageId: string, emoji: string, on?: boolean) =>
+    request<{ messageId: string; reactions: Reaction[] }>('POST', `/messages/${messageId}/react`, { emoji, on }),
+  /** Copies a message into my Saved Messages (created on first use). */
+  saveMessage: (messageId: string) => request<Message>('POST', `/messages/${messageId}/save`),
+  savedMessages: () => request<Conversation>('GET', '/conversations/saved'),
   markRead: (id: string) => request<{ readAt: number }>('POST', `/conversations/${id}/read`),
   calls: () => request<CallLog[]>('GET', '/calls'),
   ice: () => request<{ iceServers: RTCIceServer[]; iceTransportPolicy?: RTCIceTransportPolicy }>('GET', '/ice'),

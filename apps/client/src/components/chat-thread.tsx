@@ -18,6 +18,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { clock, dayDivider, lastSeenLabel, sameDay } from '@/lib/format';
 import { attachmentSource, openAttachment } from '@/lib/attachments';
 import { api } from '@/lib/api';
+import { callLine, parseCallLog } from '@/lib/call-log';
 import { ensureDevice, safetyCode, useDevice, useSecretStatus } from '@/lib/e2e';
 import { systemText } from '@/lib/system-message';
 import type { Conversation, Message } from '@/lib/types';
@@ -27,15 +28,19 @@ import { chatStore, useChat, useConversation, useMessages, useTyping } from '@/s
 import { colors, fonts, radius } from '@/theme';
 import { Avatar, ConversationAvatar } from './avatar';
 import { LinkedText } from './linked-text';
-import { Button, Icon, IconButton, noOutline, T, type IconName } from './ui';
+import { Button, Icon, IconButton, noOutline, persianFont, T, type IconName } from './ui';
 import { t, num, isRTL } from '@/lib/i18n';
+
+/** One-tap reactions on a message. */
+const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 
 const EMOJIS = ['😀', '😂', '😍', '🥳', '😎', '🤔', '😅', '😢', '👍', '🙏', '👏', '🔥', '❤️', '✨', '🎉', '✅'];
 
 type Row =
   | { type: 'message'; message: Message; first: boolean; last: boolean }
   | { type: 'day'; key: string; label: string }
-  | { type: 'system'; message: Message };
+  | { type: 'system'; message: Message }
+  | { type: 'call'; message: Message };
 
 function buildRows(messages: Message[]): Row[] {
   const rows: Row[] = [];
@@ -47,8 +52,13 @@ function buildRows(messages: Message[]): Row[] {
       rows.push({ type: 'system', message: m });
       return;
     }
-    const groupedWithPrev = prev && prev.kind !== 'system' && prev.senderId === m.senderId && sameDay(prev.createdAt, m.createdAt) && m.createdAt - prev.createdAt < 5 * 60_000;
-    const groupedWithNext = next && next.kind !== 'system' && next.senderId === m.senderId && sameDay(next.createdAt, m.createdAt) && next.createdAt - m.createdAt < 5 * 60_000;
+    if (m.kind === 'call') {
+      rows.push({ type: 'call', message: m });
+      return;
+    }
+    const standalone = (x: Message) => x.kind === 'system' || x.kind === 'call';
+    const groupedWithPrev = prev && !standalone(prev) && prev.senderId === m.senderId && sameDay(prev.createdAt, m.createdAt) && m.createdAt - prev.createdAt < 5 * 60_000;
+    const groupedWithNext = next && !standalone(next) && next.senderId === m.senderId && sameDay(next.createdAt, m.createdAt) && next.createdAt - m.createdAt < 5 * 60_000;
     rows.push({ type: 'message', message: m, first: !groupedWithPrev, last: !groupedWithNext });
   });
   return rows.reverse(); // inverted list
@@ -138,6 +148,8 @@ export function ChatThread({
               <DayDivider label={item.label} desktop={desktop} />
             ) : item.type === 'system' ? (
               <SystemNote message={item.message} />
+            ) : item.type === 'call' ? (
+              <CallNote message={item.message} meId={user?.id} />
             ) : (
               <Bubble
                 row={item}
@@ -180,6 +192,7 @@ function useStatusLine(conversation: Conversation) {
   const { user } = useAuth();
   const typing = useTyping(conversation.id);
   const others = conversation.members.filter((m) => m.id !== user?.id);
+  if (conversation.isSaved) return { text: t('Notes and messages saved for yourself'), color: colors.textMuted, dot: false };
   if (typing.length) {
     if (conversation.type === 'direct') return { text: t('typing…'), color: colors.amber, dot: false };
     const names = typing.map((id) => others.find((o) => o.id === id)?.displayName.split(' ')[0]).filter(Boolean);
@@ -215,7 +228,8 @@ function ThreadHeader({
   const insets = useSafeAreaInsets();
   const status = useStatusLine(conversation);
   const peer = conversation.members.find((m) => m.id !== user?.id);
-  const pill = conversation.type === 'group' ? t('GROUP') : peer?.title?.toUpperCase();
+  const pill = conversation.isSaved ? undefined : conversation.type === 'group' ? t('GROUP') : peer?.title?.toUpperCase();
+  const title = conversation.isSaved ? t('Saved Messages') : conversation.name;
 
   return (
     <View
@@ -232,7 +246,7 @@ function ThreadHeader({
       }}>
       {onBack && <IconButton name="arrow-left" label={t('Back')} onPress={onBack} iconSize={24} />}
       <Pressable
-        onPress={onToggleDetails ?? (() => router.push(`/info/${conversation.id}`))}
+        onPress={conversation.isSaved ? undefined : onToggleDetails ?? (() => router.push(`/info/${conversation.id}`))}
         accessibilityLabel={conversation.type === 'group' ? t('Group Info') : t('Contact Info')}
         style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1, minWidth: 0 }}>
         <ConversationAvatar conversation={conversation} meId={user?.id} size={desktop ? 48 : 44} />
@@ -240,7 +254,7 @@ function ThreadHeader({
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
             {!!conversation.secret && <Icon name="lock" size={desktop ? 18 : 15} color={colors.teal} />}
             <T variant="headlineSm" numberOfLines={1} style={{ fontSize: desktop ? 22 : 18, flexShrink: 0, maxWidth: '75%' }}>
-              {conversation.name}
+              {title}
             </T>
             {desktop && !!pill && (
               <View style={{ flexShrink: 1, backgroundColor: colors.tealTint, borderRadius: radius.sm, paddingHorizontal: 8, paddingVertical: 2 }}>
@@ -259,13 +273,9 @@ function ThreadHeader({
           </View>
         </View>
       </Pressable>
-      <IconButton name="phone" label={t('Voice call')} onPress={() => startCall(conversation, false)} iconSize={20} />
-      {desktop ? (
-        <Button title={t('Meet')} icon="video" size="sm" onPress={() => startCall(conversation, true)} style={{ height: 44, borderRadius: radius.lg }} />
-      ) : (
-        <IconButton name="video" label={t('Video call')} onPress={() => startCall(conversation, true)} iconSize={22} />
-      )}
-      {onToggleDetails && desktop && (
+      {/* One call button: it starts a voice call; the camera is switched on from inside the call. */}
+      {!conversation.isSaved && <IconButton name="phone" label={t('Call')} onPress={() => startCall(conversation, false)} iconSize={20} />}
+      {onToggleDetails && desktop && !conversation.isSaved && (
         <IconButton
           name="sidebar"
           label={t('Toggle details')}
@@ -407,6 +417,30 @@ function SystemNote({ message }: { message: Message }) {
   );
 }
 
+/** A finished call, as a compact centered row: icon, what kind of call it was, and how it ended. */
+function CallNote({ message, meId }: { message: Message; meId: string | undefined }) {
+  const line = callLine(message.call ?? parseCallLog(message, meId));
+  const tone = line.missed ? colors.danger : colors.textMuted;
+  return (
+    <View style={{ alignItems: 'center', marginVertical: 8, paddingHorizontal: 24 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.surface, borderRadius: radius.pill, paddingHorizontal: 14, paddingVertical: 7 }}>
+        <Icon name={line.icon} size={15} color={line.missed ? colors.danger : colors.teal} />
+        <T variant="bodySm" color={line.missed ? colors.danger : colors.text}>
+          {line.title}
+        </T>
+        {!!line.sub && (
+          <T variant="bodySm" color={tone}>
+            {`· ${line.sub}`}
+          </T>
+        )}
+        <T variant="bodySm" color={colors.textDim}>
+          {clock(message.createdAt)}
+        </T>
+      </View>
+    </View>
+  );
+}
+
 function DayDivider({ label, desktop }: { label: string; desktop: boolean }) {
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginVertical: 18 }}>
@@ -467,30 +501,64 @@ function Bubble({
   const canAct = !m.pending && !m.failed;
   const web = Platform.OS === 'web';
 
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [saveState, setSaveState] = useState<'idle' | 'busy' | 'done' | 'error'>('idle');
+  const { user } = useAuth();
+  const meId = user?.id;
+  // Secret chats stay on their two devices; Saved Messages is server-readable, so they can't be saved into it.
+  const canSave = canAct && !conversation.secret && !conversation.isSaved && (m.kind === 'text' || m.kind === 'file');
+  const showPicker = canAct && (pickerOpen || actionsOpen);
+
   const copy = async () => {
     await Clipboard.setStringAsync(m.body);
     onToggleActions();
   };
 
-  // Hover reply button: always mounted (only its opacity changes) so a click can't be lost
-  // to a hover re-render, and it sits beside the bubble instead of overlapping it.
-  const hoverReply = web && desktop && canAct && (
+  const react = (emoji: string) => {
+    setPickerOpen(false);
+    if (actionsOpen) onToggleActions();
+    void chatStore.react(m, emoji);
+  };
+
+  const save = async () => {
+    if (saveState === 'busy') return;
+    setSaveState('busy');
+    try {
+      await chatStore.saveMessage(m);
+      setSaveState('done');
+    } catch {
+      setSaveState('error');
+    }
+    setTimeout(() => setSaveState('idle'), 2000);
+  };
+
+  // Hover buttons (react / reply / save): always mounted (only their opacity changes) so a click can't be
+  // lost to a hover re-render, and they sit beside the bubble instead of overlapping it.
+  const hoverButton = (icon: IconName, label: string, onPress: () => void, active = false) => (
     <Pressable
-      onPress={onReply}
-      accessibilityLabel={t('Reply')}
+      key={icon}
+      onPress={onPress}
+      accessibilityLabel={label}
       style={({ hovered: h }: any) => ({
         width: 30,
         height: 30,
         borderRadius: 15,
-        alignSelf: 'center',
         alignItems: 'center',
         justifyContent: 'center',
-        backgroundColor: h ? colors.surfaceHighest : colors.surfaceHigh,
-        opacity: hovered ? 1 : 0,
+        backgroundColor: h || active ? colors.surfaceHighest : colors.surfaceHigh,
+        opacity: hovered || pickerOpen ? 1 : 0,
       })}>
-      <Icon name="corner-up-left" size={15} color={colors.text} />
+      <Icon name={icon} size={15} color={active || (icon === 'bookmark' && saveState === 'done') ? colors.amberText : colors.text} />
     </Pressable>
   );
+  const hoverReply = web && desktop && canAct && (
+    <View style={{ flexDirection: 'row', alignSelf: 'center', gap: 4 }}>
+      {hoverButton('smile', t('React'), () => setPickerOpen((v) => !v), pickerOpen)}
+      {hoverButton('corner-up-left', t('Reply'), onReply)}
+      {canSave && hoverButton('bookmark', saveState === 'done' ? t('Saved') : t('Save'), () => void save())}
+    </View>
+  );
+  const reactions = (m.reactions ?? []).filter((r) => r.userIds.length > 0);
 
   return (
     <View
@@ -509,7 +577,7 @@ function Bubble({
         )}
         <Pressable
           onPress={m.failed ? () => chatStore.retry(m) : canAct && !desktop ? onToggleActions : undefined}
-          onLongPress={canAct ? onReply : undefined}
+          onLongPress={canAct && !desktop && !actionsOpen ? onToggleActions : undefined}
           delayLongPress={350}
           {...(web && canAct ? { onDoubleClick: onReply } : {})}
           style={[
@@ -549,6 +617,14 @@ function Bubble({
               </View>
             </View>
           )}
+          {!!m.forwardedFrom && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Icon name="corner-up-right" size={13} color={mine ? '#8A5A00' : colors.amberText} />
+              <T variant="label" color={mine ? '#8A5A00' : colors.amberText} numberOfLines={1} style={{ flexShrink: 1 }}>
+                {t('Forwarded from {name}', { name: m.forwardedFrom })}
+              </T>
+            </View>
+          )}
           {m.kind === 'file' ? (
             <AttachmentCard message={m} mine={mine} />
           ) : m.kind === 'call_invite' ? (
@@ -559,10 +635,60 @@ function Bubble({
             </LinkedText>
           )}
         </Pressable>
+        {reactions.length > 0 && (
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, justifyContent: mine ? 'flex-end' : 'flex-start' }}>
+            {reactions.map((r) => {
+              const own = !!meId && r.userIds.includes(meId);
+              return (
+                <Pressable
+                  key={r.emoji}
+                  onPress={() => void chatStore.react(m, r.emoji)}
+                  accessibilityLabel={r.emoji}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 5,
+                    paddingHorizontal: 9,
+                    paddingVertical: 3,
+                    borderRadius: radius.pill,
+                    backgroundColor: own ? colors.amberTint : colors.surfaceHigh,
+                    borderWidth: 1,
+                    borderColor: own ? colors.amber : 'transparent',
+                  }}>
+                  <T style={{ fontSize: 15, lineHeight: 20 }}>{r.emoji}</T>
+                  <T variant="label" color={own ? colors.amberText : colors.textMuted}>
+                    {num(r.userIds.length)}
+                  </T>
+                </Pressable>
+              );
+            })}
+          </View>
+        )}
+        {showPicker && (
+          <View style={{ flexDirection: 'row', gap: 2, backgroundColor: colors.surfaceHigh, borderRadius: radius.pill, paddingHorizontal: 6, paddingVertical: 4 }}>
+            {QUICK_REACTIONS.map((e) => (
+              <Pressable
+                key={e}
+                onPress={() => react(e)}
+                accessibilityLabel={e}
+                style={({ hovered: h, pressed }: any) => ({
+                  width: 38,
+                  height: 38,
+                  borderRadius: 19,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  backgroundColor: h || pressed ? colors.surfaceHighest : 'transparent',
+                })}>
+                <T style={{ fontSize: 22, lineHeight: 28 }}>{e}</T>
+              </Pressable>
+            ))}
+          </View>
+        )}
         {actionsOpen && (
-          <View style={{ flexDirection: 'row', gap: 8 }}>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
             <ActionChip icon="corner-up-left" label={t('Reply')} onPress={onReply} />
             {m.kind === 'text' && <ActionChip icon="copy" label={t('Copy')} onPress={copy} />}
+            {canSave && <ActionChip icon="bookmark" label={saveState === 'done' ? t('Saved') : saveState === 'error' ? t('Could not save') : t('Save')} onPress={() => void save()} />}
           </View>
         )}
         {last && (mine || !desktop) && (
@@ -570,7 +696,7 @@ function Bubble({
             <T variant="bodySm" color={m.failed ? colors.danger : colors.textMuted} style={{ fontVariant: ['tabular-nums'] }}>
               {m.failed ? t('Not sent · tap to retry') : clock(m.createdAt)}
             </T>
-            {mine && <Receipt message={m} conversation={conversation} />}
+            {mine && !conversation.isSaved && <Receipt message={m} conversation={conversation} />}
           </View>
         )}
       </View>
@@ -704,6 +830,18 @@ function ActionChip({ icon, label, onPress }: { icon: IconName; label: string; o
 }
 
 function EmptyThread({ conversation }: { conversation: Conversation }) {
+  if (conversation.isSaved)
+    return (
+      <View style={{ alignItems: 'center', gap: 10, paddingVertical: 48, paddingHorizontal: 24 }}>
+        <View style={{ width: 64, height: 64, borderRadius: 20, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' }}>
+          <Icon name="bookmark" size={28} color={colors.amberText} />
+        </View>
+        <T variant="headlineSm">{t('Saved Messages')}</T>
+        <T variant="body" color={colors.textMuted} style={{ textAlign: 'center' }}>
+          {t('Write notes to yourself, or save any message here with its bookmark button.')}
+        </T>
+      </View>
+    );
   return (
     <View style={{ alignItems: 'center', gap: 10, paddingVertical: 48 }}>
       <View style={{ width: 64, height: 64, borderRadius: 20, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' }}>
@@ -797,7 +935,44 @@ function Composer({
     setUploadError('');
     const picked = await DocumentPicker.getDocumentAsync({ type: '*/*', copyToCacheDirectory: true, multiple: false, base64: false });
     if (picked.canceled) return;
-    const asset = picked.assets[0];
+    await uploadAsset(picked.assets[0]);
+  };
+
+  // Ctrl+V with an image on the clipboard sends it, like Telegram/Discord. Web only: native
+  // TextInput has no paste event. Clipboards holding text too (Word, Excel) paste as text.
+  const uploadRef = useRef(uploadAsset);
+  uploadRef.current = uploadAsset;
+  useEffect(() => {
+    if (Platform.OS !== 'web' || blocked || !filesAllowed) return;
+    const node = inputRef.current as unknown as HTMLTextAreaElement | null;
+    if (!node) return;
+    const onPaste = (event: ClipboardEvent) => {
+      const data = event.clipboardData;
+      if (!data || data.getData('text/plain')) return;
+      const file = Array.from(data.items)
+        .find((item) => item.kind === 'file' && item.type.startsWith('image/'))
+        ?.getAsFile();
+      if (!file) return;
+      event.preventDefault();
+      const ext = file.type.split('/')[1]?.replace('jpeg', 'jpg').replace(/\+.*/, '') || 'png';
+      const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+      const name = file.name && file.name !== 'image.png' ? file.name : `pasted-${stamp}.${ext}`;
+      const named = new File([file], name, { type: file.type });
+      void uploadRef.current({
+        uri: '', // unused on web: the upload sends `file`
+        name,
+        size: named.size,
+        mimeType: named.type,
+        lastModified: named.lastModified,
+        file: named,
+      });
+    };
+    node.addEventListener('paste', onPaste);
+    return () => node.removeEventListener('paste', onPaste);
+  }, [blocked, filesAllowed]);
+
+  async function uploadAsset(asset: DocumentPicker.DocumentPickerAsset) {
+    setUploadError('');
     const maxMb = await uploadLimitMb();
     if ((asset.size ?? 0) > maxMb * 1024 * 1024) {
       setUploadError(t('Files can be up to {n} MB', { n: num(maxMb) }));
@@ -812,9 +987,14 @@ function Composer({
     } finally {
       setUploading(false);
     }
-  };
+  }
 
   const firstName = conversation.type === 'direct' ? conversation.name.split(' ')[0] : conversation.name;
+  const placeholder = conversation.isSaved
+    ? t('Write a note…')
+    : desktop
+      ? t('Type a message to {name}…', { name: firstName })
+      : t('Message {name}…', { name: firstName });
   // Secret chat not usable on this device yet: the banner above says why.
   if (blocked) return null;
 
@@ -905,7 +1085,7 @@ function Composer({
             ref={inputRef}
             value={text}
             onChangeText={onChange}
-            placeholder={desktop ? t('Type a message to {name}…', { name: firstName }) : t('Message {name}…', { name: firstName })}
+            placeholder={placeholder}
             placeholderTextColor={colors.textMuted}
             multiline
             numberOfLines={1}
@@ -935,6 +1115,7 @@ function Composer({
                 textAlignVertical: 'center',
               },
               noOutline,
+              persianFont(text || placeholder, { fontFamily: fonts.regular }),
             ]}
           />
           {!desktop && (

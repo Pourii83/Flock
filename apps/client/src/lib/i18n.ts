@@ -548,6 +548,43 @@ const fa: Record<string, string> = {
   'Wired / USB headset': 'هدست سیمی / USB',
   'Phone speaker': 'بلندگوی گوشی',
   'Phone earpiece': 'اسپیکر مکالمهٔ گوشی',
+
+  // ----- call controls (A) -----
+  'Sound output settings': 'تنظیمات خروجی صدا',
+  'Test sound': 'آزمایش صدا',
+  'Could not play the test sound': 'پخش صدای آزمایشی ممکن نشد',
+  'Reactions': 'واکنش‌ها',
+  'Hide video preview': 'پنهان کردن پیش‌نمایش ویدیو',
+  'Show video preview': 'نمایش پیش‌نمایش ویدیو',
+  // ----- profile/settings/group (C) -----
+  'Send message': 'ارسال پیام',
+  'Saved Messages': 'پیام‌های ذخیره‌شده',
+  // ----- chat (B) -----
+  'React': 'واکنش',
+  'Save': 'ذخیره',
+  'Saved': 'ذخیره شد',
+  'Could not save': 'ذخیره نشد',
+  'Notes and messages saved for yourself': 'یادداشت‌ها و پیام‌هایی که برای خودت ذخیره کرده‌ای',
+  'Write a note…': 'یادداشت بنویس…',
+  'Write notes to yourself, or save any message here with its bookmark button.':
+    'برای خودت یادداشت بنویس، یا هر پیامی را با دکمهٔ نشانک اینجا ذخیره کن.',
+  'Forwarded from {name}': 'ارسال‌شده از {name}',
+  'Outgoing voice call': 'تماس صوتی خروجی',
+  'Outgoing video call': 'تماس تصویری خروجی',
+  'Incoming voice call': 'تماس صوتی ورودی',
+  'Incoming video call': 'تماس تصویری ورودی',
+  'Missed voice call': 'تماس صوتی از دست رفته',
+  'Missed video call': 'تماس تصویری از دست رفته',
+  'No answer': 'بدون پاسخ',
+  'Cancelled': 'لغو شد',
+  'Declined': 'رد شد',
+  'Pick an emoji': 'یک شکلک انتخاب کن',
+  'Message not found': 'پیام پیدا نشد',
+  'You can’t react to this message': 'نمی‌توانی به این پیام واکنش بدهی',
+  'Messages from secret chats can’t be saved': 'پیام‌های گفتگوی محرمانه را نمی‌شود ذخیره کرد',
+  'This message is already in Saved Messages': 'این پیام از قبل در پیام‌های ذخیره‌شده است',
+  'This message can’t be saved': 'این پیام را نمی‌شود ذخیره کرد',
+  'You can’t call yourself': 'نمی‌توانی با خودت تماس بگیری',
 };
 
 const dictionaries: Record<Lang, Record<string, string>> = { en: {}, fa };

@@ -116,6 +116,19 @@ export async function migrate() {
     ALTER TABLE messages ADD COLUMN IF NOT EXISTS attachment_expires_at BIGINT;
     CREATE INDEX IF NOT EXISTS messages_attachment_expiry
       ON messages (attachment_expires_at) WHERE attachment_path IS NOT NULL;
+    -- Saved Messages: a personal conversation with a single member (lazily created, one per user).
+    ALTER TABLE conversations ADD COLUMN IF NOT EXISTS saved BOOLEAN NOT NULL DEFAULT FALSE;
+    CREATE UNIQUE INDEX IF NOT EXISTS conversations_saved_owner ON conversations (created_by) WHERE saved;
+    -- Display name of the original sender, set on messages copied into Saved Messages.
+    ALTER TABLE messages ADD COLUMN IF NOT EXISTS forwarded_from TEXT;
+    -- Emoji reactions (plaintext metadata, so they work in end-to-end encrypted chats too).
+    CREATE TABLE IF NOT EXISTS message_reactions (
+      message_id UUID NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      emoji TEXT NOT NULL,
+      created_at BIGINT NOT NULL,
+      PRIMARY KEY (message_id, user_id, emoji)
+    );
     -- Existing groups: the creator (or, if they left, the earliest member) becomes the owner.
     UPDATE members m SET role = 'owner'
     FROM (

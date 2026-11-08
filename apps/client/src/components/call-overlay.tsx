@@ -1,6 +1,6 @@
 import * as Clipboard from 'expo-clipboard';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ComponentRef, type ReactNode } from 'react';
 import { Animated, Easing, PanResponder, Platform, Pressable, ScrollView, StyleSheet, useWindowDimensions, View, type LayoutChangeEvent, type LayoutRectangle } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -22,6 +22,8 @@ import { RemoteAudio } from './remote-audio';
 import { Slider } from './slider';
 import { VideoView } from './video-view';
 import { num, t } from '@/lib/i18n';
+import { playTestTone } from '@/lib/test-tone';
+import { LevelMeter } from './call/level-meter';
 
 const REACTIONS = ['❤️', '👏', '💡', '🔥'];
 
@@ -127,12 +129,14 @@ function useMiniDrag() {
 
 /** Floating call window: the app stays usable underneath and the call keeps running. */
 function MiniCall() {
-  const { call, toggleMic, hangUp, setMinimized } = useCalls();
+  const { call, toggleMic, hangUp, setMinimized, setMiniPreview } = useCalls();
   const { self: user } = useCalls();
   const wide = useIsWide();
   const [peopleOpen, setPeopleOpen] = useState(false);
   const elapsed = useElapsed(call.answeredAt);
   const withVideo = call.remotes.find((r) => r.video && r.stream?.getVideoTracks().length);
+  // A live thumbnail of whoever is streaming (screen or camera); the viewer can hide it for the rest of the call.
+  const preview = !!withVideo && call.miniPreview;
   const shown = withVideo ?? call.remotes[0];
   const drag = useMiniDrag();
   return (
@@ -147,13 +151,13 @@ function MiniCall() {
       {/* The header and the button row are drag handles; the participant list keeps its own scroll. */}
       <View {...drag.handlers}>
         <Pressable onPress={() => !drag.justDragged() && setMinimized(false)} accessibilityLabel={t('Return to call')}>
-          {withVideo ? (
-            <View style={{ height: wide ? 158 : 135, backgroundColor: colors.rail }}>
+          {preview && withVideo ? (
+            <View style={{ height: wide ? 130 : 110, backgroundColor: colors.rail }}>
               <VideoView key={`mini-${withVideo.userId}-${call.mediaVersion}`} stream={withVideo.stream} contain={withVideo.screen} overlay />
             </View>
           ) : null}
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, paddingBottom: 6 }}>
-            {!withVideo && <Avatar user={shown?.user ?? call.peer} size={36} showPresence={false} ring={shown?.speaking ? colors.amber : colors.hairline} />}
+            {!preview && <Avatar user={shown?.user ?? call.peer} size={36} showPresence={false} ring={shown?.speaking ? colors.amber : colors.hairline} />}
             <View style={{ flex: 1, minWidth: 0 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                 <T variant="labelLg" numberOfLines={1} style={{ flexShrink: 1 }}>
@@ -183,6 +187,14 @@ function MiniCall() {
       )}
       <View {...drag.handlers} style={{ flexDirection: 'row', gap: 8, padding: 12, paddingTop: 6, justifyContent: 'flex-end' }}>
         <MiniButton icon={call.micMuted ? 'mic-off' : 'mic'} active={!call.micMuted} ring={!!call.localSpeaking} onPress={toggleMic} label={t('Microphone')} />
+        {!!withVideo && (
+          <MiniButton
+            icon={call.miniPreview ? 'eye' : 'eye-off'}
+            active={call.miniPreview}
+            onPress={() => setMiniPreview(!call.miniPreview)}
+            label={call.miniPreview ? t('Hide video preview') : t('Show video preview')}
+          />
+        )}
         {call.isGroup && (
           <MiniButton icon="users" active={peopleOpen} onPress={() => setPeopleOpen((open) => !open)} label={t('Show participants')} />
         )}
@@ -440,7 +452,7 @@ function useElapsed(since: number | null) {
   return since ? Math.max(0, Math.floor((now - since) / 1000)) : 0;
 }
 
-type Panel = 'chat' | 'quality' | 'invite' | 'audio' | 'mic' | 'more' | null;
+type Panel = 'chat' | 'quality' | 'invite' | 'audio' | 'mic' | 'more' | 'reactions' | null;
 
 /** Stitch "Active Video Call": full-bleed remote, draggable self view, glass control dock. */
 function ActiveCall() {
@@ -455,6 +467,13 @@ function ActiveCall() {
   // One panel at a time.
   const [panel, setPanel] = useState<Panel>(null);
   const toggle = (p: Exclude<Panel, null>) => setPanel((open) => (open === p ? null : p));
+  // Popovers open right above the button that owns them: measure it first, then show.
+  const outAnchor = useAnchor();
+  const reactAnchor = useAnchor();
+  const openAt = (anchor: ReturnType<typeof useAnchor>, p: Exclude<Panel, null>) => {
+    if (panel === p) return setPanel(null);
+    anchor.measure(() => setPanel(p));
+  };
   const [focusedScreen, setFocusedScreen] = useState<string | null>(null);
   const [stage, setStage] = useState({ width: 0, height: 0 });
   const [dockHeight, setDockHeight] = useState(180);
@@ -483,6 +502,7 @@ function ActiveCall() {
       video: camOn && !selfHidden,
       mirror: call.frontCamera,
       speaking: !!call.localSpeaking,
+      audio: call.localStream,
       net: call.localNet,
       muted: call.micMuted,
       screen: call.sharingScreen,
@@ -493,6 +513,7 @@ function ActiveCall() {
       stream: r.stream,
       video: hasVideo(r) && !r.screen,
       speaking: !!r.speaking,
+      audio: r.stream,
       net: r.net,
       screen: r.screen && hasVideo(r),
       connecting: !r.stream,
@@ -534,7 +555,7 @@ function ActiveCall() {
     ...(canFlip ? [{ icon: 'refresh-ccw' as const, label: t('Switch camera'), onPress: flipCamera }] : []),
     ...(canShare ? [{ icon: 'monitor' as const, label: call.sharingScreen ? t('Stop sharing') : t('Share screen'), active: call.sharingScreen, onPress: toggleScreenShare }] : []),
     ...(camOn ? [{ icon: selfHidden ? ('eye' as const) : ('eye-off' as const), label: selfHidden ? t('Show my video') : t('Hide my video'), onPress: () => setSelfHidden((h) => !h) }] : []),
-    { icon: 'headphones', label: t('Audio devices'), onPress: () => setPanel('audio') },
+    { icon: 'volume-2', label: t('Audio devices'), onPress: () => setPanel('audio') },
     { icon: 'sliders', label: t('Call quality'), onPress: () => setPanel('quality') },
     ...(canInvite ? [{ icon: 'user-plus' as const, label: t('Invite to call'), onPress: () => setPanel('invite') }] : []),
     ...(call.room ? [{ icon: 'link' as const, label: t('Copy meeting link'), onPress: () => void copyMeetingLink() }] : []),
@@ -572,6 +593,9 @@ function ActiveCall() {
             <View style={[styles.glass, { position: 'absolute', start: 16, bottom: padBottom, paddingHorizontal: 12, paddingVertical: 5, flexDirection: 'row', gap: 6, alignItems: 'center' }]}>
               <T variant="label">{callName(call, single.user)}</T>
               <NetBadge q={single.net} size={18} />
+            </View>
+            <View style={{ position: 'absolute', end: 16, bottom: padBottom }}>
+              <LevelMeter stream={single.stream} speaking={single.speaking} version={call.mediaVersion} height={36} />
             </View>
           </View>
         ) : (
@@ -673,23 +697,6 @@ function ActiveCall() {
               />
             </View>
           )}
-          <View style={[styles.glass, { flexDirection: 'row', gap: 4, padding: 4 }]}>
-            {REACTIONS.map((e) => (
-              <Pressable
-                key={e}
-                accessibilityLabel={t('React with {emoji}', { emoji: e })}
-                onPress={() => sendReaction(e)}
-                style={({ pressed }) => ({
-                  paddingHorizontal: 12,
-                  paddingVertical: 6,
-                  borderRadius: radius.pill,
-                  backgroundColor: pressed ? colors.surfaceHighest : 'transparent',
-                  transform: [{ scale: pressed ? 1.15 : 1 }],
-                })}>
-                <T style={{ fontSize: 20 }}>{e}</T>
-              </Pressable>
-            ))}
-          </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: wide ? 14 : 10, maxWidth: '100%' }}>
             <View style={[styles.glass, { flexDirection: 'row', alignItems: 'center', gap: wide ? 10 : 8, padding: 8, flexShrink: 1 }]}>
               <MicButton muted={call.micMuted} speaking={!!call.localSpeaking} panelOpen={panel === 'mic'} onToggle={toggleMic} onOpenPanel={() => toggle('mic')} />
@@ -698,13 +705,18 @@ function ActiveCall() {
               {wide && canShare && (
                 <DockButton icon="monitor" active={call.sharingScreen} onPress={toggleScreenShare} label={call.sharingScreen ? t('Stop sharing') : t('Share screen')} />
               )}
+              <View ref={reactAnchor.ref} collapsable={false}>
+                <DockButton icon="smile" active={panel === 'reactions'} onPress={() => openAt(reactAnchor, 'reactions')} label={t('Reactions')} />
+              </View>
               <DockButton icon="message-square" active={panel === 'chat'} onPress={() => toggle('chat')} label={t('Call chat')} badge={panel === 'chat' ? 0 : call.chatUnread} />
               {wide ? (
                 <>
                   {camOn && (
                     <DockButton icon={selfHidden ? 'eye' : 'eye-off'} active={selfHidden} onPress={() => setSelfHidden((h) => !h)} label={selfHidden ? t('Show my video') : t('Hide my video')} />
                   )}
-                  <DockButton icon="headphones" active={panel === 'audio'} onPress={() => toggle('audio')} label={t('Audio devices')} />
+                  <View ref={outAnchor.ref} collapsable={false}>
+                    <OutputButton panelOpen={panel === 'audio'} onOpenPanel={() => openAt(outAnchor, 'audio')} />
+                  </View>
                   <DockButton icon="sliders" active={panel === 'quality'} onPress={() => toggle('quality')} label={t('Call quality')} />
                   {canInvite && <DockButton icon="user-plus" active={panel === 'invite'} onPress={() => toggle('invite')} label={t('Invite to call')} />}
                   {!!call.room && <DockButton icon={linkCopied ? 'check' : 'link'} active={linkCopied} onPress={() => void copyMeetingLink()} label={t('Copy meeting link')} />}
@@ -745,13 +757,28 @@ function ActiveCall() {
           <T variant="label" style={{ position: 'absolute', start: 10, bottom: 8 }}>
             {t('You')}
           </T>
+          <View style={{ position: 'absolute', end: 8, bottom: 8 }}>
+            <LevelMeter stream={call.localStream} speaking={!!call.localSpeaking} silent={call.micMuted} version={call.mediaVersion} height={24} />
+          </View>
         </SelfView>
       )}
 
       {panel === 'chat' && <CallChatPanel onClose={() => setPanel(null)} />}
       {panel === 'quality' && <CallQualityPanel onClose={() => setPanel(null)} />}
       {panel === 'invite' && <CallInvitePanel onClose={() => setPanel(null)} />}
-      {panel === 'audio' && <AudioDevicePanel onClose={() => setPanel(null)} />}
+      {panel === 'audio' && <AudioDevicePanel onClose={() => setPanel(null)} bottom={dockHeight + insets.bottom} anchorX={wide ? outAnchor.x : null} stageWidth={stage.width} />}
+      {panel === 'reactions' && (
+        <ReactionsPopover
+          onPick={(emoji) => {
+            sendReaction(emoji);
+            setPanel(null);
+          }}
+          onClose={() => setPanel(null)}
+          bottom={dockHeight + insets.bottom}
+          anchorX={reactAnchor.x}
+          stageWidth={stage.width}
+        />
+      )}
       {panel === 'mic' && <MicPanel onClose={() => setPanel(null)} bottom={dockHeight + insets.bottom} />}
       {panel === 'more' && <MoreSheet items={moreItems} onClose={() => setPanel(null)} bottom={dockHeight + insets.bottom} />}
     </View>
@@ -907,31 +934,91 @@ function SelfView({
   );
 }
 
+/** The small round handle on a dock button's corner that opens its menu. */
+function ChevronBadge({ label, open, onPress }: { label: string; open: boolean; onPress: () => void }) {
+  return (
+    <Pressable
+      accessibilityLabel={label}
+      onPress={onPress}
+      hitSlop={6}
+      style={({ pressed }) => ({
+        position: 'absolute',
+        end: -4,
+        bottom: -4,
+        width: 24,
+        height: 24,
+        borderRadius: 12,
+        borderWidth: 2,
+        borderColor: colors.canvas,
+        backgroundColor: open ? colors.amber : pressed ? colors.surfaceHigh : colors.surfaceHighest,
+        alignItems: 'center',
+        justifyContent: 'center',
+      })}>
+      <Icon name={open ? 'chevron-down' : 'chevron-up'} size={13} color={open ? colors.onAmber : colors.text} />
+    </Pressable>
+  );
+}
+
 /** Mic toggle with a small handle that opens the microphone settings. */
 function MicButton({ muted, speaking, panelOpen, onToggle, onOpenPanel }: { muted: boolean; speaking: boolean; panelOpen: boolean; onToggle: () => void; onOpenPanel: () => void }) {
   return (
     <View>
       <DockButton icon={muted ? 'mic-off' : 'mic'} active={!muted} danger={muted} ring={speaking} onPress={onToggle} label={muted ? t('Unmute') : t('Mute')} />
-      <Pressable
-        accessibilityLabel={t('Microphone settings')}
-        onPress={onOpenPanel}
-        hitSlop={6}
-        style={({ pressed }) => ({
-          position: 'absolute',
-          end: -4,
-          bottom: -4,
-          width: 24,
-          height: 24,
-          borderRadius: 12,
-          borderWidth: 2,
-          borderColor: colors.canvas,
-          backgroundColor: panelOpen ? colors.amber : pressed ? colors.surfaceHigh : colors.surfaceHighest,
-          alignItems: 'center',
-          justifyContent: 'center',
-        })}>
-        <Icon name={panelOpen ? 'chevron-down' : 'chevron-up'} size={13} color={panelOpen ? colors.onAmber : colors.text} />
-      </Pressable>
+      <ChevronBadge label={t('Microphone settings')} open={panelOpen} onPress={onOpenPanel} />
     </View>
+  );
+}
+
+/** Speaker icon with the same handle as the mic; the handle opens the sound output menu. */
+function OutputButton({ panelOpen, onOpenPanel }: { panelOpen: boolean; onOpenPanel: () => void }) {
+  return (
+    <View>
+      <DockButton icon="volume-2" active={panelOpen} onPress={onOpenPanel} label={t('Sound output')} />
+      <ChevronBadge label={t('Sound output settings')} open={panelOpen} onPress={onOpenPanel} />
+    </View>
+  );
+}
+
+/** Where a dock button sits (horizontal centre in window coordinates) so its popover can open above it. */
+function useAnchor() {
+  const ref = useRef<ComponentRef<typeof View>>(null);
+  const [x, setX] = useState<number | null>(null);
+  return {
+    ref,
+    x,
+    measure: (then: () => void) => {
+      const node = ref.current;
+      if (!node?.measureInWindow) return then();
+      node.measureInWindow((px, _py, w) => {
+        if (Number.isFinite(px) && w > 0) setX(px + w / 2);
+        then();
+      });
+    },
+  };
+}
+
+/** The reaction emoji, shown only while the smile button is open; picking one closes it. */
+function ReactionsPopover({ onPick, onClose, bottom, anchorX, stageWidth }: { onPick: (emoji: string) => void; onClose: () => void; bottom: number; anchorX: number | null; stageWidth: number }) {
+  return (
+    <Popover onClose={onClose} bottom={bottom} anchorX={anchorX} stageWidth={stageWidth} width={Math.min(300, 76 * REACTIONS.length)}>
+      <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 4 }}>
+        {REACTIONS.map((e) => (
+          <Pressable
+            key={e}
+            accessibilityLabel={t('React with {emoji}', { emoji: e })}
+            onPress={() => onPick(e)}
+            style={({ pressed }) => ({
+              paddingHorizontal: 12,
+              paddingVertical: 6,
+              borderRadius: radius.pill,
+              backgroundColor: pressed ? colors.surfaceHighest : 'transparent',
+              transform: [{ scale: pressed ? 1.15 : 1 }],
+            })}>
+            <T style={{ fontSize: 24 }}>{e}</T>
+          </Pressable>
+        ))}
+      </View>
+    </Popover>
   );
 }
 
@@ -1041,13 +1128,35 @@ function MoreSheet({ items, onClose, bottom }: { items: MenuItem[]; onClose: () 
   );
 }
 
-/** A panel that opens just above the dock, centered. */
-function Popover({ title, onClose, bottom, children }: { title?: string; onClose: () => void; bottom: number; children: ReactNode }) {
+/** A panel that opens just above the dock; with anchorX it is centred on that x (the owning button). */
+function Popover({
+  title,
+  onClose,
+  bottom,
+  anchorX,
+  stageWidth,
+  width = 360,
+  children,
+}: {
+  title?: string;
+  onClose: () => void;
+  bottom: number;
+  anchorX?: number | null;
+  stageWidth?: number;
+  width?: number;
+  children: ReactNode;
+}) {
+  let placement: object | null = null;
+  if (anchorX != null && stageWidth) {
+    const w = Math.min(width, stageWidth * 0.94);
+    placement = { width: w, alignSelf: 'auto', left: Math.min(Math.max(anchorX - w / 2, 8), Math.max(8, stageWidth - w - 8)) };
+  }
   return (
     <View
       style={[
         styles.popover,
         { bottom: bottom + 4 },
+        placement,
         Platform.OS === 'web' ? ({ boxShadow: '0 18px 50px rgba(0,0,0,0.5)' } as object) : null,
       ]}>
       {!!title && (
@@ -1077,6 +1186,8 @@ type Person = {
   video: boolean;
   mirror?: boolean;
   speaking?: boolean;
+  /** Their microphone audio, for the level meter. */
+  audio?: MediaStream | null;
   net?: NetQuality;
   /** They're sharing their screen (it can be opened on the stage). */
   screen?: boolean;
@@ -1124,6 +1235,11 @@ function Tile({ p, width, height, version, compact, onOpenScreen }: { p: Person;
           <T variant="label" color={colors.amberText}>
             {t('Open screen')}
           </T>
+        </View>
+      )}
+      {!p.placeholder && (
+        <View style={{ position: 'absolute', end: compact ? 6 : 10, bottom: compact ? 6 : 10 }}>
+          <LevelMeter stream={p.audio} speaking={p.speaking} silent={p.muted} version={version} height={compact ? 20 : 30} />
         </View>
       )}
       {!p.placeholder && (
@@ -1339,33 +1455,38 @@ function DeviceSection({
   );
 }
 
-function AudioDevicePanel({ onClose }: { onClose: () => void }) {
-  const { call, refreshAudioDevices, selectAudioInput, selectAudioOutput, setParticipantVolume } = useCalls();
+/** Sound output popover: per-person volume, output device and a test sound. Microphone choice lives in the mic menu. */
+function AudioDevicePanel({ onClose, bottom, anchorX, stageWidth }: { onClose: () => void; bottom: number; anchorX: number | null; stageWidth: number }) {
+  const { call, refreshAudioDevices, selectAudioOutput, setParticipantVolume } = useCalls();
+  const [tone, setTone] = useState<'idle' | 'playing' | 'failed'>('idle');
   useEffect(() => { void refreshAudioDevices(); }, [refreshAudioDevices]);
-  const inputs = call.audioDevices.filter((device) => device.kind === 'input');
   const outputs = call.audioDevices.filter((device) => device.kind === 'output');
+  const testSound = async () => {
+    setTone('playing');
+    const ok = await playTestTone(call.audioOutputId);
+    setTone(ok ? 'idle' : 'failed');
+  };
   return (
-    <PanelShell title={t('Audio devices')} onClose={onClose}>
-      <ScrollView style={{ maxHeight: 430 }} contentContainerStyle={{ gap: 20, paddingEnd: 14, paddingStart: 2 }}>
-        {call.remotes.length > 0 && <T variant="labelLg">{t('Participant volume')}</T>}
-        {call.remotes.map((remote) => (
-          <View key={remote.userId} style={{ gap: 4 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-              <Icon name={(remote.volume ?? 1) === 0 ? 'volume-x' : (remote.volume ?? 1) < 0.5 ? 'volume-1' : 'volume-2'} size={16} color={colors.textMuted} />
-              <T variant="label" style={{ flex: 1 }} numberOfLines={1}>{remote.user?.displayName ?? t('Someone')}</T>
-              <T variant="label" color={colors.amberText} style={{ fontVariant: ['tabular-nums'], minWidth: 44, textAlign: 'right' }}>{num(Math.round((remote.volume ?? 1) * 100))}%</T>
-            </View>
-            <Slider value={remote.volume ?? 1} label={t('Volume of {name}', { name: remote.user?.displayName ?? t('Someone') })} onChange={(value) => setParticipantVolume(remote.userId, value)} />
+    <Popover title={t('Sound output')} onClose={onClose} bottom={bottom} anchorX={anchorX} stageWidth={stageWidth}>
+      {call.remotes.length > 0 && <T variant="labelLg">{t('Participant volume')}</T>}
+      {call.remotes.map((remote) => (
+        <View key={remote.userId} style={{ gap: 4 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <Icon name={(remote.volume ?? 1) === 0 ? 'volume-x' : (remote.volume ?? 1) < 0.5 ? 'volume-1' : 'volume-2'} size={16} color={colors.textMuted} />
+            <T variant="label" style={{ flex: 1 }} numberOfLines={1}>{remote.user?.displayName ?? t('Someone')}</T>
+            <T variant="label" color={colors.amberText} style={{ fontVariant: ['tabular-nums'], minWidth: 44, textAlign: 'right' }}>{num(Math.round((remote.volume ?? 1) * 100))}%</T>
           </View>
-        ))}
-        <DeviceSection title={t('Microphone input')} icon="mic" devices={inputs} selected={call.audioInputId} onSelect={selectAudioInput} />
-        <DeviceSection title={t('Sound output')} icon="volume-2" devices={outputs} selected={call.audioOutputId} onSelect={selectAudioOutput} />
-        {Platform.OS !== 'web' && (
-          <T variant="bodySm" color={colors.textMuted}>{t('On phones, Bluetooth and wired communication routes pair their microphone and speaker together.')}</T>
-        )}
-        {!inputs.length && !outputs.length && <T color={colors.textMuted}>{t('No audio devices found')}</T>}
-      </ScrollView>
-    </PanelShell>
+          <Slider value={remote.volume ?? 1} label={t('Volume of {name}', { name: remote.user?.displayName ?? t('Someone') })} onChange={(value) => setParticipantVolume(remote.userId, value)} />
+        </View>
+      ))}
+      <DeviceSection title={t('Sound output')} icon="volume-2" devices={outputs} selected={call.audioOutputId} onSelect={selectAudioOutput} />
+      {Platform.OS === 'web' ? (
+        <Button title={tone === 'failed' ? t('Could not play the test sound') : t('Test sound')} size="sm" variant="ghost" loading={tone === 'playing'} onPress={() => void testSound()} />
+      ) : (
+        <T variant="bodySm" color={colors.textMuted}>{t('On phones, Bluetooth and wired communication routes pair their microphone and speaker together.')}</T>
+      )}
+      {!outputs.length && <T color={colors.textMuted}>{t('No audio devices found')}</T>}
+    </Popover>
   );
 }
 

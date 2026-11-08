@@ -59,7 +59,7 @@ export function MobileHeader({ onSearch }: { onSearch?: () => void }) {
         {t('Flock')}
       </T>
       {onSearch && <IconButton name="search" label={t('Search')} onPress={onSearch} iconSize={22} />}
-      <Pressable onPress={() => router.navigate('/settings')} accessibilityLabel={t('Your profile')}>
+      <Pressable onPress={() => router.navigate('/profile')} accessibilityLabel={t('Your profile')}>
         <Avatar user={user} size={40} />
       </Pressable>
     </View>

@@ -7,8 +7,8 @@ import { systemText } from '@/lib/system-message';
 import type { Conversation } from '@/lib/types';
 import { useAuth } from '@/state/auth';
 import { useChat } from '@/state/chat-store';
-import { colors, radius } from '@/theme';
-import { ConversationAvatar } from './avatar';
+import { colors, fonts, radius } from '@/theme';
+import { ConversationAvatar, isSavedConversation } from './avatar';
 import { Button, Chip, Icon, SearchBar, T, UnreadBadge, IconButton } from './ui';
 import { t } from '@/lib/i18n';
 
@@ -23,7 +23,7 @@ function useFilteredConversations(query: string, filter: Filter) {
       if (filter === 'groups' && c.type !== 'group') return false;
       if (!q) return true;
       return (
-        c.name.toLowerCase().includes(q) ||
+        (isSavedConversation(c) ? t('Saved Messages') : c.name).toLowerCase().includes(q) ||
         c.members.some((m) => m.username.toLowerCase().includes(q)) ||
         (c.lastMessage?.kind === 'file' ? c.lastMessage.attachment?.name : c.lastMessage?.kind === 'text' ? c.lastMessage.body : '')?.toLowerCase().includes(q)
       );
@@ -103,10 +103,10 @@ export function ChatRow({
       <View style={{ flex: 1, gap: 4 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
           {!!c.secret && <Icon name="lock" size={13} color={colors.teal} />}
-          <T variant="labelLg" numberOfLines={1} style={{ flexShrink: 1, fontSize: card ? 17 : 15, fontFamily: unread ? 'Inter_700Bold' : 'Inter_500Medium' }}>
-            {c.name}
+          <T variant="labelLg" numberOfLines={1} style={{ flexShrink: 1, fontSize: card ? 17 : 15, fontFamily: unread ? fonts.bold : fonts.medium }}>
+            {isSavedConversation(c) ? t('Saved Messages') : c.name}
           </T>
-          {c.pinned && <Icon name="bookmark" size={12} color={colors.textMuted} />}
+          {c.pinned && <Icon name="map-pin" size={12} color={colors.textMuted} />}
           {c.muted && <Icon name="bell-off" size={12} color={colors.textMuted} />}
           <View style={{ flex: 1 }} />
           <T variant="label" color={unread ? colors.amberText : colors.textMuted} style={{ fontVariant: ['tabular-nums'] }}>

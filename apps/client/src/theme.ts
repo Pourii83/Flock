@@ -155,12 +155,18 @@ export function useThemeMode() {
 export const radius = { sm: 4, md: 8, lg: 16, xl: 24, pill: 9999 } as const;
 export const space = { xs: 4, sm: 8, md: 16, lg: 24, xl: 32 } as const;
 
+// On web the browser falls back per glyph, so Persian inside English UI (messages, names, the
+// composer) is drawn in Vazirmatn instead of the system's Arabic font. The value is a CSS
+// font-family list: comma-separated, family names are plain identifiers (no spaces, so no quotes
+// needed), and a generic family ends it. Native takes a single family name, so it stays as is.
+const withFa = (latin: string, fa: string) => (Platform.OS === 'web' ? `${latin}, ${fa}, sans-serif` : latin);
+
 export const fonts = {
-  regular: 'Inter_400Regular',
-  medium: 'Inter_500Medium',
-  semibold: 'Inter_600SemiBold',
-  bold: 'Inter_700Bold',
-} as const;
+  regular: withFa('Inter_400Regular', 'Vazirmatn_400Regular'),
+  medium: withFa('Inter_500Medium', 'Vazirmatn_500Medium'),
+  semibold: withFa('Inter_600SemiBold', 'Vazirmatn_600SemiBold'),
+  bold: withFa('Inter_700Bold', 'Vazirmatn_700Bold'),
+};
 
 export const type = {
   display: { fontFamily: fonts.bold, fontSize: 44, lineHeight: 52, letterSpacing: -0.9 },

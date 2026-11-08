@@ -86,6 +86,17 @@ export function Avatar({
   );
 }
 
+/** The "Saved Messages" self-conversation. */
+export const isSavedConversation = (c: Conversation): boolean => !!c.isSaved;
+
+export function SavedAvatar({ size = 48 }: { size?: number }) {
+  return (
+    <View style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: colors.amberTint, alignItems: 'center', justifyContent: 'center' }}>
+      <Icon name="bookmark" size={size * 0.42} color={colors.amberText} />
+    </View>
+  );
+}
+
 /** Avatar for a conversation: the peer for DMs, a stacked pair or group glyph for groups. */
 export function ConversationAvatar({
   conversation,
@@ -98,6 +109,7 @@ export function ConversationAvatar({
   size?: number;
   ringBg?: string;
 }) {
+  if (isSavedConversation(conversation)) return <SavedAvatar size={size} />;
   const others = conversation.members.filter((m) => m.id !== meId);
   if (conversation.type === 'direct') return <Avatar user={others[0]} size={size} ringBg={ringBg} />;
   if (conversation.avatarUrl)

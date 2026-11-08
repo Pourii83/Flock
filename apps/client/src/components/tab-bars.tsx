@@ -33,7 +33,8 @@ export function RailTabBar(props: BottomTabBarProps) {
   const press = usePress(props);
   const unread = useUnreadTotal();
   const { user } = useAuth();
-  const settingsRoute = state.routes.find((r) => r.name === 'settings');
+  // "profile" is a hidden tab (not in TABS): reached from the avatar, not from the icon list.
+  const profileRoute = state.routes.find((r) => r.name === 'profile');
 
   return (
     <View
@@ -80,8 +81,8 @@ export function RailTabBar(props: BottomTabBarProps) {
       </View>
       <Pressable
         accessibilityLabel={t('Your profile')}
-        onPress={() => settingsRoute && press(settingsRoute.key, state.routes[state.index]?.name === 'settings')}>
-        <Avatar user={user} size={44} ringBg={colors.canvas} />
+        onPress={() => profileRoute && press(profileRoute.key, state.routes[state.index]?.name === 'profile')}>
+        <Avatar user={user} size={44} ringBg={colors.canvas} ring={state.routes[state.index]?.name === 'profile' ? colors.amber : undefined} />
       </Pressable>
     </View>
   );

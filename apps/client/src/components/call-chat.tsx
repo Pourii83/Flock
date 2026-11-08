@@ -8,7 +8,7 @@ import { t } from '@/lib/i18n';
 import { useCalls } from '@/state/calls';
 import { colors, fonts, radius } from '@/theme';
 import { LinkedText } from './linked-text';
-import { Icon, IconButton, noOutline, T } from './ui';
+import { Icon, IconButton, noOutline, persianFont, T } from './ui';
 
 /**
  * Height of the on-screen keyboard on phones (0 elsewhere). The call overlay floats above the
@@ -147,6 +147,7 @@ export function CallChatPanel({ onClose }: { onClose: () => void }) {
               fontSize: 15,
             },
             noOutline,
+            persianFont(text || t('Write a message…'), { fontFamily: fonts.regular }),
           ]}
         />
         <Pressable

@@ -41,3 +41,16 @@ export async function deleteStoredFile(file) {
 
 export const storedFilePath = (file) => (file && path.basename(file) === file ? path.join(FILE_DIR, file) : null);
 
+/** Copies a stored upload to a new file (so a saved copy has its own lifetime); returns the new name, or null. */
+export async function copyStoredFile(file) {
+  const from = storedFilePath(file);
+  if (!from) return null;
+  const name = `${crypto.randomUUID()}${safeExtension(file)}`;
+  try {
+    await fs.copyFile(from, path.join(FILE_DIR, name));
+    return name;
+  } catch {
+    return null;
+  }
+}
+

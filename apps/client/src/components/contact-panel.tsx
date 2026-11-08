@@ -2,6 +2,7 @@ import { router } from 'expo-router';
 import { useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, View } from 'react-native';
 
+import { useIsWide } from '@/hooks/use-layout';
 import { api } from '@/lib/api';
 import { pickAvatar } from '@/lib/avatar-upload';
 import { confirm } from '@/lib/confirm';
@@ -95,13 +96,12 @@ export function ConversationInfo({ conversationId, onClose }: { conversationId: 
             onPress={() => chatStore.setMuted(conversation.id, !conversation.muted)}
           />
           <Action
-            icon="bookmark"
+            icon="map-pin"
             label={conversation.pinned ? t('Pinned') : t('Pin')}
             active={conversation.pinned}
             onPress={() => chatStore.setPinned(conversation.id, !conversation.pinned)}
           />
           <Action icon="phone" label={t('Call')} onPress={() => startCall(conversation, false)} />
-          <Action icon="video" label={t('Video')} onPress={() => startCall(conversation, true)} />
         </View>
 
         {isGroup && <Members conversation={conversation} meId={user?.id} />}
@@ -250,6 +250,7 @@ function RoleBadge({ role }: { role?: GroupRole }) {
 }
 
 function Members({ conversation, meId }: { conversation: Conversation; meId?: string }) {
+  const wide = useIsWide();
   const myRole = conversation.myRole ?? 'member';
   const canAdd = RANK[myRole] >= RANK.admin;
   const [openId, setOpenId] = useState<string | null>(null);
@@ -271,11 +272,30 @@ function Members({ conversation, meId }: { conversation: Conversation; meId?: st
     }
   };
 
+  /** Opens (or creates) the direct chat with a member; same call as contacts.tsx / new-chat.tsx. */
+  const message = async (m: User) => {
+    setBusy(true);
+    setError(null);
+    try {
+      const c = await api.createConversation([m.id]);
+      chatStore.upsertConversation(c);
+      setOpenId(null);
+      if (wide) router.navigate({ pathname: '/', params: { c: c.id } });
+      else router.push(`/chat/${c.id}`);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   /** What I may do to this member, given both roles. */
   const actionsFor = (m: User & { role?: GroupRole }) => {
     const role = m.role ?? 'member';
     const list: { icon: IconName; label: string; danger?: boolean; run: () => void }[] = [];
     if (m.id === meId) return list;
+    // Anyone in the group can message any other member.
+    list.push({ icon: 'message-circle', label: t('Send message'), run: () => message(m) });
     if (myRole === 'owner') {
       if (role === 'member')
         list.push({ icon: 'shield', label: t('Make admin'), run: () => act(() => api.setMemberRole(conversation.id, m.id, 'admin')) });

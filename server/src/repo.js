@@ -153,6 +153,8 @@ function serializeMessage(row) {
     replyTo: row.reply_to_id
       ? { id: row.reply_to_id, body: row.reply_body, senderId: row.reply_sender_id, senderName: row.reply_sender_name }
       : null,
+    forwardedFrom: row.forwarded_from ?? null,
+    reactions: [],
     createdAt: row.created_at,
   };
 }
@@ -198,8 +200,11 @@ async function loadConversations(meId, onlyId) {
     return {
       id: c.id,
       type: c.type,
+      isSaved: !!c.saved,
       name:
-        c.type === 'direct'
+        c.saved
+          ? 'Saved Messages'
+          : c.type === 'direct'
           ? others[0]?.display_name ?? 'Unknown'
           : c.name || others.map((o) => o.display_name).join(', '),
       members: members.map((m) => ({ ...publicUser(m), role: m.member_role })),
@@ -258,10 +263,68 @@ export async function listMessages(conversationId, { before, limit = 50 } = {}) 
      ORDER BY m.created_at DESC LIMIT $3`,
     [conversationId, before ? Number(before) : Number.MAX_SAFE_INTEGER, Math.min(Number(limit) || 50, 200)],
   );
-  return rows.reverse().map(serializeMessage);
+  return withReactions(rows.reverse().map(serializeMessage));
 }
 
-export async function addMessage(conversationId, senderId, { body, replyToId, kind = 'text', attachment = null }) {
+// ---------- reactions ----------
+
+/** Fills in `reactions` ([{ emoji, userIds }], oldest first) for a batch of serialized messages. */
+async function withReactions(messages) {
+  if (!messages.length) return messages;
+  const rows = await query(
+    'SELECT message_id, user_id, emoji FROM message_reactions WHERE message_id = ANY($1::uuid[]) ORDER BY created_at',
+    [messages.map((m) => m.id)],
+  );
+  const byMessage = new Map();
+  for (const r of rows) {
+    const list = byMessage.get(r.message_id) ?? [];
+    let entry = list.find((x) => x.emoji === r.emoji);
+    if (!entry) list.push((entry = { emoji: r.emoji, userIds: [] }));
+    entry.userIds.push(r.user_id);
+    byMessage.set(r.message_id, list);
+  }
+  return messages.map((m) => ({ ...m, reactions: byMessage.get(m.id) ?? [] }));
+}
+
+export const getMessageRow = (id) => (isUuid(id) ? one('SELECT * FROM messages WHERE id = $1', [id]) : null);
+
+/** Adds (`on`), removes, or toggles (`on` undefined) one reaction; returns the message's reactions. */
+export async function setReaction(messageId, userId, emoji, on) {
+  const had = !!(await one('SELECT 1 FROM message_reactions WHERE message_id = $1 AND user_id = $2 AND emoji = $3', [messageId, userId, emoji]));
+  const want = on === undefined ? !had : !!on;
+  if (want && !had)
+    await query('INSERT INTO message_reactions (message_id, user_id, emoji, created_at) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING', [messageId, userId, emoji, now()]);
+  else if (!want && had)
+    await query('DELETE FROM message_reactions WHERE message_id = $1 AND user_id = $2 AND emoji = $3', [messageId, userId, emoji]);
+  return (await withReactions([{ id: messageId }]))[0].reactions;
+}
+
+// ---------- saved messages ----------
+
+/** The user's "Saved Messages" conversation id, created on first use. */
+export async function getOrCreateSaved(meId) {
+  const find = () => one('SELECT id FROM conversations WHERE saved AND created_by = $1', [meId]);
+  const existing = await find();
+  if (existing) return { id: existing.id, created: false };
+  const id = newId();
+  const t = now();
+  try {
+    await tx(async (client) => {
+      await client.query(
+        "INSERT INTO conversations (id, type, name, description, created_by, created_at, saved) VALUES ($1, 'direct', NULL, '', $2, $3, TRUE)",
+        [id, meId, t],
+      );
+      await client.query("INSERT INTO members (conversation_id, user_id, joined_at, last_read_at, role) VALUES ($1, $2, $3, $3, 'member')", [id, meId, t]);
+    });
+    return { id, created: true };
+  } catch (e) {
+    // Lost a race against another request creating it (unique index on saved owner).
+    if (e?.code !== '23505') throw e;
+    return { id: (await find()).id, created: false };
+  }
+}
+
+export async function addMessage(conversationId, senderId, { body, replyToId, kind = 'text', attachment = null, forwardedFrom = null }) {
   const id = newId();
   const t = now();
   const reply =
@@ -270,8 +333,8 @@ export async function addMessage(conversationId, senderId, { body, replyToId, ki
   await query(
     `INSERT INTO messages
        (id, conversation_id, sender_id, kind, body, reply_to_id, created_at,
-        attachment_name, attachment_mime, attachment_size, attachment_path, attachment_expires_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+        attachment_name, attachment_mime, attachment_size, attachment_path, attachment_expires_at, forwarded_from)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
     [
       id,
       conversationId,
@@ -285,6 +348,7 @@ export async function addMessage(conversationId, senderId, { body, replyToId, ki
       attachment?.size ?? null,
       attachment?.path ?? null,
       attachment?.expiresAt ?? null,
+      forwardedFrom,
     ],
   );
   await query('UPDATE members SET last_read_at = $3 WHERE conversation_id = $1 AND user_id = $2', [conversationId, senderId, t]);

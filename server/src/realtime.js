@@ -50,6 +50,25 @@ export function createRealtime(httpServer, corsOrigin) {
   /** Tells every member which call (if any) is running in the conversation — drives "Join call". */
   const publishState = (callId, c) => toMembers(c.conversationId, 'call:state', callState(callId, c));
 
+  /**
+   * Puts the call in the conversation as a plaintext "call" message (metadata only, so it also works in
+   * end-to-end encrypted chats). The sender is the caller; clients work out direction and wording.
+   * A call the caller hung up while it was still ringing is logged as 'cancelled'.
+   */
+  async function logCall(c, row, ended, status, actorId) {
+    try {
+      const logStatus = status === 'missed' && actorId === row.caller_id ? 'cancelled' : status;
+      const durationSec = ended?.answered_at && ended?.ended_at ? Math.round((ended.ended_at - ended.answered_at) / 1000) : 0;
+      const message = await repo.addMessage(c.conversationId, row.caller_id, {
+        kind: 'call',
+        body: JSON.stringify({ callId: row.id, video: !!row.video, status: logStatus, durationSec }),
+      });
+      await toMembers(c.conversationId, 'message:new', message);
+    } catch (err) {
+      console.error('call log failed', err);
+    }
+  }
+
   async function finishCall(callId, status, actorId) {
     const c = live.get(callId);
     if (!c) return;
@@ -58,7 +77,8 @@ export function createRealtime(httpServer, corsOrigin) {
     const row = await repo.getCall(callId);
     if (!row || (row.status !== 'ringing' && row.status !== 'active')) return;
     const finalStatus = row.status === 'active' ? 'completed' : status;
-    await repo.setCallStatus(callId, finalStatus);
+    const ended = await repo.setCallStatus(callId, finalStatus);
+    await logCall(c, row, ended, finalStatus, actorId);
     await toCallAudience(c, 'call:ended', { callId, status: finalStatus, by: actorId });
     await toMembers(c.conversationId, 'call:state', { conversationId: c.conversationId, callId: null, participants: [] });
   }
@@ -199,6 +219,7 @@ export function createRealtime(httpServer, corsOrigin) {
           if (c.conversationId === conversationId) return { callId: id, alreadyRunning: true };
         }
         const conversation = await repo.getConversation(conversationId, me);
+        if (conversation.isSaved) throw new Error('You can’t call yourself');
         const call = await repo.createCall(conversationId, me, video);
         const caller = repo.publicUser(await repo.getUserRow(me));
         const others = conversation.members.map((m) => m.id).filter((id) => id !== me);
@@ -381,6 +402,9 @@ export function createRealtime(httpServer, corsOrigin) {
     },
     async notifyMessage(message) {
       await toMembers(message.conversationId, 'message:new', message);
+    },
+    async notifyReactions(conversationId, payload) {
+      await toMembers(conversationId, 'message:reactions', payload);
     },
     async notifyRead(conversationId, userId, readAt) {
       await toMembers(conversationId, 'conversation:read', { conversationId, userId, readAt });
