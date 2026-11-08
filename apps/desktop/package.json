@@ -7,7 +7,7 @@
   "private": true,
   "author": "Flock",
   "scripts": {
-    "build:web": "cd ../client && npx expo export --platform web --output-dir ../desktop/web-dist",
+    "build:web": "cd ../client && npx expo export --platform web --clear --output-dir ../desktop/web-dist",
     "start": "electron .",
     "dev": "electron . --dev",
     "dist": "npm run build:web && electron-builder",
