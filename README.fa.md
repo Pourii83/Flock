@@ -11,6 +11,29 @@
 فلاک یک پیام‌رسان شخصی است برای خودتان و دوستانتان. چت، تماس صوتی و تصویری، اشتراک صفحه و لینک جلسه، همه روی سرور خودتان.
 از یک کدبیس **React Native (Expo)** ساخته می‌شود و به‌صورت **وب‌اپ (PWA)**، **اپ اندروید** و **اپ ویندوز** در دسترس است، با سرور **Node.js و PostgreSQL**.
 
+<p align="center">
+  <img src="docs/screenshots/chats.png" alt="چت گروهی با پاسخ و واکنش، روی دسکتاپ" width="100%" />
+</p>
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/direct-chat.png" alt="چت دونفره با سابقه‌ی تماس" /></td>
+    <td width="50%"><img src="docs/screenshots/call.png" alt="تماس صوتی گروهی" /></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>چت دونفره با سابقه‌ی تماس</sub></td>
+    <td align="center"><sub>تماس صوتی گروهی</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/persian.png" alt="رابط فارسی، راست به چپ" /></td>
+    <td width="50%" align="center"><img src="docs/screenshots/mobile.png" alt="اندروید و وب موبایل" width="230" /></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>رابط فارسی، راست به چپ</sub></td>
+    <td align="center"><sub>اندروید و وب موبایل</sub></td>
+  </tr>
+</table>
+
 ## فهرست
 
 - [امکانات](#امکانات)

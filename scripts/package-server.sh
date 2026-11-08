@@ -27,7 +27,7 @@ echo "==> Building web app (PWA)"
 (
   cd "$ROOT/apps/client"
   [ -d node_modules ] || npm ci
-  EXPO_PUBLIC_API_URL= EXPO_NO_TELEMETRY=1 npx expo export --platform web --output-dir "$STAGE/web"
+  EXPO_PUBLIC_API_URL= EXPO_NO_TELEMETRY=1 npx expo export --platform web --clear --output-dir "$STAGE/web"
 )
 
 echo "==> Bundling server"

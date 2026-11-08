@@ -10,6 +10,29 @@
 
 Flock is a self-hosted messenger for you and your friends: chats, voice and video calls, screen sharing and meeting links, all on your own server. It runs from one **React Native (Expo)** codebase as a **web app (PWA)**, an **Android app** and a **Windows app**, with a **Node.js + PostgreSQL** server.
 
+<p align="center">
+  <img src="docs/screenshots/chats.png" alt="Group chat with replies and reactions, on desktop" width="100%" />
+</p>
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/direct-chat.png" alt="Direct chat with a call in the history" /></td>
+    <td width="50%"><img src="docs/screenshots/call.png" alt="Group voice call" /></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Direct chat with a call in the history</sub></td>
+    <td align="center"><sub>Group voice call</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/persian.png" alt="Persian interface, right to left" /></td>
+    <td width="50%" align="center"><img src="docs/screenshots/mobile.png" alt="Android and mobile web" width="230" /></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Persian interface, right to left</sub></td>
+    <td align="center"><sub>Android and mobile web</sub></td>
+  </tr>
+</table>
+
 ## Contents
 
 - [Features](#features)
