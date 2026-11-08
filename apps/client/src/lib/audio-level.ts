@@ -22,10 +22,7 @@ export function useAudioLevel(stream: MediaStream | null | undefined, active = t
   useEffect(() => {
     const ctx = sharedContext();
     const tracks = stream?.getAudioTracks().filter((track) => track.readyState === 'live') ?? [];
-    if (!ctx || !active || !tracks.length) {
-      setLevel(0);
-      return;
-    }
+    if (!ctx || !active || !tracks.length) return;
     // Meters are decoration: resume quietly, the first user click in the call allows it anyway.
     if (ctx.state === 'suspended') void ctx.resume().catch(() => {});
     const source = ctx.createMediaStreamSource(new MediaStream(tracks));
@@ -52,9 +49,9 @@ export function useAudioLevel(stream: MediaStream | null | undefined, active = t
         source.disconnect();
         analyser.disconnect();
       } catch {}
-      setLevel(0);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trackKey, active, version]);
-  return level;
+  // Nothing measured (inactive, no tracks): report silence instead of the last reading.
+  return active && trackKey ? level : 0;
 }

@@ -931,6 +931,24 @@ function Composer({
     chatStore.notifyTyping(conversation.id, t.length > 0);
   };
 
+  async function uploadAsset(asset: DocumentPicker.DocumentPickerAsset) {
+    setUploadError('');
+    const maxMb = await uploadLimitMb();
+    if ((asset.size ?? 0) > maxMb * 1024 * 1024) {
+      setUploadError(t('Files can be up to {n} MB', { n: num(maxMb) }));
+      return;
+    }
+    setUploading(true);
+    try {
+      await chatStore.sendFile(conversation.id, asset, replyTo);
+      onClearReply();
+    } catch (e) {
+      setUploadError(e instanceof Error ? e.message : t('Could not upload file'));
+    } finally {
+      setUploading(false);
+    }
+  }
+
   const pickFile = async () => {
     setUploadError('');
     const picked = await DocumentPicker.getDocumentAsync({ type: '*/*', copyToCacheDirectory: true, multiple: false, base64: false });
@@ -941,7 +959,9 @@ function Composer({
   // Ctrl+V with an image on the clipboard sends it, like Telegram/Discord. Web only: native
   // TextInput has no paste event. Clipboards holding text too (Word, Excel) paste as text.
   const uploadRef = useRef(uploadAsset);
-  uploadRef.current = uploadAsset;
+  useEffect(() => {
+    uploadRef.current = uploadAsset;
+  });
   useEffect(() => {
     if (Platform.OS !== 'web' || blocked || !filesAllowed) return;
     const node = inputRef.current as unknown as HTMLTextAreaElement | null;
@@ -971,23 +991,6 @@ function Composer({
     return () => node.removeEventListener('paste', onPaste);
   }, [blocked, filesAllowed]);
 
-  async function uploadAsset(asset: DocumentPicker.DocumentPickerAsset) {
-    setUploadError('');
-    const maxMb = await uploadLimitMb();
-    if ((asset.size ?? 0) > maxMb * 1024 * 1024) {
-      setUploadError(t('Files can be up to {n} MB', { n: num(maxMb) }));
-      return;
-    }
-    setUploading(true);
-    try {
-      await chatStore.sendFile(conversation.id, asset, replyTo);
-      onClearReply();
-    } catch (e) {
-      setUploadError(e instanceof Error ? e.message : t('Could not upload file'));
-    } finally {
-      setUploading(false);
-    }
-  }
 
   const firstName = conversation.type === 'direct' ? conversation.name.split(' ')[0] : conversation.name;
   const placeholder = conversation.isSaved

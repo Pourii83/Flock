@@ -468,11 +468,11 @@ function ActiveCall() {
   const [panel, setPanel] = useState<Panel>(null);
   const toggle = (p: Exclude<Panel, null>) => setPanel((open) => (open === p ? null : p));
   // Popovers open right above the button that owns them: measure it first, then show.
-  const outAnchor = useAnchor();
-  const reactAnchor = useAnchor();
-  const openAt = (anchor: ReturnType<typeof useAnchor>, p: Exclude<Panel, null>) => {
+  const [outX, outRef, measureOut] = useAnchor();
+  const [reactX, reactRef, measureReact] = useAnchor();
+  const openAt = (measure: ReturnType<typeof useAnchor>[2], p: Exclude<Panel, null>) => {
     if (panel === p) return setPanel(null);
-    anchor.measure(() => setPanel(p));
+    measure(() => setPanel(p));
   };
   const [focusedScreen, setFocusedScreen] = useState<string | null>(null);
   const [stage, setStage] = useState({ width: 0, height: 0 });
@@ -705,8 +705,8 @@ function ActiveCall() {
               {wide && canShare && (
                 <DockButton icon="monitor" active={call.sharingScreen} onPress={toggleScreenShare} label={call.sharingScreen ? t('Stop sharing') : t('Share screen')} />
               )}
-              <View ref={reactAnchor.ref} collapsable={false}>
-                <DockButton icon="smile" active={panel === 'reactions'} onPress={() => openAt(reactAnchor, 'reactions')} label={t('Reactions')} />
+              <View ref={reactRef} collapsable={false}>
+                <DockButton icon="smile" active={panel === 'reactions'} onPress={() => openAt(measureReact, 'reactions')} label={t('Reactions')} />
               </View>
               <DockButton icon="message-square" active={panel === 'chat'} onPress={() => toggle('chat')} label={t('Call chat')} badge={panel === 'chat' ? 0 : call.chatUnread} />
               {wide ? (
@@ -714,8 +714,8 @@ function ActiveCall() {
                   {camOn && (
                     <DockButton icon={selfHidden ? 'eye' : 'eye-off'} active={selfHidden} onPress={() => setSelfHidden((h) => !h)} label={selfHidden ? t('Show my video') : t('Hide my video')} />
                   )}
-                  <View ref={outAnchor.ref} collapsable={false}>
-                    <OutputButton panelOpen={panel === 'audio'} onOpenPanel={() => openAt(outAnchor, 'audio')} />
+                  <View ref={outRef} collapsable={false}>
+                    <OutputButton panelOpen={panel === 'audio'} onOpenPanel={() => openAt(measureOut, 'audio')} />
                   </View>
                   <DockButton icon="sliders" active={panel === 'quality'} onPress={() => toggle('quality')} label={t('Call quality')} />
                   {canInvite && <DockButton icon="user-plus" active={panel === 'invite'} onPress={() => toggle('invite')} label={t('Invite to call')} />}
@@ -766,7 +766,7 @@ function ActiveCall() {
       {panel === 'chat' && <CallChatPanel onClose={() => setPanel(null)} />}
       {panel === 'quality' && <CallQualityPanel onClose={() => setPanel(null)} />}
       {panel === 'invite' && <CallInvitePanel onClose={() => setPanel(null)} />}
-      {panel === 'audio' && <AudioDevicePanel onClose={() => setPanel(null)} bottom={dockHeight + insets.bottom} anchorX={wide ? outAnchor.x : null} stageWidth={stage.width} />}
+      {panel === 'audio' && <AudioDevicePanel onClose={() => setPanel(null)} bottom={dockHeight + insets.bottom} anchorX={wide ? outX : null} stageWidth={stage.width} />}
       {panel === 'reactions' && (
         <ReactionsPopover
           onPick={(emoji) => {
@@ -775,7 +775,7 @@ function ActiveCall() {
           }}
           onClose={() => setPanel(null)}
           bottom={dockHeight + insets.bottom}
-          anchorX={reactAnchor.x}
+          anchorX={reactX}
           stageWidth={stage.width}
         />
       )}
@@ -983,18 +983,16 @@ function OutputButton({ panelOpen, onOpenPanel }: { panelOpen: boolean; onOpenPa
 function useAnchor() {
   const ref = useRef<ComponentRef<typeof View>>(null);
   const [x, setX] = useState<number | null>(null);
-  return {
-    ref,
-    x,
-    measure: (then: () => void) => {
-      const node = ref.current;
-      if (!node?.measureInWindow) return then();
-      node.measureInWindow((px, _py, w) => {
-        if (Number.isFinite(px) && w > 0) setX(px + w / 2);
-        then();
-      });
-    },
+  // Returned as separate values so render code never reads through a ref-holding object.
+  const measure = (then: () => void) => {
+    const node = ref.current;
+    if (!node?.measureInWindow) return then();
+    node.measureInWindow((px, _py, w) => {
+      if (Number.isFinite(px) && w > 0) setX(px + w / 2);
+      then();
+    });
   };
+  return [x, ref, measure] as const;
 }
 
 /** The reaction emoji, shown only while the smile button is open; picking one closes it. */
