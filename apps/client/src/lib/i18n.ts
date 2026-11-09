@@ -504,6 +504,7 @@ const fa: Record<string, string> = {
   'File expired': 'زمان نگه‌داری فایل تمام شده',
   'Could not download file': 'دانلود فایل ممکن نشد',
   'Original quality': 'کیفیت اصلی',
+  Download: 'دانلود',
   'Group call invitation': 'دعوت به تماس گروهی',
   'Group call': 'تماس گروهی',
   'This call has ended': 'این تماس پایان یافته است',

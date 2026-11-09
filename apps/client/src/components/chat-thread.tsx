@@ -28,6 +28,7 @@ import { chatStore, useChat, useConversation, useMessages, useTyping } from '@/s
 import { colors, fonts, radius } from '@/theme';
 import { Avatar, ConversationAvatar } from './avatar';
 import { LinkedText } from './linked-text';
+import { MediaViewer } from './media-viewer';
 import { Button, Icon, IconButton, noOutline, persianFont, T, type IconName } from './ui';
 import { t, num, isRTL } from '@/lib/i18n';
 
@@ -715,10 +716,14 @@ function AttachmentCard({ message, mine }: { message: Message; mine: boolean }) 
   const attachment = message.attachment;
   const [opening, setOpening] = useState(false);
   const [error, setError] = useState('');
+  const [viewing, setViewing] = useState(false);
   if (!attachment) return <T color={mine ? colors.onAmber : colors.textMuted}>{t('File unavailable')}</T>;
   const expired = attachment.expired || !attachment.url;
   const image = attachment.mimeType.startsWith('image/');
-  const open = async () => {
+  const video = attachment.mimeType.startsWith('video/');
+  // Photos and videos open in the viewer; the download icon still saves the file.
+  const viewable = image || video;
+  const download = async () => {
     if (!attachment.url) return;
     setOpening(true);
     setError('');
@@ -730,14 +735,19 @@ function AttachmentCard({ message, mine }: { message: Message; mine: boolean }) 
       setOpening(false);
     }
   };
+  const press = () => (viewable ? setViewing(true) : void download());
   return (
-    <Pressable onPress={() => void open()} disabled={expired || opening} style={{ minWidth: 210, maxWidth: 320, gap: 10 }}>
+    <Pressable onPress={press} disabled={expired || opening} style={{ minWidth: 210, maxWidth: 320, gap: 10 }}>
       {image && !expired && attachment.url && (
         <Image source={attachmentSource(attachment.url)} style={{ width: '100%', aspectRatio: 4 / 3, borderRadius: 12, backgroundColor: colors.surface }} contentFit="cover" />
       )}
+      <MediaViewer
+        media={viewing && attachment.url ? { url: attachment.url, name: attachment.name, mimeType: attachment.mimeType } : null}
+        onClose={() => setViewing(false)}
+      />
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
         <View style={{ width: 42, height: 42, borderRadius: 13, alignItems: 'center', justifyContent: 'center', backgroundColor: mine ? 'rgba(61,38,0,0.10)' : colors.surface }}>
-          {opening ? <ActivityIndicator color={mine ? colors.onAmber : colors.amberText} /> : <Icon name={expired ? 'clock' : image ? 'image' : 'file'} size={20} color={mine ? colors.onAmber : colors.amberText} />}
+          {opening ? <ActivityIndicator color={mine ? colors.onAmber : colors.amberText} /> : <Icon name={expired ? 'clock' : image ? 'image' : video ? 'film' : 'file'} size={20} color={mine ? colors.onAmber : colors.amberText} />}
         </View>
         <View style={{ flex: 1, minWidth: 0 }}>
           <T variant="labelLg" color={mine ? colors.onAmber : colors.text} numberOfLines={2}>{attachment.name}</T>
@@ -745,7 +755,18 @@ function AttachmentCard({ message, mine }: { message: Message; mine: boolean }) 
             {expired ? t('File expired') : `${bytesLabel(attachment.size)} · ${t('Original quality')}`}
           </T>
         </View>
-        {!expired && <Icon name="download" size={18} color={mine ? colors.onAmber : colors.amberText} />}
+        {!expired && (
+          <IconButton
+            name="download"
+            label={t('Download')}
+            size={36}
+            iconSize={18}
+            color={mine ? colors.onAmber : colors.amberText}
+            activeBg={mine ? 'rgba(61,38,0,0.10)' : colors.surface}
+            disabled={opening}
+            onPress={() => void download()}
+          />
+        )}
       </View>
       {!!error && <T variant="bodySm" color={colors.danger}>{error}</T>}
     </Pressable>
