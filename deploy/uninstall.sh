@@ -10,6 +10,8 @@ if command -v systemctl >/dev/null && [ -d /run/systemd/system ]; then
   rm -f /etc/systemd/system/flock.service
   systemctl daemon-reload
 fi
+# The admin self-update helper (installed by install.sh) and its sudo rule.
+rm -f /etc/sudoers.d/flock-self-update
 rm -rf /opt/flock
 
 if [ "${1:-}" = "--purge" ]; then

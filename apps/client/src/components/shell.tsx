@@ -8,6 +8,7 @@ import { colors, radius } from '@/theme';
 import { AppInfoDialog } from './app-info-dialog';
 import { Avatar } from './avatar';
 import { FlockTile } from './logo';
+import { ServerUpdateButton } from './server-update';
 import { Icon, IconButton, T, Tooltip } from './ui';
 import { t } from '@/lib/i18n';
 
@@ -79,6 +80,8 @@ export function MobileHeader({ onSearch }: { onSearch?: () => void }) {
           <IconButton name="search" label={t('Search')} onPress={onSearch} iconSize={22} />
         </Tooltip>
       )}
+      {/* Admin-only: a new server release is available on GitHub (hidden when up to date). */}
+      <ServerUpdateButton variant="header" />
       <Tooltip label={t('Your profile')} side="bottom" style={{ alignSelf: 'center' }}>
         <Pressable onPress={() => router.navigate('/profile')} accessibilityRole="button" accessibilityLabel={t('Your profile')}>
           <Avatar user={user} size={40} />

@@ -6,6 +6,7 @@ import { copyStoredFile, deleteStoredFile, receiveFile, safeMimeType, storedFile
 import { getSettings, updateSettings } from './settings.js';
 import { serverUsage } from './usage.js';
 import { installedVersion, releaseNotes } from './version.js';
+import { serverUpdateInfo, startSelfUpdate } from './releases.js';
 import * as repo from './repo.js';
 
 const USERNAME_RE = /^[a-zA-Z0-9_.]{3,24}$/;
@@ -99,6 +100,14 @@ export function createRouter(realtime) {
   });
 
   r.get('/admin/usage', admin, async (_req, res) => res.json(await serverUsage(realtime.liveStats())));
+
+  // Server updates are based on GitHub Releases only (not commits): the admin panel compares the
+  // installed numeric release with the latest release and can start a detached self-update.
+  r.get('/admin/server-update', admin, async (_req, res) => res.json(await serverUpdateInfo()));
+  r.post('/admin/server-update', admin, async (req, res) => {
+    const result = await startSelfUpdate(String(req.body?.tag ?? ''));
+    res.status(result.ok ? 202 : 400).json(result);
+  });
 
   // ---------- meeting rooms: owner side ----------
 

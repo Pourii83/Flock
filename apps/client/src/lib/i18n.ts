@@ -740,6 +740,23 @@ const fa: Record<string, string> = {
   'Turn the camera on first, then switch it.': 'اول دوربین را روشن کنید، بعد دوربین را عوض کنید.',
   'Unmute call audio': 'باصدا کردن صدای تماس',
   'You raised your hand': 'دست خودتان را بالا برده‌اید',
+  // ----- admin: server update from GitHub Releases -----
+  'Server update': 'به‌روزرسانی سرور',
+  'Update server': 'به‌روزرسانی سرور',
+  'Installed v{current} · latest v{latest}': 'نصب‌شده v{current} · جدیدترین v{latest}',
+  'This updates the server only. If you use the Windows or Android app, you must also install the new version from the GitHub release.':
+    'این فقط سرور را به‌روزرسانی می‌کند. اگر از اپ ویندوز یا اندروید استفاده می‌کنید، باید نسخهٔ جدید را هم از ریلیز گیت‌هاب نصب کنید.',
+  'Updating the server to v{version}. It restarts in a moment.':
+    'در حال به‌روزرسانی سرور به نسخهٔ v{version}. چند لحظه بعد ری‌استارت می‌شود.',
+  'The server is updated to v{version}. Reload the page to get the new client.':
+    'سرور به نسخهٔ v{version} به‌روزرسانی شد. صفحه را دوباره بارگذاری کنید تا کلاینت جدید بیاید.',
+  'The server did not come back with a new version. Check the server logs.':
+    'سرور با نسخهٔ جدید برنگشت. لاگ‌های سرور را بررسی کنید.',
+  'Could not start the update': 'شروع به‌روزرسانی ممکن نشد',
+  'The server is already up to date': 'سرور از قبل به‌روز است',
+  'That release is not the latest on GitHub': 'آن نسخه آخرین ریلیز گیت‌هاب نیست',
+  'Invalid release tag': 'تگ ریلیز معتبر نیست',
+  'Updating…': 'در حال به‌روزرسانی…',
 };
 
 const dictionaries: Record<Lang, Record<string, string>> = { en: {}, fa };

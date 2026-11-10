@@ -9,6 +9,7 @@ import { colors, radius } from '@/theme';
 import { AppInfoDialog } from './app-info-dialog';
 import { Avatar } from './avatar';
 import { FlockTile } from './logo';
+import { ServerUpdateButton } from './server-update';
 import { Icon, T, Tooltip, UnreadBadge, type IconName } from './ui';
 import { t } from '@/lib/i18n';
 
@@ -89,6 +90,8 @@ export function RailTabBar(props: BottomTabBarProps) {
               </Tooltip>
             );
           })}
+          {/* Admin-only, hidden when the server is up to date. */}
+          <ServerUpdateButton variant="rail" />
         </View>
       </View>
       <Tooltip label={t('Your profile')} style={{ alignSelf: 'center' }}>

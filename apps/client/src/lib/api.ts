@@ -128,6 +128,16 @@ export type Branding = { appName: string; repoUrl: string; showRepoLinks: boolea
 /** The installed server version and its changelog (empty when the package has none). */
 export type UpdateInfo = { version: string | null; notes: string };
 
+/** Admin-only: installed server release vs the latest GitHub release (Releases, not commits). */
+export type ServerUpdateInfo = {
+  current: string | null;
+  latest: string | null;
+  updateAvailable: boolean;
+  notes: string;
+  url: string;
+  publishedAt: string | null;
+};
+
 export type ServerUsage = {
   version: string | null;
   cpu: { percent: number; cores: number; load: number[] };
@@ -161,6 +171,9 @@ export const api = {
   adminSettings: () => request<AppSettings>('GET', '/admin/settings'),
   updateAdminSettings: (patch: Partial<AppSettings>) => request<AppSettings>('PATCH', '/admin/settings', patch),
   adminUsage: () => request<ServerUsage>('GET', '/admin/usage'),
+  /** Admin-only: latest GitHub release vs the installed server release. */
+  serverUpdate: () => request<ServerUpdateInfo>('GET', '/admin/server-update'),
+  startServerUpdate: (tag: string) => request<{ ok: boolean; started?: boolean; error?: string }>('POST', '/admin/server-update', { tag }),
   health: () => request<{ ok: boolean; maxUploadMb?: number }>('GET', '/health'),
   /** Public branding: app name, project link and the server's installed version. */
   branding: () => request<Branding>('GET', '/branding'),
