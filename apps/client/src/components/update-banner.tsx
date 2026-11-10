@@ -4,8 +4,8 @@ import { Linking, Modal, Platform, Pressable, ScrollView, View } from 'react-nat
 import { getAppName, getRepoUrl } from '@/lib/brand';
 import { t } from '@/lib/i18n';
 import {
-  bannerVersion,
   CLIENT_VERSION,
+  displayVersion,
   isUpdateAvailable,
   markChangelogSeen,
   repoReleasesUrl,
@@ -64,7 +64,7 @@ export function UpdateBanner() {
           {t('New Version')}
         </T>
         <T variant="bodySm" color={colors.textMuted} numberOfLines={1}>
-          {t('v{version} is available', { version: bannerVersion(version) })}
+          {t('v{version} is available', { version: displayVersion(version) })}
         </T>
       </View>
       <Pressable
@@ -144,7 +144,7 @@ export function ChangelogModal() {
                 {t("What's new")}
               </T>
               <T variant="bodySm" color={colors.textMuted}>
-                {t('{name} updated to v{version}', { name: getAppName(), version: CLIENT_VERSION })}
+                {t('{name} updated to v{version}', { name: getAppName(), version: displayVersion(CLIENT_VERSION) })}
               </T>
             </View>
           </View>

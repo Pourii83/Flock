@@ -70,12 +70,6 @@ export function isUpdateAvailable(serverVersion: string | null | undefined): boo
   return isNewerVersion(serverVersion, CLIENT_VERSION);
 }
 
-/** Version text for the update box: the exact build on web, the numeric release in apps. */
-export function bannerVersion(version: string | null | undefined): string {
-  if (!version) return '';
-  return Platform.OS === 'web' && BUILD_VERSION ? String(version).replace(/^v/i, '') : displayVersion(version);
-}
-
 /** The version as shown to people: numeric part only ("v1.9.0-1-g827c5c7" -> "1.9.0"). */
 export function displayVersion(version: string | null | undefined): string {
   const parts = versionSegments(version);
