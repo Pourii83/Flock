@@ -16,9 +16,9 @@ export type ContextMenuItem = {
   onPress: () => void;
 };
 
-// Wide enough for the label column and the seven-item emoji row (6 emoji + the "+" picker):
-// 7 × 32 px + 6 × 2 px gaps + padding still fits with room to spare.
-const MENU_W = 280;
+// The menu shrinks to its content: the emoji row (6 emoji + the "+" picker) is the widest part.
+// 7 × 28 px + 6 × 2 px gaps + padding = 224 px; the estimate is only used to clamp the position.
+const MENU_ESTIMATE = 236;
 const ROW_H = 44;
 
 export function ContextMenu({
@@ -43,8 +43,8 @@ export function ContextMenu({
   const { width, height } = useWindowDimensions();
   if (!point) return null;
 
-  const menuH = 10 + (title ? 28 : 0) + items.length * ROW_H + (emoji?.length ? 54 : 0);
-  const x = Math.min(Math.max(8, point.x), Math.max(8, width - MENU_W - 8));
+  const menuH = 10 + (title ? 28 : 0) + items.length * ROW_H + (emoji?.length ? 50 : 0);
+  const x = Math.min(Math.max(8, point.x), Math.max(8, width - MENU_ESTIMATE - 8));
   const y = point.y + menuH + 8 > height ? Math.max(8, height - menuH - 8) : Math.max(8, point.y);
 
   return (
@@ -56,7 +56,7 @@ export function ContextMenu({
             position: 'absolute',
             left: x,
             top: y,
-            width: MENU_W,
+            minWidth: 190,
             backgroundColor: colors.panel,
             borderRadius: radius.lg,
             borderWidth: 1,
@@ -110,7 +110,7 @@ export function ContextMenu({
                 gap: 2,
                 marginTop: 4,
                 paddingTop: 8,
-                paddingHorizontal: 10,
+                paddingHorizontal: 8,
                 borderTopWidth: 1,
                 borderTopColor: colors.hairline,
               }}>
@@ -124,9 +124,9 @@ export function ContextMenu({
                     onEmoji?.(e);
                   }}
                   style={({ hovered, pressed }: any) => ({
-                    width: 32,
-                    height: 32,
-                    borderRadius: 16,
+                    width: 28,
+                    height: 28,
+                    borderRadius: 14,
                     alignItems: 'center',
                     justifyContent: 'center',
                     backgroundColor: pressed ? colors.surfaceHighest : hovered ? colors.surfaceHigh : 'transparent',
@@ -140,9 +140,9 @@ export function ContextMenu({
                   accessibilityLabel={t('More emojis')}
                   onPress={onEmojiMore}
                   style={({ hovered }: any) => ({
-                    width: 32,
-                    height: 32,
-                    borderRadius: 16,
+                    width: 28,
+                    height: 28,
+                    borderRadius: 14,
                     alignItems: 'center',
                     justifyContent: 'center',
                     backgroundColor: hovered ? colors.surfaceHigh : colors.surface,
