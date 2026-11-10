@@ -126,7 +126,7 @@ export function MessageMenu({
       />
       {forwardOpen && (
         <ForwardDialog
-          message={message}
+          messages={[message]}
           currentConversationId={conversation.id}
           onClose={() => setForwardOpen(false)}
           onError={fail}
@@ -146,13 +146,13 @@ export function MessageMenu({
 }
 
 /** Small app-styled dialog that picks the target conversation for a forward. */
-function ForwardDialog({
-  message,
+export function ForwardDialog({
+  messages,
   currentConversationId,
   onClose,
   onError,
 }: {
-  message: Message;
+  messages: Message[];
   currentConversationId: string;
   onClose: () => void;
   onError: (message: string) => void;
@@ -168,7 +168,7 @@ function ForwardDialog({
     setBusyId(conversationId);
     setError('');
     try {
-      await chatStore.forwardMessage(message, conversationId);
+      for (const message of messages) await chatStore.forwardMessage(message, conversationId);
       onClose();
     } catch (e) {
       const text = e instanceof Error ? e.message : t('Could not forward the message');
@@ -213,7 +213,7 @@ function ForwardDialog({
                 {t('Forward to')}
               </T>
               <T variant="bodySm" color={colors.textMuted} numberOfLines={1}>
-                {message.attachment?.name ?? message.body}
+                {messages.length > 1 ? t('{n} messages', { n: messages.length }) : (messages[0]?.attachment?.name ?? messages[0]?.body)}
               </T>
             </View>
             <IconButton name="x" label={t('Close')} onPress={onClose} />

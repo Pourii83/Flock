@@ -27,7 +27,10 @@ echo "==> Building web app (PWA)"
 (
   cd "$ROOT/apps/client"
   [ -d node_modules ] || npm ci
-  EXPO_PUBLIC_API_URL= EXPO_NO_TELEMETRY=1 npx expo export --platform web --clear --output-dir "$STAGE/web"
+  # Stamp the exact package version into the bundle so web clients can tell when a new deploy is
+  # served (including hotfix builds that keep the same numeric version).
+  EXPO_PUBLIC_API_URL= EXPO_NO_TELEMETRY=1 EXPO_PUBLIC_BUILD_VERSION="$VERSION" \
+    npx expo export --platform web --clear --output-dir "$STAGE/web"
 )
 
 echo "==> Bundling server"

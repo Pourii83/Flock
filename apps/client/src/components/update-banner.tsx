@@ -4,9 +4,9 @@ import { Linking, Modal, Platform, Pressable, ScrollView, View } from 'react-nat
 import { getAppName, getRepoUrl } from '@/lib/brand';
 import { t } from '@/lib/i18n';
 import {
+  bannerVersion,
   CLIENT_VERSION,
-  displayVersion,
-  isNewerVersion,
+  isUpdateAvailable,
   markChangelogSeen,
   repoReleasesUrl,
   takeChangelog,
@@ -24,7 +24,7 @@ export function UpdateBanner() {
   const { version } = useUpdateInfo();
   const web = Platform.OS === 'web';
   const repo = getRepoUrl();
-  const newer = isNewerVersion(version, CLIENT_VERSION);
+  const newer = isUpdateAvailable(version);
   if (!newer || (!web && !repo)) return null;
 
   const update = () => {
@@ -64,7 +64,7 @@ export function UpdateBanner() {
           {t('New Version')}
         </T>
         <T variant="bodySm" color={colors.textMuted} numberOfLines={1}>
-          {t('v{version} is available', { version: displayVersion(version) })}
+          {t('v{version} is available', { version: bannerVersion(version) })}
         </T>
       </View>
       <Pressable

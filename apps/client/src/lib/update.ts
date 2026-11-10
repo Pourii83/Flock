@@ -1,16 +1,20 @@
 // Update detection: compares the version the server is serving with the version of this client
 // bundle, and remembers which version the user has already seen so the changelog can appear once
-// after an update. Versions are compared tolerantly: a leading "v" and git-describe suffixes
-// ("v1.9.0-1-g827c5c7") are ignored, only the numeric segments matter.
+// after an update. Installed apps compare numeric versions; the web bundle built by the server
+// package embeds the exact package version (EXPO_PUBLIC_BUILD_VERSION), so hotfix deploys that keep
+// the same number still show the update box.
 import Constants from 'expo-constants';
+import { Platform } from 'react-native';
 import { useEffect, useSyncExternalStore } from 'react';
 
 import { api } from './api';
 import { getRepoUrl } from './brand';
 import { getItem, setItem } from './storage';
 
-/** Version of the running client bundle (Expo app config). */
-export const CLIENT_VERSION = Constants.expoConfig?.version ?? '0.0.0';
+/** Exact version baked into a web bundle by scripts/package-server.sh ('' for local builds). */
+const BUILD_VERSION = String(process.env.EXPO_PUBLIC_BUILD_VERSION ?? '').trim();
+/** Version of the running client bundle: the package build, or the Expo app config version. */
+export const CLIENT_VERSION = BUILD_VERSION || Constants.expoConfig?.version || '0.0.0';
 
 /** How often the app asks the server for its version while it stays open. */
 const POLL_MS = 5 * 60 * 1000;
@@ -52,6 +56,24 @@ export function isNewerVersion(candidate: string | null | undefined, base: strin
     if (a !== b) return a > b;
   }
   return false;
+}
+
+/**
+ * Is the server serving a different build than this client?
+ * - Web served by the Flock server: the bundle is stamped with the package version, so any change
+ *   (including a hotfix such as "v1.9.0-4-gf8ad187") means a reload is available.
+ * - Installed apps: only a real numeric version bump is an update (they need a new release).
+ */
+export function isUpdateAvailable(serverVersion: string | null | undefined): boolean {
+  if (!serverVersion) return false;
+  if (Platform.OS === 'web' && BUILD_VERSION) return String(serverVersion) !== CLIENT_VERSION;
+  return isNewerVersion(serverVersion, CLIENT_VERSION);
+}
+
+/** Version text for the update box: the exact build on web, the numeric release in apps. */
+export function bannerVersion(version: string | null | undefined): string {
+  if (!version) return '';
+  return Platform.OS === 'web' && BUILD_VERSION ? String(version).replace(/^v/i, '') : displayVersion(version);
 }
 
 /** The version as shown to people: numeric part only ("v1.9.0-1-g827c5c7" -> "1.9.0"). */

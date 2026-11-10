@@ -1,3 +1,4 @@
+import * as Clipboard from 'expo-clipboard';
 import * as DocumentPicker from 'expo-document-picker';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
@@ -18,6 +19,7 @@ import { clock, dayDivider, dayAndTime, lastSeenLabel, sameDay } from '@/lib/for
 import { attachmentSource, openAttachment } from '@/lib/attachments';
 import { api } from '@/lib/api';
 import { callLine, parseCallLog } from '@/lib/call-log';
+import { confirm } from '@/lib/confirm';
 import { clearDraft, setDraft, useDraft } from '@/lib/drafts';
 import { ensureDevice, safetyCode, useDevice, useSecretStatus } from '@/lib/e2e';
 import { systemText } from '@/lib/system-message';
@@ -31,6 +33,7 @@ import { EmojiPicker } from './emoji-picker';
 import { LinkedText } from './linked-text';
 import { MediaViewer } from './media-viewer';
 import { MessageMenu } from './message-menu';
+import { ForwardDialog } from './message-menu';
 import { Button, Icon, IconButton, PushPin, SearchBar, Tooltip, noOutline, persianFont, T, type IconName } from './ui';
 import { t, num, isRTL } from '@/lib/i18n';
 
@@ -88,6 +91,9 @@ export function ChatThread({
   const [highlightId, setHighlightId] = useState<string | null>(null);
   const [actionError, setActionError] = useState('');
   const [loadError, setLoadError] = useState(false);
+  // Mobile multi-select: long-press a bubble to select it, then use the bar that replaces the header.
+  const [selection, setSelection] = useState<string[]>([]);
+  const [forwardOpen, setForwardOpen] = useState(false);
   const listRef = useRef<FlatList<Row>>(null);
   const scrollRetry = useRef(0);
   const timers = useRef<{ highlight?: ReturnType<typeof setTimeout>; error?: ReturnType<typeof setTimeout> }>({});
@@ -122,6 +128,50 @@ export function ChatThread({
     setActionError(text);
     clearTimeout(timers.current.error);
     timers.current.error = setTimeout(() => setActionError(''), 4000);
+  };
+
+  // ---------- mobile multi-select ----------
+  const selectedMessages = messages.filter((m) => selection.includes(m.id));
+  const clearSelection = () => setSelection([]);
+  const toggleSelected = (id: string) => setSelection((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  const copySelected = async () => {
+    const body = selectedMessages.map((m) => m.body).filter(Boolean).join('\n\n');
+    if (body) await Clipboard.setStringAsync(body).catch(() => showError(t('Something went wrong')));
+    clearSelection();
+  };
+  const deleteSelected = async () => {
+    if (!selectedMessages.length) return;
+    const ok = await confirm(t('Delete message'), t('Delete {n} messages?', { n: num(selectedMessages.length) }), t('Delete'), t('Cancel'));
+    if (!ok) return;
+    for (const message of selectedMessages) {
+      try {
+        await chatStore.deleteMessage(message);
+      } catch {
+        showError(t('Could not delete the message'));
+        break;
+      }
+    }
+    clearSelection();
+  };
+  const pinSelected = async () => {
+    const first = selectedMessages[0];
+    if (!first) return;
+    try {
+      await chatStore.setPinnedMessage(first, true);
+    } catch {
+      showError(t('Could not pin the message'));
+    }
+    clearSelection();
+  };
+  const saveSelected = async () => {
+    const first = selectedMessages[0];
+    if (!first) return;
+    try {
+      await chatStore.saveMessage(first);
+    } catch {
+      showError(t('This message can’t be saved'));
+    }
+    clearSelection();
   };
 
   /** Jumps to a message: pages older history in (bounded) until it is loaded, then highlights it. */
@@ -160,15 +210,33 @@ export function ChatThread({
 
   return (
     <KeyboardAvoidingView style={{ flex: 1, backgroundColor: colors.canvas }} behavior={keyboardBehavior}>
-      <ThreadHeader
-        conversation={conversation}
-        desktop={desktop}
-        onBack={onBack}
-        detailsOpen={detailsOpen}
-        onToggleDetails={onToggleDetails}
-        searchOpen={searchOpen}
-        onToggleSearch={() => setSearchOpen((v) => !v)}
-      />
+      {selection.length > 0 ? (
+        <SelectionBar
+          count={selection.length}
+          single={selectedMessages.length === 1}
+          onClose={clearSelection}
+          onReply={() => {
+            const first = selectedMessages[0];
+            if (first) setReplyTo(first);
+            clearSelection();
+          }}
+          onCopy={() => void copySelected()}
+          onForward={() => setForwardOpen(true)}
+          onSave={() => void saveSelected()}
+          onPin={() => void pinSelected()}
+          onDelete={() => void deleteSelected()}
+        />
+      ) : (
+        <ThreadHeader
+          conversation={conversation}
+          desktop={desktop}
+          onBack={onBack}
+          detailsOpen={detailsOpen}
+          onToggleDetails={onToggleDetails}
+          searchOpen={searchOpen}
+          onToggleSearch={() => setSearchOpen((v) => !v)}
+        />
+      )}
       {!!pinned && <PinnedBanner message={pinned} conversation={conversation} onOpen={() => void jumpTo(pinned.id)} onUnpin={unpin} />}
       <JoinCallBanner conversation={conversation} />
       {!!conversation.secret && <SecretBanner conversation={conversation} />}
@@ -243,6 +311,9 @@ export function ChatThread({
                 desktop={desktop}
                 highlighted={highlightId === item.message.id}
                 menuOpen={menu?.message.id === item.message.id}
+                selected={selection.includes(item.message.id)}
+                selectionMode={selection.length > 0}
+                onToggleSelect={() => toggleSelected(item.message.id)}
                 onReply={() => setReplyTo(item.message)}
                 onOpenMenu={(point) => setMenu({ message: item.message, point })}
               />
@@ -272,7 +343,83 @@ export function ChatThread({
           onClose={() => setMenu(null)}
         />
       )}
+      {forwardOpen && (
+        <ForwardDialog
+          messages={selectedMessages}
+          currentConversationId={conversation.id}
+          onClose={() => {
+            setForwardOpen(false);
+            clearSelection();
+          }}
+          onError={showError}
+        />
+      )}
     </KeyboardAvoidingView>
+  );
+}
+
+/** Telegram-style selection bar: replaces the thread header while messages are selected on mobile. */
+function SelectionBar({
+  count,
+  single,
+  onClose,
+  onReply,
+  onCopy,
+  onForward,
+  onSave,
+  onPin,
+  onDelete,
+}: {
+  count: number;
+  single: boolean;
+  onClose: () => void;
+  onReply: () => void;
+  onCopy: () => void;
+  onForward: () => void;
+  onSave: () => void;
+  onPin: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <View
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 2,
+        paddingHorizontal: 6,
+        paddingVertical: 6,
+        backgroundColor: colors.surface,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.surfaceHigh,
+      }}>
+      <IconButton name="x" label={t('Cancel')} onPress={onClose} size={36} iconSize={18} />
+      <T variant="labelLg" numberOfLines={1} style={{ flex: 1, paddingHorizontal: 6 }}>
+        {t('{n} selected', { n: num(count) })}
+      </T>
+      <IconButton name="corner-up-left" label={t('Reply')} onPress={onReply} disabled={!single} size={36} iconSize={17} />
+      <IconButton name="copy" label={t('Copy')} onPress={onCopy} size={36} iconSize={17} />
+      <IconButton name="corner-up-right" label={t('Forward')} onPress={onForward} size={36} iconSize={17} />
+      <IconButton name="bookmark" label={t('Saved Messages')} onPress={onSave} disabled={!single} size={36} iconSize={17} />
+      <Tooltip label={t('Pin')}>
+        <Pressable
+          onPress={onPin}
+          disabled={!single}
+          accessibilityRole="button"
+          accessibilityLabel={t('Pin')}
+          style={({ hovered, pressed }: any) => ({
+            width: 36,
+            height: 36,
+            borderRadius: 18,
+            alignItems: 'center',
+            justifyContent: 'center',
+            opacity: single ? 1 : 0.4,
+            backgroundColor: hovered || pressed ? colors.surfaceHigh : 'transparent',
+          })}>
+          <PushPin size={17} color={colors.text} />
+        </Pressable>
+      </Tooltip>
+      <IconButton name="trash-2" label={t('Delete')} onPress={onDelete} color={colors.danger} size={36} iconSize={17} />
+    </View>
   );
 }
 
@@ -786,6 +933,9 @@ function Bubble({
   desktop,
   highlighted,
   menuOpen,
+  selected,
+  selectionMode,
+  onToggleSelect,
   onReply,
   onOpenMenu,
 }: {
@@ -795,6 +945,9 @@ function Bubble({
   desktop: boolean;
   highlighted: boolean;
   menuOpen: boolean;
+  selected: boolean;
+  selectionMode: boolean;
+  onToggleSelect: () => void;
   onReply: () => void;
   onOpenMenu: (point: { x: number; y: number }) => void;
 }) {
@@ -820,9 +973,17 @@ function Bubble({
     event?.stopPropagation?.();
     onOpenMenu({ x: event?.clientX ?? event?.nativeEvent?.pageX ?? 0, y: event?.clientY ?? event?.nativeEvent?.pageY ?? 0 });
   };
-  const openAtLongPress = (event: any) => {
-    if (!canAct) return;
-    onOpenMenu({ x: event?.nativeEvent?.pageX ?? 0, y: event?.nativeEvent?.pageY ?? 0 });
+  // On the phone, tapping the empty space beside a bubble opens the same menu.
+  const openAtTouch = (event: any) => {
+    if (!canAct || selectionMode) return;
+    onOpenMenu({
+      x: event?.clientX ?? event?.nativeEvent?.pageX ?? event?.nativeEvent?.locationX ?? 24,
+      y: event?.clientY ?? event?.nativeEvent?.pageY ?? event?.nativeEvent?.locationY ?? 120,
+    });
+  };
+  // Long-press enters selection mode; afterwards a tap toggles the message in/out.
+  const toggleSelection = () => {
+    if (canAct) onToggleSelect();
   };
   // The hover "more" button anchors the menu at its own press point.
   const openFromButton = (event: any) => {
@@ -849,7 +1010,8 @@ function Bubble({
       </Pressable>
     </Tooltip>
   );
-  const hoverControls = web && canAct && (
+  // Hover actions belong to the desktop layout; phones use long-press selection instead.
+  const hoverControls = web && desktop && canAct && (
     <View style={{ flexDirection: 'row', alignSelf: 'center', gap: 4 }}>
       {hoverButton('corner-up-left', t('Reply'), onReply)}
       {hoverButton('more-horizontal', t('Message actions'), openFromButton)}
@@ -857,8 +1019,9 @@ function Bubble({
   );
 
   return (
-    <View
+    <Pressable
       {...(web ? { onPointerEnter: () => setHovered(true), onPointerLeave: () => setHovered(false) } : {})}
+      onPress={!desktop ? openAtTouch : undefined}
       style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 10, marginTop: first ? 14 : 3, justifyContent: mine ? 'flex-end' : 'flex-start' }}>
       {!mine && <View style={{ width: 34 }}>{last && <Avatar user={sender} size={34} showPresence={false} />}</View>}
       {mine && hoverControls}
@@ -869,10 +1032,10 @@ function Bubble({
           </View>
         )}
         <Pressable
-          onPress={m.failed ? () => chatStore.retry(m) : undefined}
-          onLongPress={(!web || !desktop) && canAct ? openAtLongPress : undefined}
+          onPress={selectionMode ? toggleSelection : m.failed ? () => chatStore.retry(m) : (selectionMode ? undefined : () => {})}
+          onLongPress={canAct ? (selectionMode ? toggleSelection : (!web || !desktop ? toggleSelection : undefined)) : undefined}
           delayLongPress={350}
-          {...(web && canAct ? ({ onDoubleClick: onReply, onContextMenu: openAtPointer } as object) : {})}
+          {...(web && canAct && !selectionMode ? ({ onDoubleClick: onReply, onContextMenu: openAtPointer } as object) : {})}
           style={[
             {
               backgroundColor: bubbleBg,
@@ -885,8 +1048,8 @@ function Bubble({
               borderTopEndRadius: mine && !first ? 8 : r,
               opacity: m.pending ? 0.75 : 1,
               gap: 8,
-              borderWidth: highlighted || menuOpen ? 2 : 1,
-              borderColor: highlighted || menuOpen ? colors.amber : 'transparent',
+              borderWidth: highlighted || menuOpen || selected ? 2 : 1,
+              borderColor: highlighted || menuOpen || selected ? colors.amber : 'transparent',
             },
             web && (hovered || menuOpen) && ({ filter: 'brightness(1.06)' } as object),
           ]}>
@@ -972,7 +1135,7 @@ function Bubble({
         </View>
       </View>
       {!mine && hoverControls}
-    </View>
+    </Pressable>
   );
 }
 
