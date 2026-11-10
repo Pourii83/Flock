@@ -15,7 +15,7 @@ import { REACTION_MS, STREAM_PRESETS, useCalls, type CallReaction, type CallRemo
 import { useConversation } from '@/state/chat-store';
 import { colors, onThemeChange, radius } from '@/theme';
 import { Avatar, ConversationAvatar } from './avatar';
-import { Button, Icon, T, Tooltip, type IconName, UnreadBadge } from './ui';
+import { Button, HandIcon, Icon, T, Tooltip, type IconName, UnreadBadge } from './ui';
 import type { User } from '@/lib/types';
 import { CallChatPanel } from './call-chat';
 import { RemoteAudio } from './remote-audio';
@@ -603,7 +603,7 @@ function ActiveCall() {
     ...(canFlip ? [{ icon: 'refresh-ccw' as const, label: t('Switch camera'), onPress: flipCamera }] : []),
     { icon: 'monitor', label: call.sharingScreen ? t('Stop sharing') : t('Share screen'), active: call.sharingScreen, onPress: () => void toggleScreenShare() },
     { icon: 'smile', label: t('Reactions'), active: panel === 'reactions', onPress: () => setPanel('reactions') },
-    ...(call.isGroup ? [{ emoji: '✋', label: call.raised ? t('Lower hand') : t('Raise hand'), active: call.raised, onPress: toggleRaiseHand }] : []),
+    ...(call.isGroup ? [{ hand: true, label: call.raised ? t('Lower hand') : t('Raise hand'), active: call.raised, onPress: toggleRaiseHand }] : []),
     ...(camOn ? [{ icon: selfHidden ? ('eye' as const) : ('eye-off' as const), label: selfHidden ? t('Show my video') : t('Hide my video'), onPress: () => setSelfHidden((h) => !h) }] : []),
     {
       icon: call.speakerMuted ? ('volume-x' as const) : ('volume-2' as const),
@@ -759,7 +759,7 @@ function ActiveCall() {
           )}
           {raisedCount > 0 && (
             <View style={[styles.glass, { paddingHorizontal: 14, paddingVertical: 8, maxWidth: '100%', flexDirection: 'row', alignItems: 'center', gap: 10, borderColor: colors.amber }]}>
-              <T style={{ fontSize: 18 }}>✋</T>
+              <HandIcon size={18} color={colors.amberText} />
               <T variant="body" style={{ flexShrink: 1 }}>
                 {raisedText}
               </T>
@@ -805,7 +805,7 @@ function ActiveCall() {
               <View ref={reactRef} collapsable={false}>
                 <DockButton icon="smile" active={panel === 'reactions'} onPress={() => openAt(measureReact, 'reactions')} label={t('Reactions')} size={dockSize} />
               </View>
-              {wide && call.isGroup && <DockButton emoji="✋" active={call.raised} onPress={toggleRaiseHand} label={call.raised ? t('Lower hand') : t('Raise hand')} size={dockSize} />}
+              {wide && call.isGroup && <DockButton hand active={call.raised} onPress={toggleRaiseHand} label={call.raised ? t('Lower hand') : t('Raise hand')} size={dockSize} />}
               <DockButton icon="message-square" active={panel === 'chat'} onPress={() => toggle('chat')} label={t('Call chat')} badge={panel === 'chat' ? 0 : call.chatUnread} size={dockSize} />
               {wide ? (
                 <>
@@ -859,7 +859,7 @@ function ActiveCall() {
           </View>
           {call.raised && (
             <View style={[styles.glass, { position: 'absolute', start: 8, top: 8, paddingHorizontal: 7, paddingVertical: 2, borderColor: colors.amber, backgroundColor: colors.amberTint }]}>
-              <T style={{ fontSize: 16 }}>✋</T>
+              <HandIcon size={16} color={colors.amberText} />
             </View>
           )}
         </SelfView>
@@ -1188,7 +1188,7 @@ function ReactionsPopover({
                 borderRadius: radius.lg,
                 backgroundColor: raised ? colors.amberTint : pressed || hovered ? colors.surfaceHighest : colors.surfaceHigh,
               })}>
-              <T style={{ fontSize: 20 }}>✋</T>
+              <HandIcon size={20} color={raised ? colors.amberText : colors.text} />
               <T variant="labelLg" style={{ flex: 1 }} color={raised ? colors.amberText : colors.text}>
                 {raised ? t('Lower hand') : t('Raise hand')}
               </T>
@@ -1398,7 +1398,7 @@ function MicPanel({ onClose, bottom }: { onClose: () => void; bottom: number }) 
   );
 }
 
-type MenuItem = { icon?: IconName; emoji?: string; label: string; active?: boolean; onPress: () => void };
+type MenuItem = { icon?: IconName; hand?: boolean; label: string; active?: boolean; onPress: () => void };
 
 /** Phone overflow menu for the controls that don't need to be one tap away. */
 function MoreSheet({ items, onClose, bottom }: { items: MenuItem[]; onClose: () => void; bottom: number }) {
@@ -1431,7 +1431,7 @@ function MoreSheet({ items, onClose, bottom }: { items: MenuItem[]; onClose: () 
                   alignItems: 'center',
                   justifyContent: 'center',
                 }}>
-                {item.emoji ? <T style={{ fontSize: 18 }}>{item.emoji}</T> : <Icon name={item.icon as IconName} size={18} color={item.active ? colors.amberText : colors.text} />}
+                {item.hand ? <HandIcon size={18} color={item.active ? colors.amberText : colors.text} /> : <Icon name={item.icon as IconName} size={18} color={item.active ? colors.amberText : colors.text} />}
               </View>
               <T variant="labelLg" color={item.active ? colors.amberText : colors.text} style={{ flex: 1 }}>
                 {item.label}
@@ -1579,7 +1579,7 @@ function Tile({ p, width, height, version, compact, onOpenScreen }: { p: Person;
               gap: 4,
             },
           ]}>
-          <T style={{ fontSize: compact ? 13 : 16 }}>✋</T>
+          <HandIcon size={compact ? 13 : 16} color={colors.amberText} />
           {!compact && (
             <T variant="label" color={colors.amberText}>
               {t('Hand raised')}
@@ -2005,7 +2005,7 @@ function CallInvitePanel({ onClose }: { onClose: () => void }) {
 
 function DockButton({
   icon,
-  emoji,
+  hand,
   active,
   onPress,
   label,
@@ -2015,8 +2015,8 @@ function DockButton({
   size: sizeProp,
 }: {
   icon?: IconName;
-  /** Shown instead of an icon (Feather has no hand glyph). */
-  emoji?: string;
+  /** Monochrome raised-hand glyph instead of a Feather icon. */
+  hand?: boolean;
   active: boolean;
   onPress: () => void;
   label: string;
@@ -2044,8 +2044,8 @@ function DockButton({
           borderWidth: 2,
           borderColor: ring ? colors.amber : 'transparent',
         })}>
-        {emoji ? (
-          <T style={{ fontSize: Math.round(size * 0.42), lineHeight: Math.round(size * 0.5) }}>{emoji}</T>
+        {hand ? (
+          <HandIcon size={Math.round(size * 0.41)} color={danger ? colors.danger : active ? colors.amberText : colors.text} />
         ) : (
           <Icon name={icon as IconName} size={Math.round(size * 0.41)} color={danger ? colors.danger : active ? colors.amberText : colors.text} />
         )}

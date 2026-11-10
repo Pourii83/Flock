@@ -1,4 +1,5 @@
 import Feather from '@expo/vector-icons/Feather';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { forwardRef, isValidElement, useState, type ComponentProps, type ReactNode } from 'react';
 import {
   ActivityIndicator,
@@ -86,6 +87,11 @@ export function PushPin({ size = 18, color = colors.text }: { size?: number; col
       />
     </Svg>
   );
+}
+
+/** A monochrome raised-hand icon, so call controls look like the rest of the dock (not an emoji). */
+export function HandIcon({ size = 20, color = colors.text }: { size?: number; color?: string }) {
+  return <Ionicons name="hand-left" size={size} color={color} />;
 }
 
 /** Circular / rounded icon button with press + hover feedback. */
