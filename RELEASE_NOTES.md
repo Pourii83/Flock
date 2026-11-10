@@ -1,5 +1,3 @@
-# Flock v1.10.0
-
 A large round of chat, call and server improvements, driven by live testing.
 
 > **Upgrading:** run the installer again or install the new package (config and database are kept).
