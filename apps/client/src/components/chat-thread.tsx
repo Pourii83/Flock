@@ -1484,23 +1484,7 @@ function Composer({
     return true;
   };
 
-  const uploadNow = async (asset: DocumentPicker.DocumentPickerAsset) => {
-    setUploadError('');
-    if (!(await checkSize(asset))) return;
-    setUploading(true);
-    setProgress(0);
-    try {
-      await chatStore.sendFile(conversation.id, asset, replyTo, undefined, (f) => setProgress(f));
-      onClearReply();
-    } catch (e) {
-      setUploadError(e instanceof Error ? e.message : t('Could not upload file'));
-    } finally {
-      setUploading(false);
-      setProgress(null);
-    }
-  };
-
-  /** Pasting (or picking) an image stages it with a caption instead of sending straight away. */
+  /** Pasting, picking or dropping a file stages it with a preview and a caption; Send uploads it. */
   const stageAsset = async (asset: DocumentPicker.DocumentPickerAsset) => {
     setUploadError('');
     if (!(await checkSize(asset))) return;
@@ -1543,8 +1527,8 @@ function Composer({
     const picked = await DocumentPicker.getDocumentAsync({ type: '*/*', copyToCacheDirectory: true, multiple: false, base64: false });
     if (picked.canceled) return;
     const asset = picked.assets[0];
-    if (asset?.mimeType?.startsWith('image/')) await stageAsset(asset);
-    else if (asset) await uploadNow(asset);
+    // Any file (image, zip, document, …) waits in the composer for Send/Cancel, like Telegram.
+    if (asset) await stageAsset(asset);
   };
 
   /** Send button / Enter: saves an edit, uploads a staged attachment, or sends the typed message. */
