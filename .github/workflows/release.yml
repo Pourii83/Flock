@@ -41,6 +41,9 @@ jobs:
     needs: package
     runs-on: ubuntu-latest
     steps:
+      # The release body is curated in RELEASE_NOTES.md (the auto-generated notes duplicated their
+      # "Full Changelog" line whenever a tag was re-pushed).
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           path: dist
@@ -49,5 +52,5 @@ jobs:
         with:
           tag_name: ${{ github.event.inputs.tag || github.ref_name }}
           name: Flock ${{ github.event.inputs.tag || github.ref_name }}
-          generate_release_notes: true
+          body_path: RELEASE_NOTES.md
           files: dist/*
