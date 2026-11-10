@@ -126,7 +126,7 @@ export type AppSettings = {
 export type Branding = { appName: string; repoUrl: string; showRepoLinks: boolean; version: string | null };
 
 /** The installed server version and its changelog (empty when the package has none). */
-export type UpdateInfo = { version: string | null; notes: string };
+export type UpdateInfo = { version: string | null; notes: string; notesFa?: string };
 
 /** Admin-only: installed server release vs the latest GitHub release (Releases, not commits). */
 export type ServerUpdateInfo = {

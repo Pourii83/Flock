@@ -5,7 +5,7 @@ import { deleteAvatar, saveAvatar } from './avatars.js';
 import { copyStoredFile, deleteStoredFile, receiveFile, safeMimeType, storedFilePath } from './files.js';
 import { getSettings, updateSettings } from './settings.js';
 import { serverUsage } from './usage.js';
-import { installedVersion, releaseNotes } from './version.js';
+import { installedVersion, releaseNotes, releaseNotesFa } from './version.js';
 import { serverUpdateInfo, startSelfUpdate } from './releases.js';
 import * as repo from './repo.js';
 
@@ -27,7 +27,7 @@ export function createRouter(realtime) {
   });
 
   // Public update info: the installed version and the changelog packaged with it.
-  r.get('/update', async (_req, res) => res.json({ version: await installedVersion(), notes: await releaseNotes() }));
+  r.get('/update', async (_req, res) => res.json({ version: await installedVersion(), notes: await releaseNotes(), notesFa: await releaseNotesFa() }));
 
   // ---------- auth ----------
 

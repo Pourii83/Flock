@@ -668,6 +668,7 @@ done
 cp "$SRC/VERSION" "$SRC/uninstall.sh" "$PREFIX/" 2>/dev/null || true
 # The release changelog, when the package ships one (the app shows it after an update).
 if [ -f "$SRC/RELEASE_NOTES.md" ]; then cp "$SRC/RELEASE_NOTES.md" "$PREFIX/RELEASE_NOTES.md"; fi
+if [ -f "$SRC/RELEASE_NOTES.fa.md" ]; then cp "$SRC/RELEASE_NOTES.fa.md" "$PREFIX/RELEASE_NOTES.fa.md"; fi
 # Admin self-update helper: the unprivileged flock service user may run only this script as root.
 # It starts a transient systemd unit that downloads the GitHub release and re-runs this installer.
 if [ -f "$SRC/self-update.sh" ] && [ -f "$SRC/self-update-worker.sh" ]; then

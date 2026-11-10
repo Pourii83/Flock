@@ -1,7 +1,7 @@
 {
   "name": "flock-desktop",
   "productName": "Flock",
-  "version": "1.10.0",
+  "version": "1.10.1",
   "description": "Flock desktop app (Electron shell around the React Native Web build)",
   "main": "main.js",
   "private": true,

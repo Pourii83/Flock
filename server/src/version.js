@@ -34,3 +34,12 @@ export async function releaseNotes() {
   }
   return '';
 }
+
+/** Persian release notes (RELEASE_NOTES.fa.md), or '' when the package has no translation. */
+export async function releaseNotesFa() {
+  for (const file of [path.join(APP_DIR, 'RELEASE_NOTES.fa.md'), path.join(SERVER_DIR, 'RELEASE_NOTES.fa.md')]) {
+    const text = await readText(file);
+    if (text) return text.slice(0, MAX_NOTES);
+  }
+  return '';
+}

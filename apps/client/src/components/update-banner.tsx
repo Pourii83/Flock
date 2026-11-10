@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Linking, Modal, Platform, Pressable, ScrollView, View } from 'react-native';
 
 import { getAppName, getRepoUrl } from '@/lib/brand';
-import { t } from '@/lib/i18n';
+import { useLang, t } from '@/lib/i18n';
 import {
   CLIENT_VERSION,
   displayVersion,
@@ -95,7 +95,8 @@ export function UpdateBanner() {
  * the user saw, with the notes packaged into the server release. Never blocks the app.
  */
 export function ChangelogModal() {
-  const { notes } = useUpdateInfo();
+  const { notes, notesFa } = useUpdateInfo();
+  const lang = useLang();
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
@@ -109,9 +110,18 @@ export function ChangelogModal() {
   }, []);
 
   if (!open) return null;
-  const lines = notes
+  // The server ships the changelog in both languages; show it in the app's current language.
+  const notesText = lang === 'fa' && notesFa ? notesFa : notes;
+  const lines = notesText
     .split(/\r?\n/)
-    .map((line) => line.replace(/^[\s*•\-]+/, '').trim())
+    .map((line) =>
+      line
+        .replace(/^[\s*•\-]+/, '')
+        .replace(/^[#>\s]+/, '')
+        .replace(/\*\*/g, '')
+        .replace(/^\[(.+?)\]\([^)]*\)$/, '$1')
+        .trim(),
+    )
     .filter(Boolean)
     .slice(0, 12);
   const close = () => {

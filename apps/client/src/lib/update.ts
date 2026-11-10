@@ -26,11 +26,13 @@ type UpdateState = {
   version: string | null;
   /** Changelog text shipped with the server package (plain lines; may be empty). */
   notes: string;
+  /** Persian changelog when the package ships one. */
+  notesFa: string;
   /** A check has finished (successfully or not). */
   checked: boolean;
 };
 
-let state: UpdateState = { version: null, notes: '', checked: false };
+let state: UpdateState = { version: null, notes: '', notesFa: '', checked: false };
 const listeners = new Set<() => void>();
 const emit = () => listeners.forEach((fn) => fn());
 const subscribe = (fn: () => void) => {
@@ -94,8 +96,9 @@ export function refreshUpdateInfo(): Promise<void> {
     (info) => {
       const version = info.version ?? null;
       const notes = info.notes ?? '';
-      if (version !== state.version || notes !== state.notes || !state.checked) {
-        state = { version, notes, checked: true };
+      const notesFa = info.notesFa ?? '';
+      if (version !== state.version || notes !== state.notes || notesFa !== state.notesFa || !state.checked) {
+        state = { version, notes, notesFa, checked: true };
         emit();
       }
     },
