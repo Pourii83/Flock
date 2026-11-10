@@ -1,10 +1,21 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Dimensions, PixelRatio, Platform } from 'react-native';
 
-import { callAudio, switchCamera, type AudioDeviceChoice } from '@/lib/native-media';
+import { callAudio, listCameras, switchCamera, type AudioDeviceChoice, type VideoDeviceChoice } from '@/lib/native-media';
 import { api } from '@/lib/api';
+import { playCallChatSound, playReactionSound } from '@/lib/call-sounds';
 import { getNoisePreference, micConstraints, processMic, strongNoiseSupported, type NoiseMode } from '@/lib/noise';
-import { createPeer, getCameraTrack, getLocalMedia, loadIceConfig, rtcSupported } from '@/lib/rtc';
+import {
+  createPeer,
+  getCameraTrack,
+  getLocalMedia,
+  loadIceConfig,
+  mediaErrorMessage,
+  rtcSupported,
+  screenShareSupported,
+  screenShareUnavailableMessage,
+  webrtcBlockedMessage,
+} from '@/lib/rtc';
 import type { Conversation, User } from '@/lib/types';
 import { useAuth } from './auth';
 import { chatStore, useChat } from './chat-store';
@@ -75,6 +86,8 @@ export type CallState = {
   cameraOff: boolean;
   sharingScreen: boolean;
   speakerOn: boolean;
+  /** Every received call sound is muted from the speaker button (voices, reactions and chat blips). */
+  speakerMuted: boolean;
   frontCamera: boolean;
   localStream: MediaStream | null;
   screenStream: MediaStream | null;
@@ -94,9 +107,15 @@ export type CallState = {
   /** Temporary chat for this call only (never stored). */
   chat: CallChatMessage[];
   chatUnread: number;
+  /** The call chat panel is on screen: incoming messages need no notification sound. */
+  chatOpen: boolean;
   notice: string | null;
   /** Reactions currently floating up the screen; each removes itself when its animation ends. */
   reactions: CallReaction[];
+  /** I raised my hand in a group call (cleared when the call ends). */
+  raised: boolean;
+  /** Other participants who currently have their hand raised. */
+  raisedBy: string[];
   /** Call-wide voice quality: whoever changes it changes it for everyone in the call. */
   voiceBitrate: VoiceBitrate;
   /** When voiceBitrate was last chosen (0 = default); the newest choice wins across peers. */
@@ -110,6 +129,10 @@ export type CallState = {
   audioDevices: AudioDeviceChoice[];
   audioInputId: string;
   audioOutputId: string;
+  /** Cameras the browser offers (web/desktop); empty on phones, which flip front/back instead. */
+  videoDevices: VideoDeviceChoice[];
+  /** The camera picked for this call ('default' = the browser's choice). */
+  videoDeviceId: string;
 };
 
 const IDLE: CallState = {
@@ -125,6 +148,7 @@ const IDLE: CallState = {
   cameraOff: true,
   sharingScreen: false,
   speakerOn: false,
+  speakerMuted: false,
   frontCamera: true,
   localStream: null,
   screenStream: null,
@@ -137,8 +161,11 @@ const IDLE: CallState = {
   miniPreview: true,
   chat: [],
   chatUnread: 0,
+  chatOpen: false,
   notice: null,
   reactions: [],
+  raised: false,
+  raisedBy: [],
   voiceBitrate: 160,
   voiceBitrateAt: 0,
   streamQuality: '1080p',
@@ -148,6 +175,8 @@ const IDLE: CallState = {
   audioDevices: [],
   audioInputId: 'default',
   audioOutputId: 'default',
+  videoDevices: [],
+  videoDeviceId: 'default',
 };
 
 type CallApi = {
@@ -172,6 +201,17 @@ type CallApi = {
   /** Starts or stops screen sharing at any point of the call (web/desktop). */
   toggleScreenShare: () => Promise<void>;
   toggleSpeaker: () => void;
+  /** Mutes/unmutes all received call audio (voices plus call sounds) from the speaker button. */
+  toggleSpeakerMute: () => void;
+  /** Switches the camera mid-call when the browser offers more than one. */
+  selectVideoDevice: (deviceId: string) => Promise<void>;
+  /** Re-enumerates the cameras (the browser hides them until the camera is allowed). */
+  refreshVideoDevices: () => Promise<void>;
+  /** Raise/lower my hand in a group call. */
+  toggleRaiseHand: () => void;
+  lowerHand: () => void;
+  /** Told by the call chat panel so incoming messages know whether to play a sound. */
+  setChatOpen: (open: boolean) => void;
   /** Switches the mic's noise cancellation live (off / standard / strong AI). */
   setNoiseMode: (mode: NoiseMode) => Promise<void>;
   flipCamera: () => void;
@@ -259,7 +299,13 @@ export function CallProvider({ children }: { children: ReactNode }) {
       peers.current.get(userId)?.pc.close();
       peers.current.delete(userId);
       queues.current.delete(userId);
-      setCall((c) => ({ ...c, remotes: c.remotes.filter((r) => r.userId !== userId), mediaVersion: c.mediaVersion + 1 }));
+      setCall((c) => ({
+        ...c,
+        remotes: c.remotes.filter((r) => r.userId !== userId),
+        // Someone leaving can't keep their hand raised.
+        raisedBy: c.raisedBy.filter((id) => id !== userId),
+        mediaVersion: c.mediaVersion + 1,
+      }));
     },
     [setCall],
   );
@@ -350,6 +396,16 @@ export function CallProvider({ children }: { children: ReactNode }) {
     });
   }, [setCall]);
 
+  /** Re-reads the camera list: browsers hide names and ids until the camera has been allowed once. */
+  const refreshVideoDevices = useCallback(async () => {
+    if (Platform.OS !== 'web') return;
+    const devices = await listCameras();
+    setCall((current) => {
+      const keep = current.videoDeviceId === 'default' || devices.some((device) => device.id === current.videoDeviceId);
+      return { ...current, videoDevices: devices, videoDeviceId: keep ? current.videoDeviceId : 'default' };
+    });
+  }, [setCall]);
+
   const cleanup = useCallback(() => {
     for (const { pc } of peers.current.values()) pc.close();
     peers.current.clear();
@@ -408,26 +464,27 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const prepareMedia = useCallback(
     async (video: boolean) => {
       if (!rtcSupported()) {
-        patch({ notice: t(NATIVE_NOTICE) });
+        patch({ notice: Platform.OS === 'web' ? webrtcBlockedMessage() : t(NATIVE_NOTICE) });
         return false;
       }
-      let stream: MediaStream;
+      let opening: { stream: MediaStream; cameraError: string | null };
       try {
         const base = micConstraints(getNoisePreference());
         const wanted = savedDevice('input');
         const open = (id: string) => getLocalMedia(video, id === 'default' ? base : { ...base, deviceId: { exact: id } });
         const media = open(wanted).then(
-          (s) => ({ s, id: wanted }),
-          (e) => (wanted === 'default' ? Promise.reject(e) : open('default').then((s) => ({ s, id: 'default' }))),
+          (result) => ({ ...result, id: wanted }),
+          (error) => (wanted === 'default' ? Promise.reject(error) : open('default').then((result) => ({ ...result, id: 'default' }))),
         );
-        let opened: { s: MediaStream; id: string };
+        let opened: { stream: MediaStream; cameraError: string | null; id: string };
         [opened, iceConfig.current] = await Promise.all([media, loadIceConfig(api.ice)]);
-        stream = opened.s;
-        patch({ audioInputId: opened.id, audioOutputId: savedDevice('output') });
-      } catch (e: any) {
-        patch({ notice: e.message });
+        opening = opened;
+        patch({ audioInputId: opened.id, audioOutputId: savedDevice('output'), notice: opened.cameraError });
+      } catch (error) {
+        patch({ notice: mediaErrorMessage(error, video ? 'media' : 'microphone') });
         return false;
       }
+      const { stream } = opening;
       if (callRef.current.phase === 'idle') {
         // Hung up while the permission prompt was open.
         stream.getTracks().forEach((tr) => tr.stop());
@@ -446,10 +503,12 @@ export function CallProvider({ children }: { children: ReactNode }) {
       }
       const cam = stream.getVideoTracks()[0] ?? null;
       cameraTrack.current = cam;
+      // With the camera allowed, the browser now reveals the rest of its camera list.
+      if (cam) void refreshVideoDevices();
       patch({ localStream: stream, cameraOff: !cam, noiseMode });
       return true;
     },
-    [patch],
+    [patch, refreshVideoDevices],
   );
 
   /** A connection to one participant. The newcomer of the pair is the offerer. */
@@ -457,11 +516,19 @@ export function CallProvider({ children }: { children: ReactNode }) {
     (userId: string, offerer: boolean) => {
       const local = callRef.current.localStream;
       if (!local || !iceConfig.current) return null;
-      const pc = createPeer(
-        iceConfig.current,
-        (d) => signal(d, userId),
-        (remote) => upsertRemote(userId, { stream: remote }),
-      );
+      let pc: RTCPeerConnection;
+      try {
+        pc = createPeer(
+          iceConfig.current,
+          (d) => signal(d, userId),
+          (remote) => upsertRemote(userId, { stream: remote }),
+        );
+      } catch (error) {
+        // An extension/policy can leave getUserMedia working while RTCPeerConnection is blocked.
+        console.warn('[flock] peer connection failed', error);
+        patch({ notice: Platform.OS === 'web' ? webrtcBlockedMessage() : t(NATIVE_NOTICE) });
+        return null;
+      }
       const entry: Peer = { pc, pending: [], offerer };
       peers.current.set(userId, entry);
       pc.oniceconnectionstatechange = async () => {
@@ -488,7 +555,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       upsertRemote(userId);
       return entry;
     },
-    [signal, upsertRemote, outgoingAudio, outgoingVideo],
+    [patch, signal, upsertRemote, outgoingAudio, outgoingVideo],
   );
 
   const offerTo = useCallback(
@@ -537,6 +604,14 @@ export function CallProvider({ children }: { children: ReactNode }) {
       if (data?.type === 'reaction' && typeof data.emoji === 'string') {
         const name = memberOf(callRef.current.conversationId, from)?.displayName ?? callRef.current.remotes.find((r) => r.userId === from)?.user?.displayName ?? callRef.current.peer?.displayName ?? '';
         addReaction(data.emoji.slice(0, 16), name);
+        if (!callRef.current.speakerMuted) playReactionSound('receive');
+        return;
+      }
+      if (data?.type === 'raise' && typeof data.raised === 'boolean') {
+        setCall((c) => ({
+          ...c,
+          raisedBy: data.raised ? (c.raisedBy.includes(from) ? c.raisedBy : [...c.raisedBy, from]) : c.raisedBy.filter((id) => id !== from),
+        }));
         return;
       }
       if (data?.type === 'net' && (data.q === 'good' || data.q === 'fair' || data.q === 'poor')) {
@@ -555,6 +630,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
           : undefined;
         const msg: CallChatMessage = { id: String(data.id ?? Date.now()), mine: false, text: data.text.slice(0, 2000), at: Date.now(), author };
         setCall((c) => ({ ...c, chat: [...c.chat, msg], chatUnread: c.chatUnread + 1 }));
+        // A short notification while the chat panel is closed (and the speaker isn't muted).
+        if (!callRef.current.chatOpen && !callRef.current.speakerMuted) playCallChatSound();
         return;
       }
       if (data?.type === 'media') {
@@ -730,8 +807,13 @@ export function CallProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (call.phase !== 'active') return;
     void refreshAudioDevices();
-    return callAudio.watchDevices(() => void refreshAudioDevices());
-  }, [call.phase, refreshAudioDevices]);
+    void refreshVideoDevices();
+    // A plugged/unplugged headset or webcam changes both lists.
+    return callAudio.watchDevices(() => {
+      void refreshAudioDevices();
+      void refreshVideoDevices();
+    });
+  }, [call.phase, refreshAudioDevices, refreshVideoDevices]);
 
   // Closing/reloading the tab ends the call right away (the server also ends it when the socket drops).
   useEffect(() => {
@@ -903,8 +985,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
         const base = micConstraints(mode);
         const constraints = Platform.OS === 'web' && deviceId && deviceId !== 'default' ? { ...base, deviceId: { exact: deviceId } } : base;
         raw = (await navigator.mediaDevices.getUserMedia({ audio: constraints })).getAudioTracks()[0]!;
-      } catch {
-        patch({ notice: t('The selected microphone is unavailable') });
+      } catch (error) {
+        patch({ notice: mediaErrorMessage(error, 'microphone') });
         return;
       }
       const chain = await processMic(raw, mode);
@@ -975,7 +1057,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const toggleCamera = useCallback(async () => {
     const c = callRef.current;
     if (!c.localStream) {
-      if (!rtcSupported()) patch({ notice: t(NATIVE_NOTICE) });
+      if (!rtcSupported()) patch({ notice: Platform.OS === 'web' ? webrtcBlockedMessage() : t(NATIVE_NOTICE) });
       return;
     }
     if (!c.cameraOff) {
@@ -991,15 +1073,45 @@ export function CallProvider({ children }: { children: ReactNode }) {
       return;
     }
     try {
-      const cam = await getCameraTrack();
+      // Turn on the camera picked earlier in the call, if any.
+      const cam = await getCameraTrack(c.videoDeviceId);
       cameraTrack.current = cam;
       c.localStream.addTrack(cam);
       setCall((s) => ({ ...s, cameraOff: false, frontCamera: true, notice: null, mediaVersion: s.mediaVersion + 1 }));
       await syncVideoSender();
+      void refreshVideoDevices();
     } catch (e: any) {
       patch({ notice: e.message });
     }
-  }, [patch, setCall, syncVideoSender]);
+  }, [patch, setCall, syncVideoSender, refreshVideoDevices]);
+
+  /** Swaps the local camera for another one without dropping the call. */
+  const selectVideoDevice = useCallback(
+    async (deviceId: string) => {
+      const c = callRef.current;
+      if (!c.localStream) {
+        patch({ notice: t('Turn the camera on first, then switch it.') });
+        return;
+      }
+      if (!c.cameraOff && c.videoDeviceId === deviceId) return;
+      try {
+        const track = await getCameraTrack(deviceId);
+        const old = cameraTrack.current;
+        cameraTrack.current = track;
+        c.localStream.addTrack(track);
+        if (old) {
+          c.localStream.removeTrack(old);
+          old.stop();
+        }
+        setCall((s) => ({ ...s, cameraOff: false, videoDeviceId: deviceId, notice: null, mediaVersion: s.mediaVersion + 1 }));
+        await syncVideoSender();
+        void refreshVideoDevices();
+      } catch (e: any) {
+        patch({ notice: e.message });
+      }
+    },
+    [patch, setCall, syncVideoSender, refreshVideoDevices],
+  );
 
   const toggleScreenShare = useCallback(async () => {
     if (!callRef.current.localStream) return;
@@ -1010,6 +1122,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
       stopScreenAudio();
       patch({ sharingScreen: false, sharingAudio: false, screenStream: null });
       await syncVideoSender();
+      return;
+    }
+    if (!screenShareSupported()) {
+      patch({ notice: screenShareUnavailableMessage() });
       return;
     }
     try {
@@ -1080,8 +1196,12 @@ export function CallProvider({ children }: { children: ReactNode }) {
       }
       patch({ sharingScreen: true, sharingAudio: withAudio, screenStream: new MediaStream([track]), notice });
       await syncVideoSender();
-    } catch {
-      // User cancelled the picker.
+    } catch (error) {
+      // The user chose "Cancel" in the browser's own picker: no message.
+      const name = (error as { name?: string } | null)?.name;
+      if (name !== 'NotAllowedError' && name !== 'PermissionDeniedError' && name !== 'AbortError') {
+        patch({ notice: mediaErrorMessage(error, 'screen') });
+      }
     }
   }, [patch, syncVideoSender, setSenders, stopScreenAudio]);
 
@@ -1125,6 +1245,11 @@ export function CallProvider({ children }: { children: ReactNode }) {
     void selectAudioOutput(callRef.current.speakerOn ? 'AUTOMATIC' : 'SPEAKER_PHONE');
   }, [selectAudioOutput]);
 
+  /** Speaker button: silences every received call sound without touching the per-person volumes. */
+  const toggleSpeakerMute = useCallback(() => {
+    setCall((c) => ({ ...c, speakerMuted: !c.speakerMuted }));
+  }, [setCall]);
+
   const flipCamera = useCallback(() => {
     if (Platform.OS === 'web') return;
     const c = callRef.current;
@@ -1135,6 +1260,21 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const setMinimized = useCallback((minimized: boolean) => patch({ minimized }), [patch]);
   const setMiniPreview = useCallback((miniPreview: boolean) => patch({ miniPreview }), [patch]);
 
+  const toggleRaiseHand = useCallback(() => {
+    const c = callRef.current;
+    // Direct calls have no hand to raise.
+    if (!c.isGroup) return;
+    const raised = !c.raised;
+    patch({ raised });
+    signal({ type: 'raise', raised });
+  }, [patch, signal]);
+
+  const lowerHand = useCallback(() => {
+    if (!callRef.current.raised) return;
+    patch({ raised: false });
+    signal({ type: 'raise', raised: false });
+  }, [patch, signal]);
+
   const sendReaction = useCallback(
     (emoji: string) => {
       // A short cooldown keeps rapid taps from piling emojis on top of each other.
@@ -1143,6 +1283,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       lastReaction.current = now;
       signal({ type: 'reaction', emoji });
       addReaction(emoji, t('You'));
+      playReactionSound('send');
     },
     [signal, addReaction],
   );
@@ -1159,6 +1300,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
   );
 
   const readChat = useCallback(() => patch({ chatUnread: 0 }), [patch]);
+  const setChatOpen = useCallback((chatOpen: boolean) => patch({ chatOpen }), [patch]);
 
   const setParticipantVolume = useCallback((userId: string, volume: number) => {
     if (!Number.isFinite(volume)) return;
@@ -1327,6 +1469,12 @@ export function CallProvider({ children }: { children: ReactNode }) {
       toggleCamera,
       toggleScreenShare,
       toggleSpeaker,
+      toggleSpeakerMute,
+      selectVideoDevice,
+      refreshVideoDevices,
+      toggleRaiseHand,
+      lowerHand,
+      setChatOpen,
       setNoiseMode,
       flipCamera,
       setMinimized,
@@ -1358,6 +1506,12 @@ export function CallProvider({ children }: { children: ReactNode }) {
       toggleCamera,
       toggleScreenShare,
       toggleSpeaker,
+      toggleSpeakerMute,
+      selectVideoDevice,
+      refreshVideoDevices,
+      toggleRaiseHand,
+      lowerHand,
+      setChatOpen,
       setNoiseMode,
       flipCamera,
       setMinimized,

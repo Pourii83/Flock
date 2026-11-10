@@ -5,6 +5,7 @@ import { deleteAvatar, saveAvatar } from './avatars.js';
 import { copyStoredFile, deleteStoredFile, receiveFile, safeMimeType, storedFilePath } from './files.js';
 import { getSettings, updateSettings } from './settings.js';
 import { serverUsage } from './usage.js';
+import { installedVersion, releaseNotes } from './version.js';
 import * as repo from './repo.js';
 
 const USERNAME_RE = /^[a-zA-Z0-9_.]{3,24}$/;
@@ -17,6 +18,15 @@ export function createRouter(realtime) {
     const s = getSettings();
     res.json({ ok: true, maxUploadMb: s.maxUploadMb, allowRegistration: s.allowRegistration });
   });
+
+  // Public branding: the admin's app name, project link and the installed version.
+  r.get('/branding', async (_req, res) => {
+    const s = getSettings();
+    res.json({ appName: s.appName, repoUrl: s.repoUrl, showRepoLinks: s.showRepoLinks, version: await installedVersion() });
+  });
+
+  // Public update info: the installed version and the changelog packaged with it.
+  r.get('/update', async (_req, res) => res.json({ version: await installedVersion(), notes: await releaseNotes() }));
 
   // ---------- auth ----------
 
@@ -266,6 +276,77 @@ export function createRouter(realtime) {
     }
   });
 
+  // Sender edits the text of their own message.
+  r.patch('/messages/:messageId', async (req, res) => {
+    const message = await visibleMessage(req, res);
+    if (!message) return;
+    if (message.sender_id !== req.userId) return res.status(403).json({ error: 'You can only edit your own messages' });
+    if (message.kind !== 'text') return res.status(400).json({ error: 'Only text messages can be edited' });
+    const { body, error } = await messageText(message.conversation_id, req.body?.body);
+    if (error) return res.status(error.status).json({ error: error.message });
+    const updated = await repo.updateMessageBody(message.id, body);
+    if (!updated) return res.status(404).json({ error: 'Message not found' });
+    await realtime.notifyMessageUpdated(message.conversation_id, updated);
+    res.json(updated);
+  });
+
+  // Sender deletes their own message; its stored file (if any) goes too.
+  r.delete('/messages/:messageId', async (req, res) => {
+    const message = await visibleMessage(req, res);
+    if (!message) return;
+    if (message.sender_id !== req.userId) return res.status(403).json({ error: 'You can only delete your own messages' });
+    const deleted = await repo.deleteMessage(message.id);
+    if (!deleted) return res.status(404).json({ error: 'Message not found' });
+    if (deleted.attachment_path) await deleteStoredFile(deleted.attachment_path);
+    await realtime.notifyMessageDeleted(message.conversation_id, message.id);
+    res.json({ ok: true, messageId: message.id });
+  });
+
+  // Copies a message into another conversation I'm in, noting the original sender.
+  r.post('/messages/:messageId/forward', async (req, res) => {
+    const src = await visibleMessage(req, res);
+    if (!src) return;
+    if (src.kind !== 'text' && src.kind !== 'file') return res.status(400).json({ error: 'This message can’t be forwarded' });
+    const targetId = req.body?.conversationId;
+    if (!(await repo.isMember(targetId, req.userId))) return res.status(404).json({ error: 'Conversation not found' });
+    const [srcConv, targetConv] = await Promise.all([repo.getConversationRow(src.conversation_id), repo.getConversationRow(targetId)]);
+    if (!targetConv) return res.status(404).json({ error: 'Conversation not found' });
+    if (srcConv?.secret || targetConv.secret) return res.status(400).json({ error: 'Forwarding is not available in secret chats' });
+    let attachment = null;
+    if (src.attachment_name) {
+      const live = src.attachment_path && src.attachment_expires_at > Date.now();
+      const copy = live ? await copyStoredFile(src.attachment_path) : null;
+      if (!copy) return res.status(410).json({ error: 'File expired' });
+      attachment = { name: src.attachment_name, mimeType: src.attachment_mime, size: src.attachment_size, path: copy, expiresAt: src.attachment_expires_at };
+    }
+    const sender = await repo.getUserRow(src.sender_id);
+    try {
+      const message = await repo.addMessage(targetId, req.userId, {
+        kind: src.kind,
+        body: src.body,
+        attachment,
+        forwardedFrom: src.forwarded_from ?? sender?.display_name ?? '',
+      });
+      await realtime.notifyMessage(message);
+      res.status(201).json(message);
+    } catch (error) {
+      if (attachment) await deleteStoredFile(attachment.path);
+      throw error;
+    }
+  });
+
+  // Pins, unpins (`on: false`) or toggles (no `on`) a message in its conversation.
+  r.post('/messages/:messageId/pin', async (req, res) => {
+    const message = await visibleMessage(req, res);
+    if (!message) return;
+    if (message.kind !== 'text' && message.kind !== 'file') return res.status(400).json({ error: 'You can’t pin this message' });
+    const on = typeof req.body?.on === 'boolean' ? req.body.on : undefined;
+    const result = await repo.setPinned(message.id, on);
+    if (!result) return res.status(404).json({ error: 'Message not found' });
+    await realtime.notifyPinned(message.conversation_id, message.id, result.pinnedAt);
+    res.json(result);
+  });
+
   // ---------- end-to-end encrypted ("secret") chats ----------
 
   // Each device registers the public half of its key pair; the private half never leaves it.
@@ -312,13 +393,27 @@ export function createRouter(realtime) {
     res.json(await repo.listMessages(req.params.id, { before: req.query.before, limit: req.query.limit })),
   );
 
-  r.post('/conversations/:id/messages', member, async (req, res) => {
-    const body = String(req.body?.body ?? '').trim();
-    if (!body) return res.status(400).json({ error: 'Message is empty' });
-    const secret = await repo.getSecretState(req.params.id);
+  // Search inside one conversation (newest match first); `before` limits it to older messages.
+  r.get('/conversations/:id/search', member, async (req, res) =>
+    res.json(await repo.searchMessages(req.params.id, { q: req.query.q, before: req.query.before })),
+  );
+
+  // The conversation's pinned messages, newest pin first.
+  r.get('/conversations/:id/pinned', member, async (req, res) =>
+    res.json(await repo.listPinnedMessages(req.params.id)),
+  );
+
+  /**
+   * The text to store for a message in this conversation: plain text up to 4000 characters, or,
+   * in end-to-end encrypted chats, only a v1 ciphertext envelope once both devices are known.
+   */
+  async function messageText(conversationId, rawBody) {
+    const body = String(rawBody ?? '').trim();
+    if (!body) return { error: { status: 400, message: 'Message is empty' } };
+    const secret = await repo.getSecretState(conversationId);
     if (secret?.secret) {
-      // Only ciphertext envelopes, and only once both devices are known.
-      if (!secret.secret_recipient_device) return res.status(409).json({ error: 'Waiting for the other person to accept the secret chat' });
+      if (!secret.secret_recipient_device)
+        return { error: { status: 409, message: 'Waiting for the other person to accept the secret chat' } };
       let envelope = null;
       try {
         envelope = JSON.parse(body);
@@ -326,8 +421,14 @@ export function createRouter(realtime) {
         envelope = null;
       }
       if (envelope?.v !== 1 || typeof envelope.n !== 'string' || typeof envelope.c !== 'string' || body.length > 16000)
-        return res.status(400).json({ error: 'Secret chats only accept encrypted messages' });
-    } else if (body.length > 4000) return res.status(400).json({ error: 'Message is too long' });
+        return { error: { status: 400, message: 'Secret chats only accept encrypted messages' } };
+    } else if (body.length > 4000) return { error: { status: 400, message: 'Message is too long' } };
+    return { body };
+  }
+
+  r.post('/conversations/:id/messages', member, async (req, res) => {
+    const { body, error } = await messageText(req.params.id, req.body?.body);
+    if (error) return res.status(error.status).json({ error: error.message });
     const message = await repo.addMessage(req.params.id, req.userId, { body, replyToId: req.body?.replyToId });
     await realtime.notifyMessage(message);
     res.status(201).json(message);
@@ -340,13 +441,16 @@ export function createRouter(realtime) {
     }
     if (!req.file) return res.status(400).json({ error: 'Choose a file to upload' });
     const retention = getSettings().fileRetentionDays;
+    const name = req.file.originalname.slice(0, 255) || 'File';
+    // An optional caption becomes the message text; without one the file name is shown.
+    const caption = String(req.body?.caption ?? '').trim().slice(0, 4000);
     try {
       const message = await repo.addMessage(req.params.id, req.userId, {
         kind: 'file',
-        body: req.file.originalname.slice(0, 255) || 'File',
+        body: caption || name,
         replyToId: req.body?.replyToId,
         attachment: {
-          name: req.file.originalname.slice(0, 255) || 'File',
+          name,
           mimeType: safeMimeType(req.file.mimetype),
           size: req.file.size,
           path: req.file.filename,

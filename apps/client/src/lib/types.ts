@@ -37,6 +37,8 @@ export type Message = {
   id: string;
   conversationId: string;
   senderId: string;
+  /** Display name of the sender, set by the server on message payloads. */
+  senderName?: string | null;
   kind: 'text' | 'system' | 'file' | 'call_invite' | 'call';
   body: string;
   attachment: {
@@ -51,6 +53,10 @@ export type Message = {
   replyTo: { id: string; body: string; senderId: string; senderName: string } | null;
   /** Set on copies made into Saved Messages: the original sender's name. */
   forwardedFrom?: string | null;
+  /** When the sender last changed the text (null/undefined = never edited). */
+  editedAt?: number | null;
+  /** When the message was pinned in its conversation (null/undefined = not pinned). */
+  pinnedAt?: number | null;
   /** Emoji reactions, oldest first. Plaintext metadata (also in secret chats). */
   reactions?: Reaction[];
   createdAt: number;

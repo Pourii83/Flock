@@ -6,7 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Avatar } from '@/components/avatar';
 import { EmptyStage } from '@/components/empty-state';
 import { DesktopTopBar, MobileHeader, PageTitle } from '@/components/shell';
-import { IconButton, SearchBar, SectionLabel, T } from '@/components/ui';
+import { IconButton, SearchBar, SectionLabel, T, Tooltip } from '@/components/ui';
 import { useIsWide } from '@/hooks/use-layout';
 import { api } from '@/lib/api';
 import { lastSeenLabel } from '@/lib/format';
@@ -62,9 +62,15 @@ function PersonRow({ user, wide }: { user: User; wide: boolean }) {
           {lastSeenLabel(person.online, person.lastSeen)}
         </T>
       </View>
-      <IconButton name="message-square" label={t('Message')} onPress={message} bg={colors.surface} />
-      <IconButton name="phone" label={t('Voice call')} onPress={() => call(false)} bg={colors.surface} color={colors.teal} />
-      <IconButton name="video" label={t('Video call')} onPress={() => call(true)} bg={colors.surface} color={colors.amberText} />
+      <Tooltip label={t('Message')} style={{ alignSelf: 'center' }}>
+        <IconButton name="message-square" label={t('Message')} onPress={message} bg={colors.surface} />
+      </Tooltip>
+      <Tooltip label={t('Voice call')} style={{ alignSelf: 'center' }}>
+        <IconButton name="phone" label={t('Voice call')} onPress={() => call(false)} bg={colors.surface} color={colors.teal} />
+      </Tooltip>
+      <Tooltip label={t('Video call')} style={{ alignSelf: 'center' }}>
+        <IconButton name="video" label={t('Video call')} onPress={() => call(true)} bg={colors.surface} color={colors.amberText} />
+      </Tooltip>
     </Pressable>
   );
 }

@@ -1,13 +1,14 @@
 import { router } from 'expo-router';
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Pressable, View } from 'react-native';
 
 import { useAuth } from '@/state/auth';
 import { useChat } from '@/state/chat-store';
 import { colors, radius } from '@/theme';
+import { AppInfoDialog } from './app-info-dialog';
 import { Avatar } from './avatar';
 import { FlockTile } from './logo';
-import { Icon, IconButton, T } from './ui';
+import { Icon, IconButton, T, Tooltip } from './ui';
 import { t } from '@/lib/i18n';
 
 /** Desktop top bar: app name + connection status. */
@@ -49,19 +50,41 @@ export function DesktopTopBar({ right }: { right?: ReactNode }) {
   );
 }
 
-/** Phone header: brand, optional search toggle and profile avatar. */
+/** Phone header: brand (opens app info), optional search toggle and profile avatar. */
 export function MobileHeader({ onSearch }: { onSearch?: () => void }) {
   const { user } = useAuth();
+  const [about, setAbout] = useState(false);
+  const aboutLabel = t('About {name}', { name: t('Flock') });
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 8, gap: 10 }}>
-      <FlockTile size={34} />
-      <T variant="headlineSm" style={{ fontSize: 24, flex: 1 }}>
-        {t('Flock')}
-      </T>
-      {onSearch && <IconButton name="search" label={t('Search')} onPress={onSearch} iconSize={22} />}
-      <Pressable onPress={() => router.navigate('/profile')} accessibilityLabel={t('Your profile')}>
-        <Avatar user={user} size={40} />
+      <Pressable
+        onPress={() => setAbout(true)}
+        accessibilityRole="button"
+        accessibilityLabel={aboutLabel}
+        style={({ hovered }: any) => ({
+          flex: 1,
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 10,
+          borderRadius: radius.lg,
+          backgroundColor: hovered ? colors.surface : 'transparent',
+        })}>
+        <FlockTile size={34} />
+        <T variant="headlineSm" style={{ fontSize: 24 }}>
+          {t('Flock')}
+        </T>
       </Pressable>
+      {onSearch && (
+        <Tooltip label={t('Search')} side="bottom" style={{ alignSelf: 'center' }}>
+          <IconButton name="search" label={t('Search')} onPress={onSearch} iconSize={22} />
+        </Tooltip>
+      )}
+      <Tooltip label={t('Your profile')} side="bottom" style={{ alignSelf: 'center' }}>
+        <Pressable onPress={() => router.navigate('/profile')} accessibilityRole="button" accessibilityLabel={t('Your profile')}>
+          <Avatar user={user} size={40} />
+        </Pressable>
+      </Tooltip>
+      <AppInfoDialog visible={about} onClose={() => setAbout(false)} />
     </View>
   );
 }

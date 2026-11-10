@@ -1,13 +1,15 @@
 import type { BottomTabBarProps } from 'expo-router/tabs';
+import { useState } from 'react';
 import { Platform, Pressable, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useAuth } from '@/state/auth';
 import { useChat } from '@/state/chat-store';
 import { colors, radius } from '@/theme';
+import { AppInfoDialog } from './app-info-dialog';
 import { Avatar } from './avatar';
 import { FlockTile } from './logo';
-import { Icon, T, UnreadBadge, type IconName } from './ui';
+import { Icon, T, Tooltip, UnreadBadge, type IconName } from './ui';
 import { t } from '@/lib/i18n';
 
 export const TABS: Record<string, { icon: IconName; label: string }> = {
@@ -33,6 +35,7 @@ export function RailTabBar(props: BottomTabBarProps) {
   const press = usePress(props);
   const unread = useUnreadTotal();
   const { user } = useAuth();
+  const [about, setAbout] = useState(false);
   // "profile" is a hidden tab (not in TABS): reached from the avatar, not from the icon list.
   const profileRoute = state.routes.find((r) => r.name === 'profile');
 
@@ -48,42 +51,55 @@ export function RailTabBar(props: BottomTabBarProps) {
         justifyContent: 'space-between',
       }}>
       <View style={{ alignItems: 'center', gap: 28 }}>
-        <FlockTile size={52} />
+        <Tooltip label={t('About {name}', { name: t('Flock') })} style={{ alignSelf: 'center' }}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={t('About {name}', { name: t('Flock') })}
+            onPress={() => setAbout(true)}
+            style={({ hovered }: any) => ({ borderRadius: radius.lg, opacity: hovered ? 0.9 : 1 })}>
+            <FlockTile size={52} />
+          </Pressable>
+        </Tooltip>
         <View style={{ gap: 14, alignItems: 'center' }}>
           {state.routes.map((route, index) => {
             const tab = TABS[route.name];
             if (!tab) return null;
             const focused = index === state.index;
             return (
-              <Pressable
-                key={route.key}
-                accessibilityRole="tab"
-                accessibilityLabel={t(tab.label)}
-                accessibilityState={{ selected: focused }}
-                onPress={() => press(route.key, focused)}
-                style={({ hovered }: any) => ({
-                  width: 52,
-                  height: 52,
-                  borderRadius: radius.lg,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  backgroundColor: focused ? colors.amber : hovered ? colors.surface : 'transparent',
-                  ...(focused && Platform.OS === 'web' ? { boxShadow: `0 0 18px ${colors.amberGlow}` } : {}),
-                })}>
-                <Icon name={tab.icon} size={22} color={focused ? colors.canvas : colors.textMuted} />
-                {route.name === 'index' && !focused && (
-                  <UnreadBadge count={unread} style={{ position: 'absolute', top: 2, right: 0 }} />
-                )}
-              </Pressable>
+              <Tooltip key={route.key} label={t(tab.label)} style={{ alignSelf: 'center' }}>
+                <Pressable
+                  accessibilityRole="tab"
+                  accessibilityLabel={t(tab.label)}
+                  accessibilityState={{ selected: focused }}
+                  onPress={() => press(route.key, focused)}
+                  style={({ hovered }: any) => ({
+                    width: 52,
+                    height: 52,
+                    borderRadius: radius.lg,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    backgroundColor: focused ? colors.amber : hovered ? colors.surface : 'transparent',
+                    ...(focused && Platform.OS === 'web' ? { boxShadow: `0 0 18px ${colors.amberGlow}` } : {}),
+                  })}>
+                  <Icon name={tab.icon} size={22} color={focused ? colors.canvas : colors.textMuted} />
+                  {route.name === 'index' && !focused && (
+                    <UnreadBadge count={unread} style={{ position: 'absolute', top: 2, right: 0 }} />
+                  )}
+                </Pressable>
+              </Tooltip>
             );
           })}
         </View>
       </View>
-      <Pressable
-        accessibilityLabel={t('Your profile')}
-        onPress={() => profileRoute && press(profileRoute.key, state.routes[state.index]?.name === 'profile')}>
-        <Avatar user={user} size={44} ringBg={colors.canvas} ring={state.routes[state.index]?.name === 'profile' ? colors.amber : undefined} />
-      </Pressable>
+      <Tooltip label={t('Your profile')} style={{ alignSelf: 'center' }}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={t('Your profile')}
+          onPress={() => profileRoute && press(profileRoute.key, state.routes[state.index]?.name === 'profile')}>
+          <Avatar user={user} size={44} ringBg={colors.canvas} ring={state.routes[state.index]?.name === 'profile' ? colors.amber : undefined} />
+        </Pressable>
+      </Tooltip>
+      <AppInfoDialog visible={about} onClose={() => setAbout(false)} />
     </View>
   );
 }
@@ -114,6 +130,7 @@ export function BottomTabBar(props: BottomTabBarProps) {
           <Pressable
             key={route.key}
             accessibilityRole="tab"
+            accessibilityLabel={t(tab.label)}
             accessibilityState={{ selected: focused }}
             onPress={() => press(route.key, focused)}
             style={{ flex: 1, alignItems: 'center', gap: 4 }}>

@@ -2,6 +2,7 @@ import { getLocales } from 'expo-localization';
 import { useSyncExternalStore } from 'react';
 
 import { fonts, type } from '@/theme';
+import { brandText } from './brand';
 import { getItem, setItem } from './storage';
 
 export type Lang = 'en' | 'fa';
@@ -587,6 +588,152 @@ const fa: Record<string, string> = {
   'This message is already in Saved Messages': 'این پیام از قبل در پیام‌های ذخیره‌شده است',
   'This message can’t be saved': 'این پیام را نمی‌شود ذخیره کرد',
   'You can’t call yourself': 'نمی‌توانی با خودت تماس بگیری',
+  // ----- message actions & admin settings (server) -----
+  'You can only edit your own messages': 'فقط پیام‌های خودتان را می‌توانید ویرایش کنید',
+  'Only text messages can be edited': 'فقط پیام‌های متنی قابل ویرایش هستند',
+  'You can only delete your own messages': 'فقط پیام‌های خودتان را می‌توانید حذف کنید',
+  'This message can’t be forwarded': 'این پیام را نمی‌شود به جلو فرستاد',
+  'Forwarding is not available in secret chats': 'ارسال به جلو در گفتگوی محرمانه ممکن نیست',
+  'You can’t pin this message': 'این پیام را نمی‌شود سنجاق کرد',
+  'Invalid value for appName': 'نام برنامه معتبر نیست',
+  'Invalid value for repoUrl': 'نشانی مخزن معتبر نیست',
+  'Invalid value for showRepoLinks': 'مقدار نمایش پیوند مخزن معتبر نیست',
+  // ----- shell, update banner, app info, accents, admin branding (UI) -----
+  'Close search': 'بستن جستجو',
+  Unpin: 'برداشتن سنجاق',
+  'Mark as read': 'علامت‌گذاری به‌عنوان خوانده‌شده',
+  'New Version': 'نسخه‌ی جدید',
+  'v{version} is available': 'نسخه‌ی {version} در دسترس است',
+  Update: 'به‌روزرسانی',
+  "What's new": 'تازه‌ها',
+  '{name} updated to v{version}': '{name} به نسخه‌ی {version} به‌روزرسانی شد',
+  'Small fixes and improvements behind the scenes.': 'رفع اشکال‌های جزئی و بهبودهای داخلی.',
+  'Got it': 'فهمیدم',
+  'About {name}': 'درباره‌ی {name}',
+  'A calm, self-hosted messenger for teams. Real-time chat, calls and meeting links on web, desktop and Android.':
+    'یک پیام‌رسان آرام و خودمیزبان برای تیم‌ها؛ گفتگوی لحظه‌ای، تماس و لینک جلسه روی وب، دسکتاپ و اندروید.',
+  'Project repository': 'مخزن پروژه',
+  'Open the project repository': 'باز کردن مخزن پروژه',
+  'Released under the Flock Source-Available License.': 'با مجوز Source-Available فلاک منتشر شده است.',
+  'Theme color': 'رنگ تم',
+  Apply: 'اعمال',
+  'Use a hex color like #FFB84D': 'یک رنگ هگز مانند #FFB84D وارد کنید',
+  Amber: 'کهربایی',
+  Sky: 'آبی آسمانی',
+  Mint: 'نعنایی',
+  Violet: 'بنفش',
+  Rose: 'صورتی',
+  Ember: 'نارنجی آتشین',
+  Lime: 'لیمویی',
+  Cyan: 'فیروزه‌ای',
+  Repository: 'مخزن کد',
+  'App name': 'نام برنامه',
+  '1 to 40 characters': 'بین ۱ تا ۴۰ کاراکتر',
+  'Every "Flock" in the app becomes this name, for everyone on this server.':
+    'هر «فلاک» در برنامه برای همه‌ی کاربران این سرور به این نام تبدیل می‌شود.',
+  'Repository link': 'لینک مخزن',
+  'Must start with http:// or https://': 'باید با http:// یا https:// شروع شود',
+  'Show repository links': 'نمایش لینک‌های مخزن',
+  'Shows the project link in Settings, the app info dialog and the update box.':
+    'لینک پروژه را در تنظیمات، پنجره‌ی اطلاعات برنامه و کادر به‌روزرسانی نمایش می‌دهد.',
+  // ----- chat: pinned, search, message menu, edit, forward, paste, emoji picker (chat) -----
+  'Pinned message': 'پیام سنجاق‌شده',
+  'Could not unpin the message': 'برداشتن سنجاق پیام ممکن نشد',
+  'Search in conversation': 'جستجو در گفتگو',
+  'Search in this conversation': 'جستجو در این گفتگو',
+  'No messages found.': 'پیامی پیدا نشد.',
+  'Could not search messages': 'جستجوی پیام‌ها ممکن نشد',
+  'Go to message': 'رفتن به پیام',
+  'Message actions': 'کارهای پیام',
+  Edited: 'ویرایش‌شده',
+  'Editing message': 'در حال ویرایش پیام',
+  'Cancel edit': 'لغو ویرایش',
+  'Could not save changes': 'ذخیرهٔ تغییرات ممکن نشد',
+  'Add a caption…': 'یک توضیح بنویسید…',
+  'Delete message': 'حذف پیام',
+  'Delete this message for everyone?': 'این پیام برای همه حذف شود؟',
+  Delete: 'حذف',
+  Edit: 'ویرایش',
+  Forward: 'ارسال به جلو',
+  'Forward to': 'ارسال به',
+  'Forward to {name}': 'ارسال به {name}',
+  'Could not forward the message': 'ارسال به جلو ممکن نشد',
+  'No conversations to forward to.': 'گفتگویی برای ارسال به جلو وجود ندارد.',
+  Group: 'گروه',
+  'Direct message': 'پیام مستقیم',
+  Recent: 'اخیر',
+  'Search emoji': 'جستجوی شکلک',
+  'No emoji found.': 'شکلکی پیدا نشد.',
+  'Smileys & Emotion': 'شکلک‌ها و احساسات',
+  'People & Body': 'افراد و بدن',
+  'Animals & Nature': 'حیوانات و طبیعت',
+  'Food & Drink': 'خوراکی و نوشیدنی',
+  'Travel & Places': 'سفر و مکان‌ها',
+  Activities: 'فعالیت‌ها',
+  Objects: 'اشیا',
+  Symbols: 'نمادها',
+  Flags: 'پرچم‌ها',
+  // ----- calls: raise hand, device errors, sounds, camera switch, mute-all (call) -----
+  '{count} people raised their hands': '{count} نفر دستشان را بالا برده‌اند',
+  '{name} raised a hand': '{name} دستش را بالا برد',
+  "{name}'s connection is very weak": 'اتصال {name} خیلی ضعیف است',
+  "{name}'s connection is weak": 'اتصال {name} ضعیف است',
+  'A notification when a message arrives in the call chat.': 'اعلان صوتی وقتی پیامی در چت تماس می‌رسد.',
+  'A short tone when you send or receive a reaction.': 'صدای کوتاه هنگام فرستادن یا گرفتن واکنش.',
+  'Allow the microphone and camera in your browser site settings (the lock icon next to the address), then reload.':
+    'میکروفون و دوربین را در تنظیمات سایت مرورگر (آیکون قفل کنار آدرس) مجاز کنید و صفحه را دوباره بارگذاری کنید.',
+  'Audio & video setup': 'راه‌اندازی صدا و تصویر',
+  'Call chat sounds': 'صدای چت تماس',
+  'Call sounds': 'صداهای تماس',
+  "Calls can't start: this browser is blocking WebRTC. Turn off extensions or policy that block calls (some ad blockers and privacy tools do), or use the Flock desktop app or another browser.":
+    'تماس شروع نمی‌شود: این مرورگر WebRTC را مسدود کرده است. افزونه‌ها یا سیاست‌هایی را که تماس را مسدود می‌کنند خاموش کنید (بعضی مسدودکننده‌های تبلیغات و ابزارهای حریم خصوصی این کار را می‌کنند) یا از اپ دسکتاپ Flock یا مرورگر دیگری استفاده کنید.',
+  'Camera {n}': 'دوربین {n}',
+  'Camera access is blocked. Allow the camera in your browser site settings (the lock icon next to the address) or the app permissions, then try again.':
+    'دسترسی به دوربین مسدود است. دوربین را در تنظیمات سایت مرورگر (آیکون قفل کنار آدرس) یا مجوزهای برنامه مجاز کنید و دوباره امتحان کنید.',
+  'Close other apps that use the microphone or camera and try again.':
+    'برنامه‌های دیگری را که از میکروفون یا دوربین استفاده می‌کنند ببندید و دوباره امتحان کنید.',
+  "Flock couldn't share your screen. Check the browser permissions and try again.":
+    'Flock نتوانست صفحه‌ی شما را به اشتراک بگذارد. مجوزهای مرورگر را بررسی کنید و دوباره امتحان کنید.',
+  "Flock couldn't start the camera. Check that it is connected and allowed, then try again.":
+    'Flock نتوانست دوربین را روشن کند. بررسی کنید که وصل و مجاز باشد و دوباره امتحان کنید.',
+  "Flock couldn't start the microphone and camera. Check that they are connected and allowed, then try again.":
+    'Flock نتوانست میکروفون و دوربین را روشن کند. بررسی کنید که وصل و مجاز باشند و دوباره امتحان کنید.',
+  "Flock couldn't start the microphone. Check that it is connected and allowed, then try again.":
+    'Flock نتوانست میکروفون را روشن کند. بررسی کنید که وصل و مجاز باشد و دوباره امتحان کنید.',
+  'Hand raised': 'دست بالا',
+  'If an extension or browser policy blocks calls, turn it off or use the Flock desktop app.':
+    'اگر افزونه یا سیاست مرورگر جلوی تماس را می‌گیرد، آن را خاموش کنید یا از اپ دسکتاپ Flock استفاده کنید.',
+  'Lower hand': 'پایین آوردن دست',
+  'Microphone access is blocked. Allow the microphone in your browser site settings (the lock icon next to the address) or the app permissions, then try again.':
+    'دسترسی به میکروفون مسدود است. میکروفون را در تنظیمات سایت مرورگر (آیکون قفل کنار آدرس) یا مجوزهای برنامه مجاز کنید و دوباره امتحان کنید.',
+  'Microphone and camera access is blocked. Allow them in your browser site settings (the lock icon next to the address) or the app permissions, then try again.':
+    'دسترسی به میکروفون و دوربین مسدود است. آن‌ها را در تنظیمات سایت مرورگر (آیکون قفل کنار آدرس) یا مجوزهای برنامه مجاز کنید و دوباره امتحان کنید.',
+  'Mute all call audio': 'بی‌صدا کردن کل صدای تماس',
+  'Mute call audio': 'بی‌صدا کردن صدای تماس',
+  "Mutes everyone's voice and call sounds on your device. Each person's volume below still applies when you unmute.":
+    'صدای همه و صداهای تماس را روی دستگاه شما قطع می‌کند. بعد از فعال کردن صدا، میزان صدای هر نفر در پایین اعمال می‌شود.',
+  'No camera found. Connect one and try again.': 'دوربینی پیدا نشد. یک دوربین وصل کنید و دوباره امتحان کنید.',
+  'No camera was found. Connect a camera, then turn it on again.': 'دوربینی پیدا نشد. یک دوربین وصل کنید و دوباره روشن کنید.',
+  'No microphone or camera was found. Connect one, then try again.': 'میکروفون یا دوربینی پیدا نشد. یکی را وصل کنید و دوباره امتحان کنید.',
+  'No microphone was found. Connect a microphone, then pick it in the call settings.':
+    'میکروفونی پیدا نشد. یک میکروفون وصل کنید و از تنظیمات تماس انتخابش کنید.',
+  'Raise hand': 'بالا بردن دست',
+  'Reaction sounds': 'صدای واکنش‌ها',
+  'Screen sharing is blocked. Allow it when the browser asks, or share from the Flock desktop app.':
+    'اشتراک صفحه مسدود است. وقتی مرورگر پرسید اجازه دهید یا از اپ دسکتاپ Flock صفحه را به اشتراک بگذارید.',
+  'Screen sharing is not available here. Use Chrome, Edge or the Flock desktop app to share your screen.':
+    'اشتراک صفحه اینجا در دسترس نیست. برای اشتراک صفحه از Chrome، Edge یا اپ دسکتاپ Flock استفاده کنید.',
+  'Switching cameras keeps the call connected.': 'تعویض دوربین تماس را قطع نمی‌کند.',
+  'The camera is busy in another app. Close other apps that use the camera, then try again.':
+    'دوربین در برنامه‌ی دیگری در حال استفاده است. برنامه‌های دیگری را که از دوربین استفاده می‌کنند ببندید و دوباره امتحان کنید.',
+  'The microphone is busy in another app. Close other apps that use the microphone, then try again.':
+    'میکروفون در برنامه‌ی دیگری در حال استفاده است. برنامه‌های دیگری را که از میکروفون استفاده می‌کنند ببندید و دوباره امتحان کنید.',
+  'The screen could not be captured. Close other screen-sharing or recording apps and try again.':
+    'گرفتن تصویر صفحه ممکن نشد. برنامه‌های دیگر اشتراک صفحه یا ضبط را ببندید و دوباره امتحان کنید.',
+  'There is no screen to share on this device.': 'صفحه‌ای برای اشتراک روی این دستگاه وجود ندارد.',
+  'Turn the camera on first, then switch it.': 'اول دوربین را روشن کنید، بعد دوربین را عوض کنید.',
+  'Unmute call audio': 'باصدا کردن صدای تماس',
+  'You raised your hand': 'دست خودتان را بالا برده‌اید',
 };
 
 const dictionaries: Record<Lang, Record<string, string>> = { en: {}, fa };
@@ -609,7 +756,7 @@ export const isRTL = () => current === 'fa';
 export const locale = () => (current === 'fa' ? 'fa-IR' : 'en-US');
 
 export function t(key: string, params?: Record<string, string | number>) {
-  let s = dictionaries[current][key] ?? key;
+  let s = brandText(dictionaries[current][key] ?? key);
   if (params) for (const [k, v] of Object.entries(params)) s = s.replaceAll(`{${k}}`, String(v));
   return s;
 }

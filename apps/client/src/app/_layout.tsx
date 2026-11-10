@@ -8,11 +8,14 @@ import { View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { CallOverlay } from '@/components/call-overlay';
+import { api } from '@/lib/api';
+import { setBranding, useBranding } from '@/lib/brand';
+import { loadServerUrl } from '@/lib/config';
 import { loadLang, useLang } from '@/lib/i18n';
 import { loadNoisePreference } from '@/lib/noise';
 import { CallProvider } from '@/state/calls';
 import { AuthProvider, useAuth } from '@/state/auth';
-import { colors, loadTheme, useThemeMode } from '@/theme';
+import { colors, loadTheme, useAccent, useThemeMode } from '@/theme';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -65,14 +68,20 @@ function RootStack() {
 function LocalizedApp() {
   const lang = useLang();
   const mode = useThemeMode();
+  const accent = useAccent();
+  const brand = useBranding();
   // Derived from `lang` (not isRTL()) so the React Compiler sees the dependency.
   const dir = lang === 'fa' ? 'rtl' : 'ltr';
+  useEffect(() => {
+    if (typeof document !== 'undefined') document.title = brand.appName;
+  }, [brand.appName]);
   return (
     // Native layout flips via Yoga's `direction`; react-native-web needs the HTML `dir` attribute.
-    // Keyed by theme too: colors are read at render, so a switch repaints every screen.
+    // Keyed by theme, language, accent and app name too: colors and copy are read at render, so a
+    // change repaints (and re-translates) every screen.
     <ThemeProvider value={navigationTheme(mode)}>
       <StatusBar style={mode === 'light' ? 'dark' : 'light'} />
-      <View key={`${lang}-${mode}`} {...({ dir } as object)} style={{ flex: 1, direction: dir, backgroundColor: colors.canvas }}>
+      <View key={`${lang}-${mode}-${accent}-${brand.appName}`} {...({ dir } as object)} style={{ flex: 1, direction: dir, backgroundColor: colors.canvas }}>
         <RootStack />
         <CallOverlay />
       </View>
@@ -84,6 +93,21 @@ export default function RootLayout() {
   const [langReady, setLangReady] = useState(false);
   useEffect(() => {
     Promise.all([loadLang(), loadNoisePreference(), loadTheme()]).finally(() => setLangReady(true));
+  }, []);
+  // Public brand settings (app name, repository link, server version). The saved server URL is
+  // resolved first so installed apps ask the right server; web uses its own origin.
+  useEffect(() => {
+    (async () => {
+      await loadServerUrl();
+      type BrandingResponse = { appName?: string; repoUrl?: string; showRepoLinks?: boolean; version?: string | null };
+      const load = (api as unknown as { branding?: () => Promise<BrandingResponse> }).branding;
+      try {
+        const info = await load?.();
+        if (info) setBranding(info);
+      } catch {
+        // The login screen still works with the default brand when the server is unreachable.
+      }
+    })();
   }, []);
   if (!langReady) return null;
 

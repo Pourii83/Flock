@@ -6,6 +6,12 @@ import { t } from './i18n';
 
 export type AudioDeviceChoice = { id: string; label: string; kind: 'input' | 'output' };
 export type AudioDeviceStatus = { devices: AudioDeviceChoice[]; selectedInputId: string; selectedOutputId: string };
+export type VideoDeviceChoice = { id: string; label: string };
+
+/** Phones switch between the front and back camera of one device instead (see switchCamera below). */
+export async function listCameras(): Promise<VideoDeviceChoice[]> {
+  return [];
+}
 
 const routeLabel = (route: string) =>
   t(

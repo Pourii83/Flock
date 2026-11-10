@@ -1,4 +1,3 @@
-import * as Clipboard from 'expo-clipboard';
 import * as DocumentPicker from 'expo-document-picker';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
@@ -15,27 +14,25 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { clock, dayDivider, lastSeenLabel, sameDay } from '@/lib/format';
+import { clock, dayDivider, dayAndTime, lastSeenLabel, sameDay } from '@/lib/format';
 import { attachmentSource, openAttachment } from '@/lib/attachments';
 import { api } from '@/lib/api';
 import { callLine, parseCallLog } from '@/lib/call-log';
+import { clearDraft, setDraft, useDraft } from '@/lib/drafts';
 import { ensureDevice, safetyCode, useDevice, useSecretStatus } from '@/lib/e2e';
 import { systemText } from '@/lib/system-message';
 import type { Conversation, Message } from '@/lib/types';
 import { useAuth } from '@/state/auth';
 import { useCalls } from '@/state/calls';
-import { chatStore, useChat, useConversation, useMessages, useTyping } from '@/state/chat-store';
+import { chatStore, useChat, useConversation, useMessages, usePinned, useTyping } from '@/state/chat-store';
 import { colors, fonts, radius } from '@/theme';
 import { Avatar, ConversationAvatar } from './avatar';
+import { EmojiPicker } from './emoji-picker';
 import { LinkedText } from './linked-text';
 import { MediaViewer } from './media-viewer';
-import { Button, Icon, IconButton, noOutline, persianFont, T, type IconName } from './ui';
+import { MessageMenu } from './message-menu';
+import { Button, Icon, IconButton, PushPin, SearchBar, Tooltip, noOutline, persianFont, T, type IconName } from './ui';
 import { t, num, isRTL } from '@/lib/i18n';
-
-/** One-tap reactions on a message. */
-const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
-
-const EMOJIS = ['😀', '😂', '😍', '🥳', '😎', '🤔', '😅', '😢', '👍', '🙏', '👏', '🔥', '❤️', '✨', '🎉', '✅'];
 
 type Row =
   | { type: 'message'; message: Message; first: boolean; last: boolean }
@@ -82,11 +79,18 @@ export function ChatThread({
   const messages = useMessages(conversationId);
   const loadedMessages = useChat((s) => !!s.messages[conversationId]);
   const hasMore = useChat((s) => !!s.hasMore[conversationId]);
+  const pinned = usePinned(conversationId);
   const { user } = useAuth();
   const [replyTo, setReplyTo] = useState<Message | null>(null);
-  // Message whose action bar (Reply / Copy) is open: tap-to-act on touch screens.
-  const [actionsFor, setActionsFor] = useState<string | null>(null);
+  const [editing, setEditing] = useState<Message | null>(null);
+  const [menu, setMenu] = useState<{ message: Message; point: { x: number; y: number } } | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [highlightId, setHighlightId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState('');
   const [loadError, setLoadError] = useState(false);
+  const listRef = useRef<FlatList<Row>>(null);
+  const scrollRetry = useRef(0);
+  const timers = useRef<{ highlight?: ReturnType<typeof setTimeout>; error?: ReturnType<typeof setTimeout> }>({});
 
   // Parents key this component by conversationId, so local state resets on switch.
   useEffect(() => {
@@ -99,11 +103,47 @@ export function ChatThread({
     if (conversation?.unreadCount) chatStore.markRead(conversationId);
   }, [conversation?.unreadCount, conversationId]);
 
+  // Clear the transient highlight/error timers on unmount.
+  useEffect(() => {
+    const current = timers.current;
+    return () => {
+      clearTimeout(current.highlight);
+      clearTimeout(current.error);
+    };
+  }, []);
+
   const rows = useMemo(() => buildRows(messages), [messages]);
   const desktop = variant === 'desktop';
   // Android edge-to-edge windows can report the IME without resizing the React tree,
   // so adjust this screen's height explicitly to keep the composer above the keyboard.
   const keyboardBehavior = Platform.select({ ios: 'padding' as const, android: 'height' as const });
+
+  const showError = (text: string) => {
+    setActionError(text);
+    clearTimeout(timers.current.error);
+    timers.current.error = setTimeout(() => setActionError(''), 4000);
+  };
+
+  /** Jumps to a message: pages older history in (bounded) until it is loaded, then highlights it. */
+  const jumpTo = async (messageId: string) => {
+    const found = await chatStore.findMessage(conversationId, messageId).catch(() => null);
+    // Build the current row index from the store snapshot: paging above may have just changed it.
+    const currentRows = found ? buildRows(chatStore.state.messages[conversationId] ?? []) : [];
+    const index = currentRows.findIndex((row) => row.type === 'message' && row.message.id === messageId);
+    if (index < 0) {
+      showError(t('Message not found'));
+      return;
+    }
+    setHighlightId(messageId);
+    clearTimeout(timers.current.highlight);
+    timers.current.highlight = setTimeout(() => setHighlightId(null), 3200);
+    scrollRetry.current = 0;
+    try {
+      listRef.current?.scrollToIndex({ index, viewPosition: 0.5, animated: true });
+    } catch {
+      // Variable-height rows can't always be located; the highlight still points at it.
+    }
+  };
 
   if (!conversation) {
     return (
@@ -113,11 +153,42 @@ export function ChatThread({
     );
   }
 
+  const unpin = () => {
+    if (!pinned) return;
+    void chatStore.setPinnedMessage(pinned, false).catch((error) => showError(error instanceof Error ? error.message : t('Could not unpin the message')));
+  };
+
   return (
     <KeyboardAvoidingView style={{ flex: 1, backgroundColor: colors.canvas }} behavior={keyboardBehavior}>
-      <ThreadHeader conversation={conversation} desktop={desktop} onBack={onBack} detailsOpen={detailsOpen} onToggleDetails={onToggleDetails} />
+      <ThreadHeader
+        conversation={conversation}
+        desktop={desktop}
+        onBack={onBack}
+        detailsOpen={detailsOpen}
+        onToggleDetails={onToggleDetails}
+        searchOpen={searchOpen}
+        onToggleSearch={() => setSearchOpen((v) => !v)}
+      />
+      {!!pinned && <PinnedBanner message={pinned} conversation={conversation} onOpen={() => void jumpTo(pinned.id)} onUnpin={unpin} />}
       <JoinCallBanner conversation={conversation} />
       {!!conversation.secret && <SecretBanner conversation={conversation} />}
+      {searchOpen && (
+        <SearchPanel
+          conversationId={conversationId}
+          onClose={() => setSearchOpen(false)}
+          onSelect={(message) => {
+            setSearchOpen(false);
+            void jumpTo(message.id);
+          }}
+        />
+      )}
+      {!!actionError && (
+        <View style={{ paddingHorizontal: 16, paddingVertical: 8, backgroundColor: colors.dangerTint, borderBottomWidth: 1, borderBottomColor: colors.surfaceHigh }}>
+          <T variant="bodySm" color={colors.danger}>
+            {actionError}
+          </T>
+        </View>
+      )}
       {loadError ? (
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 }}>
           <T color={colors.textMuted}>{"Couldn't load messages."}</T>
@@ -137,11 +208,24 @@ export function ChatThread({
         </View>
       ) : (
         <FlatList
+          ref={listRef}
           inverted
           data={rows}
           keyExtractor={(r) => (r.type === 'day' ? r.key : r.message.id)}
           onEndReached={() => hasMore && chatStore.loadOlder(conversationId)}
           onEndReachedThreshold={0.3}
+          onScrollToIndexFailed={() => {
+            // Variable-height rows: retry once the list has laid out, then rely on the highlight.
+            if (scrollRetry.current > 0) return;
+            scrollRetry.current += 1;
+            setTimeout(() => {
+              const id = highlightId;
+              if (!id) return;
+              const currentRows = buildRows(chatStore.state.messages[conversationId] ?? []);
+              const index = currentRows.findIndex((row) => row.type === 'message' && row.message.id === id);
+              if (index >= 0) listRef.current?.scrollToIndex({ index, viewPosition: 0.5, animated: false });
+            }, 120);
+          }}
           contentContainerStyle={{ paddingHorizontal: desktop ? 32 : 14, paddingVertical: 16, maxWidth: desktop ? 900 : undefined, width: '100%', alignSelf: 'center' }}
           ListFooterComponent={messages.length === 0 ? <EmptyThread conversation={conversation} /> : undefined}
           renderItem={({ item }) =>
@@ -157,20 +241,220 @@ export function ChatThread({
                 conversation={conversation}
                 mine={item.message.senderId === user?.id}
                 desktop={desktop}
-                actionsOpen={actionsFor === item.message.id}
-                onToggleActions={() => setActionsFor((id) => (id === item.message.id ? null : item.message.id))}
-                onReply={() => {
-                  setActionsFor(null);
-                  setReplyTo(item.message);
-                }}
+                highlighted={highlightId === item.message.id}
+                menuOpen={menu?.message.id === item.message.id}
+                onReply={() => setReplyTo(item.message)}
+                onOpenMenu={(point) => setMenu({ message: item.message, point })}
               />
             )
           }
         />
       )}
       <TypingIndicator conversation={conversation} />
-      <Composer conversation={conversation} desktop={desktop} replyTo={replyTo} onClearReply={() => setReplyTo(null)} />
+      <Composer
+        conversation={conversation}
+        desktop={desktop}
+        replyTo={replyTo}
+        onClearReply={() => setReplyTo(null)}
+        editing={editing}
+        onCancelEdit={() => setEditing(null)}
+      />
+      {menu && (
+        <MessageMenu
+          message={menu.message}
+          conversation={conversation}
+          mine={menu.message.senderId === user?.id}
+          pinned={!!menu.message.pinnedAt}
+          point={menu.point}
+          onReply={() => setReplyTo(menu.message)}
+          onEdit={() => setEditing(menu.message)}
+          onError={showError}
+          onClose={() => setMenu(null)}
+        />
+      )}
     </KeyboardAvoidingView>
+  );
+}
+
+/** Banner under the header for the conversation's pinned message: click to jump, X to unpin. */
+function PinnedBanner({
+  message,
+  conversation,
+  onOpen,
+  onUnpin,
+}: {
+  message: Message;
+  conversation: Conversation;
+  onOpen: () => void;
+  onUnpin: () => void;
+}) {
+  const sender = chatStore.memberName(conversation.id, message.senderId);
+  return (
+    <View
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+        paddingHorizontal: 16,
+        paddingVertical: 6,
+        backgroundColor: colors.amberTint,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.surfaceHigh,
+      }}>
+      <Pressable
+        onPress={onOpen}
+        accessibilityRole="button"
+        accessibilityLabel={t('Pinned message')}
+        style={({ hovered }: any) => ({ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 3, opacity: hovered ? 0.85 : 1 })}>
+        <PushPin size={16} color={colors.amberText} />
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <T variant="labelSm" color={colors.amberText}>
+            {t('Pinned message')}
+          </T>
+          <T variant="bodySm" color={colors.text} numberOfLines={1}>
+            {`${sender}: ${message.attachment?.name ?? message.body}`}
+          </T>
+        </View>
+      </Pressable>
+      <Tooltip label={t('Unpin')}>
+        <IconButton name="x" label={t('Unpin')} onPress={onUnpin} size={30} iconSize={15} color={colors.amberText} />
+      </Tooltip>
+    </View>
+  );
+}
+
+/** In-conversation message search with debounced server queries and a results list. */
+function SearchPanel({
+  conversationId,
+  onClose,
+  onSelect,
+}: {
+  conversationId: string;
+  onClose: () => void;
+  onSelect: (message: Message) => void;
+}) {
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<Message[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [searched, setSearched] = useState(false);
+  const [error, setError] = useState('');
+  const requestId = useRef(0);
+
+  const changeQuery = (value: string) => {
+    setQuery(value);
+    const hasQuery = value.trim().length > 0;
+    setLoading(hasQuery);
+    if (!hasQuery) {
+      setResults([]);
+      setSearched(false);
+      setError('');
+    }
+  };
+
+  useEffect(() => {
+    const trimmed = query.trim();
+    if (!trimmed) return;
+    // Debounce so the server isn't queried on every keystroke.
+    const timer = setTimeout(() => {
+      const current = ++requestId.current;
+      chatStore
+        .searchMessages(conversationId, trimmed)
+        .then((list) => {
+          if (current !== requestId.current) return;
+          setResults(list);
+          setSearched(true);
+          setError('');
+        })
+        .catch((e) => {
+          if (current !== requestId.current) return;
+          setResults([]);
+          setSearched(true);
+          setError(e instanceof Error ? e.message : t('Could not search messages'));
+        })
+        .finally(() => {
+          if (current === requestId.current) setLoading(false);
+        });
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [query, conversationId]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  return (
+    <View
+      style={{
+        paddingHorizontal: 16,
+        paddingVertical: 10,
+        gap: 8,
+        backgroundColor: colors.canvas,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.surfaceHigh,
+      }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <SearchBar value={query} onChangeText={changeQuery} placeholder={t('Search in this conversation')} autoFocus onEscape={onClose} />
+        </View>
+        {loading && <ActivityIndicator color={colors.amberText} size="small" />}
+        <Tooltip label={t('Close search')}>
+          <IconButton name="x" label={t('Close search')} onPress={onClose} />
+        </Tooltip>
+      </View>
+      {!!error && (
+        <T variant="bodySm" color={colors.danger}>
+          {error}
+        </T>
+      )}
+      {searched && !loading && !error && results.length === 0 && (
+        <T variant="bodySm" color={colors.textMuted} style={{ textAlign: 'center', paddingVertical: 12 }}>
+          {t('No messages found.')}
+        </T>
+      )}
+      {results.length > 0 && (
+        <FlatList
+          data={results}
+          keyExtractor={(message) => message.id}
+          style={{ maxHeight: 260 }}
+          keyboardShouldPersistTaps="handled"
+          renderItem={({ item }) => (
+            <Pressable
+              onPress={() => onSelect(item)}
+              accessibilityRole="button"
+              accessibilityLabel={t('Go to message')}
+              style={({ hovered, pressed }: any) => ({
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 10,
+                paddingHorizontal: 10,
+                paddingVertical: 8,
+                borderRadius: radius.md,
+                backgroundColor: pressed ? colors.surfaceHighest : hovered ? colors.surfaceHigh : 'transparent',
+              })}>
+              <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <T variant="labelLg" numberOfLines={1} style={{ flexShrink: 1 }}>
+                    {chatStore.memberName(conversationId, item.senderId)}
+                  </T>
+                  <T variant="bodySm" color={colors.textMuted}>
+                    {dayAndTime(item.createdAt)}
+                  </T>
+                </View>
+                <T variant="body" color={colors.textMuted} numberOfLines={2}>
+                  {item.kind === 'file' ? `📎 ${item.attachment?.name ?? item.body}` : item.body}
+                </T>
+              </View>
+              <Icon name="chevron-right" size={14} color={colors.textDim} />
+            </Pressable>
+          )}
+        />
+      )}
+    </View>
   );
 }
 
@@ -217,12 +501,16 @@ function ThreadHeader({
   onBack,
   detailsOpen,
   onToggleDetails,
+  searchOpen,
+  onToggleSearch,
 }: {
   conversation: Conversation;
   desktop: boolean;
   onBack?: () => void;
   detailsOpen?: boolean;
   onToggleDetails?: () => void;
+  searchOpen?: boolean;
+  onToggleSearch?: () => void;
 }) {
   const { user } = useAuth();
   const { startCall } = useCalls();
@@ -274,17 +562,34 @@ function ThreadHeader({
           </View>
         </View>
       </Pressable>
+      {onToggleSearch && (
+        <Tooltip label={t('Search in conversation')}>
+          <IconButton
+            name="search"
+            label={t('Search in conversation')}
+            onPress={onToggleSearch}
+            iconSize={20}
+            bg={searchOpen ? colors.surfaceHigh : 'transparent'}
+          />
+        </Tooltip>
+      )}
       {/* One call button: it starts a voice call; the camera is switched on from inside the call. */}
-      {!conversation.isSaved && <IconButton name="phone" label={t('Call')} onPress={() => startCall(conversation, false)} iconSize={20} />}
+      {!conversation.isSaved && (
+        <Tooltip label={t('Call')}>
+          <IconButton name="phone" label={t('Call')} onPress={() => startCall(conversation, false)} iconSize={20} />
+        </Tooltip>
+      )}
       {onToggleDetails && desktop && !conversation.isSaved && (
-        <IconButton
-          name="sidebar"
-          label={t('Toggle details')}
-          onPress={onToggleDetails}
-          bg={detailsOpen ? colors.surfaceHigh : colors.surface}
-          rounded="lg"
-          size={44}
-        />
+        <Tooltip label={t('Toggle details')}>
+          <IconButton
+            name="sidebar"
+            label={t('Toggle details')}
+            onPress={onToggleDetails}
+            bg={detailsOpen ? colors.surfaceHigh : colors.surface}
+            rounded="lg"
+            size={44}
+          />
+        </Tooltip>
       )}
     </View>
   );
@@ -479,108 +784,95 @@ function Bubble({
   conversation,
   mine,
   desktop,
-  actionsOpen,
-  onToggleActions,
+  highlighted,
+  menuOpen,
   onReply,
+  onOpenMenu,
 }: {
   row: Extract<Row, { type: 'message' }>;
   conversation: Conversation;
   mine: boolean;
   desktop: boolean;
-  actionsOpen: boolean;
-  onToggleActions: () => void;
+  highlighted: boolean;
+  menuOpen: boolean;
   onReply: () => void;
+  onOpenMenu: (point: { x: number; y: number }) => void;
 }) {
   const { message: m, first, last } = row;
   const [hovered, setHovered] = useState(false);
+  const { user } = useAuth();
+  const meId = user?.id;
   const sender = conversation.members.find((u) => u.id === m.senderId);
   const showSender = !mine && first && (conversation.type === 'group' || desktop);
   const bubbleBg = mine ? colors.amberSoft : colors.bubble;
   const fg = mine ? colors.onAmber : colors.text;
   const r = 20;
-  // Pending/failed messages don't exist on the server yet, so they can't be replied to.
+  // Pending/failed messages don't exist on the server yet, so they have no menu.
   const canAct = !m.pending && !m.failed;
   const web = Platform.OS === 'web';
+  const reactions = (m.reactions ?? []).filter((reaction) => reaction.userIds.length > 0);
+  const editedAt = m.editedAt;
+  const isPinned = !!m.pinnedAt;
 
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const [saveState, setSaveState] = useState<'idle' | 'busy' | 'done' | 'error'>('idle');
-  const { user } = useAuth();
-  const meId = user?.id;
-  // Secret chats stay on their two devices; Saved Messages is server-readable, so they can't be saved into it.
-  const canSave = canAct && !conversation.secret && !conversation.isSaved && (m.kind === 'text' || m.kind === 'file');
-  const showPicker = canAct && (pickerOpen || actionsOpen);
-
-  const copy = async () => {
-    await Clipboard.setStringAsync(m.body);
-    onToggleActions();
+  const openAtPointer = (event: any) => {
+    if (!canAct) return;
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
+    onOpenMenu({ x: event?.clientX ?? event?.nativeEvent?.pageX ?? 0, y: event?.clientY ?? event?.nativeEvent?.pageY ?? 0 });
+  };
+  const openAtLongPress = (event: any) => {
+    if (!canAct) return;
+    onOpenMenu({ x: event?.nativeEvent?.pageX ?? 0, y: event?.nativeEvent?.pageY ?? 0 });
+  };
+  // The hover "more" button anchors the menu at its own press point.
+  const openFromButton = (event: any) => {
+    if (!canAct) return;
+    onOpenMenu({ x: event?.nativeEvent?.pageX ?? event?.clientX ?? 24, y: event?.nativeEvent?.pageY ?? event?.clientY ?? 120 });
   };
 
-  const react = (emoji: string) => {
-    setPickerOpen(false);
-    if (actionsOpen) onToggleActions();
-    void chatStore.react(m, emoji);
-  };
-
-  const save = async () => {
-    if (saveState === 'busy') return;
-    setSaveState('busy');
-    try {
-      await chatStore.saveMessage(m);
-      setSaveState('done');
-    } catch {
-      setSaveState('error');
-    }
-    setTimeout(() => setSaveState('idle'), 2000);
-  };
-
-  // Hover buttons (react / reply / save): always mounted (only their opacity changes) so a click can't be
-  // lost to a hover re-render, and they sit beside the bubble instead of overlapping it.
-  const hoverButton = (icon: IconName, label: string, onPress: () => void, active = false) => (
-    <Pressable
-      key={icon}
-      onPress={onPress}
-      accessibilityLabel={label}
-      style={({ hovered: h }: any) => ({
-        width: 30,
-        height: 30,
-        borderRadius: 15,
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: h || active ? colors.surfaceHighest : colors.surfaceHigh,
-        opacity: hovered || pickerOpen ? 1 : 0,
-      })}>
-      <Icon name={icon} size={15} color={active || (icon === 'bookmark' && saveState === 'done') ? colors.amberText : colors.text} />
-    </Pressable>
+  // Hover actions are only Reply and "more"; the more button opens the same menu as right-click.
+  const hoverButton = (icon: IconName, label: string, onPress: (event: any) => void) => (
+    <Tooltip key={icon} label={label}>
+      <Pressable
+        onPress={onPress}
+        accessibilityLabel={label}
+        style={({ hovered: h, pressed }: any) => ({
+          width: 30,
+          height: 30,
+          borderRadius: 15,
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: h || pressed ? colors.surfaceHighest : colors.surfaceHigh,
+          opacity: hovered || menuOpen ? 1 : 0,
+        })}>
+        <Icon name={icon} size={15} color={colors.text} />
+      </Pressable>
+    </Tooltip>
   );
-  const hoverReply = web && desktop && canAct && (
+  const hoverControls = web && canAct && (
     <View style={{ flexDirection: 'row', alignSelf: 'center', gap: 4 }}>
-      {hoverButton('smile', t('React'), () => setPickerOpen((v) => !v), pickerOpen)}
       {hoverButton('corner-up-left', t('Reply'), onReply)}
-      {canSave && hoverButton('bookmark', saveState === 'done' ? t('Saved') : t('Save'), () => void save())}
+      {hoverButton('more-horizontal', t('Message actions'), openFromButton)}
     </View>
   );
-  const reactions = (m.reactions ?? []).filter((r) => r.userIds.length > 0);
 
   return (
     <View
       {...(web ? { onPointerEnter: () => setHovered(true), onPointerLeave: () => setHovered(false) } : {})}
       style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 10, marginTop: first ? 14 : 3, justifyContent: mine ? 'flex-end' : 'flex-start' }}>
       {!mine && <View style={{ width: 34 }}>{last && <Avatar user={sender} size={34} showPresence={false} />}</View>}
-      {mine && hoverReply}
+      {mine && hoverControls}
       <View style={{ maxWidth: desktop ? '72%' : '78%', alignItems: mine ? 'flex-end' : 'flex-start', gap: 6 }}>
         {showSender && (
           <View style={{ flexDirection: 'row', gap: 8, alignItems: 'baseline', paddingHorizontal: 4 }}>
             <T variant="labelLg">{sender?.displayName ?? t('Someone')}</T>
-            <T variant="bodySm" color={colors.textMuted}>
-              {clock(m.createdAt)}
-            </T>
           </View>
         )}
         <Pressable
-          onPress={m.failed ? () => chatStore.retry(m) : canAct && !desktop ? onToggleActions : undefined}
-          onLongPress={canAct && !desktop && !actionsOpen ? onToggleActions : undefined}
+          onPress={m.failed ? () => chatStore.retry(m) : undefined}
+          onLongPress={(!web || !desktop) && canAct ? openAtLongPress : undefined}
           delayLongPress={350}
-          {...(web && canAct ? { onDoubleClick: onReply } : {})}
+          {...(web && canAct ? ({ onDoubleClick: onReply, onContextMenu: openAtPointer } as object) : {})}
           style={[
             {
               backgroundColor: bubbleBg,
@@ -593,10 +885,10 @@ function Bubble({
               borderTopEndRadius: mine && !first ? 8 : r,
               opacity: m.pending ? 0.75 : 1,
               gap: 8,
-              borderWidth: 1,
-              borderColor: actionsOpen ? colors.amber : 'transparent',
+              borderWidth: highlighted || menuOpen ? 2 : 1,
+              borderColor: highlighted || menuOpen ? colors.amber : 'transparent',
             },
-            (hovered || actionsOpen) && web && ({ filter: 'brightness(1.06)' } as object),
+            web && (hovered || menuOpen) && ({ filter: 'brightness(1.06)' } as object),
           ]}>
           {m.replyTo && (
             <View
@@ -665,43 +957,21 @@ function Bubble({
             })}
           </View>
         )}
-        {showPicker && (
-          <View style={{ flexDirection: 'row', gap: 2, backgroundColor: colors.surfaceHigh, borderRadius: radius.pill, paddingHorizontal: 6, paddingVertical: 4 }}>
-            {QUICK_REACTIONS.map((e) => (
-              <Pressable
-                key={e}
-                onPress={() => react(e)}
-                accessibilityLabel={e}
-                style={({ hovered: h, pressed }: any) => ({
-                  width: 38,
-                  height: 38,
-                  borderRadius: 19,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  backgroundColor: h || pressed ? colors.surfaceHighest : 'transparent',
-                })}>
-                <T style={{ fontSize: 22, lineHeight: 28 }}>{e}</T>
-              </Pressable>
-            ))}
-          </View>
-        )}
-        {actionsOpen && (
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-            <ActionChip icon="corner-up-left" label={t('Reply')} onPress={onReply} />
-            {m.kind === 'text' && <ActionChip icon="copy" label={t('Copy')} onPress={copy} />}
-            {canSave && <ActionChip icon="bookmark" label={saveState === 'done' ? t('Saved') : saveState === 'error' ? t('Could not save') : t('Save')} onPress={() => void save()} />}
-          </View>
-        )}
-        {last && (mine || !desktop) && (
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 4 }}>
-            <T variant="bodySm" color={m.failed ? colors.danger : colors.textMuted} style={{ fontVariant: ['tabular-nums'] }}>
-              {m.failed ? t('Not sent · tap to retry') : clock(m.createdAt)}
+        {/* Every message shows its own time; pin/edited state lives in the same row. */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 4 }}>
+          {isPinned && <PushPin size={11} color={colors.textMuted} />}
+          <T variant="bodySm" color={m.failed ? colors.danger : colors.textMuted} style={{ fontVariant: ['tabular-nums'] }}>
+            {m.failed ? t('Not sent · tap to retry') : clock(m.createdAt)}
+          </T>
+          {!!editedAt && !m.failed && (
+            <T variant="bodySm" color={colors.textDim}>
+              {t('Edited')}
             </T>
-            {mine && !conversation.isSaved && <Receipt message={m} conversation={conversation} />}
-          </View>
-        )}
+          )}
+          {mine && !conversation.isSaved && <Receipt message={m} conversation={conversation} />}
+        </View>
       </View>
-      {!mine && hoverReply}
+      {!mine && hoverControls}
     </View>
   );
 }
@@ -831,25 +1101,6 @@ function CallInviteCard({ message, mine }: { message: Message; mine: boolean }) 
   );
 }
 
-function ActionChip({ icon, label, onPress }: { icon: IconName; label: string; onPress: () => void }) {
-  return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => ({
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 6,
-        paddingHorizontal: 12,
-        paddingVertical: 7,
-        borderRadius: radius.pill,
-        backgroundColor: pressed ? colors.surfaceHighest : colors.surfaceHigh,
-      })}>
-      <Icon name={icon} size={14} color={colors.amberText} />
-      <T variant="label">{label}</T>
-    </Pressable>
-  );
-}
-
 function EmptyThread({ conversation }: { conversation: Conversation }) {
   if (conversation.isSaved)
     return (
@@ -901,24 +1152,43 @@ function Composer({
   desktop,
   replyTo,
   onClearReply,
+  editing,
+  onCancelEdit,
 }: {
   conversation: Conversation;
   desktop: boolean;
   replyTo: Message | null;
   onClearReply: () => void;
+  /** Message being edited: the composer prefills it and Saves instead of Sending. */
+  editing: Message | null;
+  onCancelEdit: () => void;
 }) {
   const { user } = useAuth();
   const secret = useSecretStatus(conversation, user?.id);
   const blocked = !!conversation.secret && secret?.state !== 'ready';
   const filesAllowed = !conversation.secret;
-  const [text, setText] = useState('');
+  // Unsent text lives in the per-conversation draft store (restored when switching chats).
+  const draft = useDraft(conversation.id);
+  const [editText, setEditText] = useState<string | null>(null);
+  // While editing, the composer is detached from the draft; cancel restores the draft untouched.
+  const text = editing ? (editText ?? editing.body) : draft;
+  const setText = (value: string) => {
+    if (editing) setEditText(value);
+    else setDraft(conversation.id, value);
+  };
+  const seenEditId = useRef<string | null>(null);
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
+  const [savingEdit, setSavingEdit] = useState(false);
+  // Image/file staged from a paste or the picker: waits for Send with an optional caption.
+  const [staged, setStaged] = useState<{ asset: DocumentPicker.DocumentPickerAsset; preview: string | null } | null>(null);
+  const [caption, setCaption] = useState('');
   const inputRef = useRef<TextInputInstance>(null);
+  const captionRef = useRef<TextInputInstance>(null);
   const [inputHeight, setInputHeight] = useState(50);
   const insets = useSafeAreaInsets();
-  const canSend = text.trim().length > 0;
+  const canSend = !uploading && !savingEdit && (text.trim().length > 0 || (!!staged && !editing));
 
   useLayoutEffect(() => {
     if (Platform.OS !== 'web') return;
@@ -936,7 +1206,131 @@ function Composer({
     if (replyTo) inputRef.current?.focus();
   }, [replyTo]);
 
+  // Entering edit mode prefills the input once; store updates must not clobber the typed text.
+  useEffect(() => {
+    if (!editing) return;
+    if (seenEditId.current === editing.id) return;
+    seenEditId.current = editing.id;
+    setEditText(editing.body);
+    setEmojiOpen(false);
+    setStaged(null);
+    setCaption('');
+    inputRef.current?.focus();
+  }, [editing]);
+
+  // Release the local object URL of a staged web image.
+  useEffect(() => {
+    const preview = staged?.preview;
+    return () => {
+      if (preview?.startsWith('blob:') && typeof URL !== 'undefined') URL.revokeObjectURL(preview);
+    };
+  }, [staged]);
+
+  const saveEdit = async () => {
+    const body = text.trim();
+    if (!editing || !body || savingEdit) return;
+    setSavingEdit(true);
+    setUploadError('');
+    try {
+      await chatStore.editMessage(editing, body);
+      onCancelEdit();
+      setEditText(null);
+      inputRef.current?.focus();
+    } catch (e) {
+      setUploadError(e instanceof Error ? e.message : t('Could not save changes'));
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
+  const onChange = (value: string) => {
+    setText(value);
+    if (!editing) chatStore.notifyTyping(conversation.id, value.length > 0);
+  };
+
+  const insertEmoji = (emoji: string) => {
+    setText(text + emoji);
+    inputRef.current?.focus();
+  };
+
+  const checkSize = async (asset: DocumentPicker.DocumentPickerAsset) => {
+    const maxMb = await uploadLimitMb();
+    if ((asset.size ?? 0) > maxMb * 1024 * 1024) {
+      setUploadError(t('Files can be up to {n} MB', { n: num(maxMb) }));
+      return false;
+    }
+    return true;
+  };
+
+  const uploadNow = async (asset: DocumentPicker.DocumentPickerAsset) => {
+    setUploadError('');
+    if (!(await checkSize(asset))) return;
+    setUploading(true);
+    try {
+      await chatStore.sendFile(conversation.id, asset, replyTo);
+      onClearReply();
+    } catch (e) {
+      setUploadError(e instanceof Error ? e.message : t('Could not upload file'));
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  /** Pasting (or picking) an image stages it with a caption instead of sending straight away. */
+  const stageAsset = async (asset: DocumentPicker.DocumentPickerAsset) => {
+    setUploadError('');
+    if (!(await checkSize(asset))) return;
+    const blob = (asset as { file?: Blob }).file;
+    const preview = asset.uri?.startsWith('blob:') ? asset.uri : blob && typeof URL !== 'undefined' ? URL.createObjectURL(blob) : (asset.uri || null);
+    setStaged({ asset, preview });
+    setCaption('');
+    setEmojiOpen(false);
+    setTimeout(() => captionRef.current?.focus(), 50);
+  };
+
+  const cancelStaged = () => {
+    setStaged(null);
+    setCaption('');
+    setUploadError('');
+  };
+
+  const sendStaged = async () => {
+    if (!staged || uploading) return;
+    if (!(await checkSize(staged.asset))) return;
+    setUploading(true);
+    setUploadError('');
+    try {
+      await chatStore.sendFile(conversation.id, staged.asset, replyTo, caption);
+      setStaged(null);
+      setCaption('');
+      onClearReply();
+      inputRef.current?.focus();
+    } catch (e) {
+      setUploadError(e instanceof Error ? e.message : t('Could not upload file'));
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const pickFile = async () => {
+    setUploadError('');
+    const picked = await DocumentPicker.getDocumentAsync({ type: '*/*', copyToCacheDirectory: true, multiple: false, base64: false });
+    if (picked.canceled) return;
+    const asset = picked.assets[0];
+    if (asset?.mimeType?.startsWith('image/')) await stageAsset(asset);
+    else if (asset) await uploadNow(asset);
+  };
+
+  /** Send button / Enter: saves an edit, uploads a staged attachment, or sends the typed message. */
   const send = () => {
+    if (editing) {
+      void saveEdit();
+      return;
+    }
+    if (staged) {
+      void sendStaged();
+      return;
+    }
     const body = text.trim();
     if (!body) return;
     setText('');
@@ -947,41 +1341,11 @@ function Composer({
     inputRef.current?.focus();
   };
 
-  const onChange = (t: string) => {
-    setText(t);
-    chatStore.notifyTyping(conversation.id, t.length > 0);
-  };
-
-  async function uploadAsset(asset: DocumentPicker.DocumentPickerAsset) {
-    setUploadError('');
-    const maxMb = await uploadLimitMb();
-    if ((asset.size ?? 0) > maxMb * 1024 * 1024) {
-      setUploadError(t('Files can be up to {n} MB', { n: num(maxMb) }));
-      return;
-    }
-    setUploading(true);
-    try {
-      await chatStore.sendFile(conversation.id, asset, replyTo);
-      onClearReply();
-    } catch (e) {
-      setUploadError(e instanceof Error ? e.message : t('Could not upload file'));
-    } finally {
-      setUploading(false);
-    }
-  }
-
-  const pickFile = async () => {
-    setUploadError('');
-    const picked = await DocumentPicker.getDocumentAsync({ type: '*/*', copyToCacheDirectory: true, multiple: false, base64: false });
-    if (picked.canceled) return;
-    await uploadAsset(picked.assets[0]);
-  };
-
-  // Ctrl+V with an image on the clipboard sends it, like Telegram/Discord. Web only: native
-  // TextInput has no paste event. Clipboards holding text too (Word, Excel) paste as text.
-  const uploadRef = useRef(uploadAsset);
+  // Ctrl+V with an image on the clipboard stages it for a caption. Web only: native TextInput has
+  // no paste event. Clipboards holding text too (Word, Excel) paste as text.
+  const stageRef = useRef(stageAsset);
   useEffect(() => {
-    uploadRef.current = uploadAsset;
+    stageRef.current = stageAsset;
   });
   useEffect(() => {
     if (Platform.OS !== 'web' || blocked || !filesAllowed) return;
@@ -999,7 +1363,7 @@ function Composer({
       const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
       const name = file.name && file.name !== 'image.png' ? file.name : `pasted-${stamp}.${ext}`;
       const named = new File([file], name, { type: file.type });
-      void uploadRef.current({
+      void stageRef.current({
         uri: '', // unused on web: the upload sends `file`
         name,
         size: named.size,
@@ -1033,7 +1397,33 @@ function Composer({
         borderTopColor: colors.surfaceHigh,
         gap: 10,
       }}>
-      {replyTo && (
+      {editing && (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: colors.surface, borderRadius: radius.lg, padding: 10, paddingLeft: 14 }}>
+          <View style={{ width: 3, alignSelf: 'stretch', borderRadius: 2, backgroundColor: colors.amber }} />
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <T variant="label" color={colors.amberText}>
+              {t('Editing message')}
+            </T>
+            <T variant="body" color={colors.textMuted} numberOfLines={1}>
+              {editing.body}
+            </T>
+          </View>
+          <Tooltip label={t('Cancel edit')}>
+            <IconButton
+              name="x"
+              label={t('Cancel edit')}
+              onPress={() => {
+                onCancelEdit();
+                setEditText(null);
+                inputRef.current?.focus();
+              }}
+              size={32}
+              iconSize={16}
+            />
+          </Tooltip>
+        </View>
+      )}
+      {replyTo && !editing && (
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: colors.surface, borderRadius: radius.lg, padding: 10, paddingLeft: 14 }}>
           <View style={{ width: 3, alignSelf: 'stretch', borderRadius: 2, backgroundColor: colors.amber }} />
           <View style={{ flex: 1 }}>
@@ -1047,31 +1437,87 @@ function Composer({
           <IconButton name="x" label={t('Cancel reply')} onPress={onClearReply} size={32} iconSize={16} />
         </View>
       )}
-      {emojiOpen && (
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, backgroundColor: colors.surface, borderRadius: radius.lg, padding: 8 }}>
-          {EMOJIS.map((e) => (
+      {staged && (
+        <View
+          style={{
+            flexDirection: 'row',
+            gap: 10,
+            backgroundColor: colors.surface,
+            borderRadius: radius.lg,
+            borderWidth: 1,
+            borderColor: colors.surfaceHigh,
+            padding: 10,
+          }}>
+          {staged.preview ? (
+            <Image source={{ uri: staged.preview }} style={{ width: 76, height: 76, borderRadius: 10, backgroundColor: colors.surfaceHigh }} contentFit="cover" />
+          ) : (
+            <View style={{ width: 76, height: 76, borderRadius: 10, backgroundColor: colors.surfaceHigh, alignItems: 'center', justifyContent: 'center' }}>
+              <Icon name="file" size={22} color={colors.amberText} />
+            </View>
+          )}
+          <View style={{ flex: 1, minWidth: 0, gap: 6 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <T variant="labelLg" numberOfLines={1} style={{ flexShrink: 1 }}>
+                {staged.asset.name}
+              </T>
+              <T variant="bodySm" color={colors.textMuted}>
+                {bytesLabel(staged.asset.size ?? 0)}
+              </T>
+            </View>
+            <TextInput
+              ref={captionRef}
+              value={caption}
+              onChangeText={setCaption}
+              placeholder={t('Add a caption…')}
+              placeholderTextColor={colors.textMuted}
+              multiline
+              style={[
+                {
+                  minHeight: 38,
+                  maxHeight: 88,
+                  backgroundColor: colors.canvas,
+                  borderRadius: radius.md,
+                  borderWidth: 1,
+                  borderColor: colors.surfaceHigh,
+                  color: colors.text,
+                  fontFamily: fonts.regular,
+                  fontSize: 14,
+                  lineHeight: 20,
+                  paddingHorizontal: 10,
+                  paddingVertical: 8,
+                },
+                noOutline,
+                persianFont(caption || t('Add a caption…'), { fontFamily: fonts.regular }),
+              ]}
+            />
+          </View>
+          <View style={{ justifyContent: 'space-between', alignItems: 'flex-end' }}>
+            <IconButton name="x" label={t('Cancel')} onPress={cancelStaged} size={30} iconSize={15} />
             <Pressable
-              key={e}
-              onPress={() => onChange(text + e)}
-              style={({ hovered, pressed }: any) => ({
+              onPress={() => void sendStaged()}
+              disabled={uploading}
+              accessibilityLabel={t('Send')}
+              style={({ pressed, hovered }: any) => ({
                 width: 40,
                 height: 40,
+                borderRadius: 20,
+                backgroundColor: colors.amber,
+                opacity: uploading ? 0.6 : pressed || hovered ? 0.9 : 1,
                 alignItems: 'center',
                 justifyContent: 'center',
-                borderRadius: 10,
-                backgroundColor: hovered || pressed ? colors.surfaceHigh : 'transparent',
               })}>
-              <T style={{ fontSize: 22 }}>{e}</T>
+              {uploading ? <ActivityIndicator color={colors.onAmber} size="small" /> : <Icon name="send" size={17} color={colors.onAmber} />}
             </Pressable>
-          ))}
+          </View>
         </View>
       )}
-      {desktop && (
-        <View style={{ flexDirection: 'row', justifyContent: 'flex-end', paddingHorizontal: 6 }}>
-          <T variant="bodySm" color={colors.textDim}>
-            {t('Press Return ↵ to send · Shift + Return for a new line')}
-          </T>
-        </View>
+      {emojiOpen && (
+        <EmojiPicker
+          onPick={insertEmoji}
+          onClose={() => setEmojiOpen(false)}
+          maxHeight={desktop ? 240 : 200}
+          style={!desktop && { maxWidth: undefined }}
+        />
       )}
       {!!uploadError && <T variant="bodySm" color={colors.danger}>{uploadError}</T>}
       <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 10 }}>
@@ -1149,7 +1595,7 @@ function Composer({
             <Pressable
               onPress={send}
               disabled={!canSend}
-              accessibilityLabel={t('Send')}
+              accessibilityLabel={editing ? t('Save changes') : t('Send')}
               style={{
                 width: 44,
                 height: 44,
@@ -1158,7 +1604,7 @@ function Composer({
                 alignItems: 'center',
                 justifyContent: 'center',
               }}>
-              <Icon name="send" size={18} color={canSend ? colors.canvas : colors.textMuted} />
+              {savingEdit ? <ActivityIndicator color={colors.onAmber} size="small" /> : <Icon name={editing ? 'check' : 'send'} size={18} color={canSend ? colors.canvas : colors.textMuted} />}
             </Pressable>
           )}
         </View>
@@ -1166,7 +1612,7 @@ function Composer({
           <Pressable
             onPress={send}
             disabled={!canSend}
-            accessibilityLabel={t('Send')}
+            accessibilityLabel={editing ? t('Save changes') : t('Send')}
             style={({ pressed }) => ({
               width: 52,
               height: 52,
@@ -1180,7 +1626,7 @@ function Composer({
               shadowOpacity: canSend ? 0.4 : 0,
               shadowRadius: 12,
             })}>
-            <Icon name="send" size={22} color={colors.canvas} />
+            {savingEdit ? <ActivityIndicator color={colors.onAmber} /> : <Icon name={editing ? 'check' : 'send'} size={22} color={colors.canvas} />}
           </Pressable>
         )}
       </View>

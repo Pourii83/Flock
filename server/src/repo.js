@@ -127,10 +127,12 @@ export async function createConversation(meId, userIds, name, description = '') 
 }
 
 const MESSAGE_SELECT = `
-  SELECT m.*, r.body AS reply_body, r.sender_id AS reply_sender_id, ru.display_name AS reply_sender_name
+  SELECT m.*, r.body AS reply_body, r.sender_id AS reply_sender_id, ru.display_name AS reply_sender_name,
+         su.display_name AS sender_name
   FROM messages m
   LEFT JOIN messages r ON r.id = m.reply_to_id
-  LEFT JOIN users ru ON ru.id = r.sender_id`;
+  LEFT JOIN users ru ON ru.id = r.sender_id
+  LEFT JOIN users su ON su.id = m.sender_id`;
 
 function serializeMessage(row) {
   if (!row) return null;
@@ -138,6 +140,7 @@ function serializeMessage(row) {
     id: row.id,
     conversationId: row.conversation_id,
     senderId: row.sender_id,
+    senderName: row.sender_name ?? null,
     kind: row.kind,
     body: row.body,
     attachment: row.attachment_name
@@ -155,6 +158,8 @@ function serializeMessage(row) {
       : null,
     forwardedFrom: row.forwarded_from ?? null,
     reactions: [],
+    editedAt: row.edited_at ?? null,
+    pinnedAt: row.pinned_at ?? null,
     createdAt: row.created_at,
   };
 }
@@ -264,6 +269,58 @@ export async function listMessages(conversationId, { before, limit = 50 } = {}) 
     [conversationId, before ? Number(before) : Number.MAX_SAFE_INTEGER, Math.min(Number(limit) || 50, 200)],
   );
   return withReactions(rows.reverse().map(serializeMessage));
+}
+
+/** One message in the normal client shape (reactions included), or null. */
+export async function getMessage(messageId) {
+  if (!isUuid(messageId)) return null;
+  const row = await one(`${MESSAGE_SELECT} WHERE m.id = $1`, [messageId]);
+  if (!row) return null;
+  return (await withReactions([serializeMessage(row)]))[0];
+}
+
+/** The sender changed the text: stores the new body and marks the message edited. */
+export async function updateMessageBody(messageId, body) {
+  const updated = await one('UPDATE messages SET body = $2, edited_at = $3 WHERE id = $1 RETURNING id', [messageId, body, now()]);
+  return updated ? getMessage(updated.id) : null;
+}
+
+/** Removes a message; the caller deletes its stored file, if any. Returns the deleted row. */
+export const deleteMessage = (messageId) => one('DELETE FROM messages WHERE id = $1 RETURNING *', [messageId]);
+
+/** Pins (`on` true), unpins (false) or toggles (omitted) a message; returns its new pinnedAt. */
+export async function setPinned(messageId, on) {
+  const row = await one('SELECT pinned_at FROM messages WHERE id = $1', [messageId]);
+  if (!row) return null;
+  const want = on === undefined ? row.pinned_at == null : !!on;
+  const pinnedAt = want ? now() : null;
+  await query('UPDATE messages SET pinned_at = $2 WHERE id = $1', [messageId, pinnedAt]);
+  return { messageId, pinnedAt };
+}
+
+/** Messages whose text or file name contains `q` (newest first). Excludes system/call noise. */
+export async function searchMessages(conversationId, { q, before, limit = 50 } = {}) {
+  const term = String(q || '').trim().slice(0, 200);
+  if (!term) return [];
+  const rows = await query(
+    `${MESSAGE_SELECT}
+     WHERE m.conversation_id = $1 AND m.created_at < $2 AND m.kind IN ('text', 'file')
+       AND (m.body ILIKE $3 OR m.attachment_name ILIKE $3)
+     ORDER BY m.created_at DESC LIMIT $4`,
+    [conversationId, before ? Number(before) : Number.MAX_SAFE_INTEGER, `%${likeEscape(term)}%`, Math.min(Number(limit) || 50, 50)],
+  );
+  return withReactions(rows.map(serializeMessage));
+}
+
+/** Pinned messages of a conversation, newest pin first. */
+export async function listPinnedMessages(conversationId) {
+  const rows = await query(
+    `${MESSAGE_SELECT}
+     WHERE m.conversation_id = $1 AND m.pinned_at IS NOT NULL
+     ORDER BY m.pinned_at DESC LIMIT 200`,
+    [conversationId],
+  );
+  return withReactions(rows.map(serializeMessage));
 }
 
 // ---------- reactions ----------

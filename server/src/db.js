@@ -119,8 +119,14 @@ export async function migrate() {
     -- Saved Messages: a personal conversation with a single member (lazily created, one per user).
     ALTER TABLE conversations ADD COLUMN IF NOT EXISTS saved BOOLEAN NOT NULL DEFAULT FALSE;
     CREATE UNIQUE INDEX IF NOT EXISTS conversations_saved_owner ON conversations (created_by) WHERE saved;
-    -- Display name of the original sender, set on messages copied into Saved Messages.
+    -- Display name of the original sender, set on messages copied into Saved Messages or forwarded.
     ALTER TABLE messages ADD COLUMN IF NOT EXISTS forwarded_from TEXT;
+    -- Editing: when the sender last changed the text (NULL = never edited).
+    ALTER TABLE messages ADD COLUMN IF NOT EXISTS edited_at BIGINT;
+    -- Pinning: when the message was pinned in its conversation (NULL = not pinned).
+    ALTER TABLE messages ADD COLUMN IF NOT EXISTS pinned_at BIGINT;
+    CREATE INDEX IF NOT EXISTS messages_pinned
+      ON messages (conversation_id, pinned_at DESC) WHERE pinned_at IS NOT NULL;
     -- Emoji reactions (plaintext metadata, so they work in end-to-end encrypted chats too).
     CREATE TABLE IF NOT EXISTS message_reactions (
       message_id UUID NOT NULL REFERENCES messages(id) ON DELETE CASCADE,

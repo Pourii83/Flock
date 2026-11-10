@@ -406,6 +406,18 @@ export function createRealtime(httpServer, corsOrigin) {
     async notifyReactions(conversationId, payload) {
       await toMembers(conversationId, 'message:reactions', payload);
     },
+    /** A message's text changed (edit). */
+    async notifyMessageUpdated(conversationId, message) {
+      await toMembers(conversationId, 'message:updated', { conversationId, message });
+    },
+    /** A message was removed from its conversation. */
+    async notifyMessageDeleted(conversationId, messageId) {
+      await toMembers(conversationId, 'message:deleted', { conversationId, messageId });
+    },
+    /** A message was pinned (`pinnedAt` timestamp) or unpinned (`null`). */
+    async notifyPinned(conversationId, messageId, pinnedAt) {
+      await toMembers(conversationId, 'message:pinned', { conversationId, messageId, pinnedAt });
+    },
     async notifyRead(conversationId, userId, readAt) {
       await toMembers(conversationId, 'conversation:read', { conversationId, userId, readAt });
     },

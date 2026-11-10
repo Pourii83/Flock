@@ -52,11 +52,12 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   return readResponse<T>(res);
 }
 
-async function uploadFile(conversationId: string, asset: DocumentPickerAsset, replyToId?: string): Promise<Message> {
+async function uploadFile(conversationId: string, asset: DocumentPickerAsset, replyToId?: string, caption?: string): Promise<Message> {
   const form = new FormData();
   const part = asset.file ?? ({ uri: asset.uri, name: asset.name, type: asset.mimeType || 'application/octet-stream' } as any);
   form.append('file', part);
   if (replyToId) form.append('replyToId', replyToId);
+  if (caption?.trim()) form.append('caption', caption.trim());
   let res: Response;
   try {
     res = await fetch(`${getApiUrl()}/api/conversations/${conversationId}/files`, {
@@ -73,7 +74,23 @@ async function uploadFile(conversationId: string, asset: DocumentPickerAsset, re
 type AuthResponse = { token: string; user: User };
 
 /** Server-wide settings the admin changes in App settings. */
-export type AppSettings = { allowRegistration: boolean; allowGuestMeetings: boolean; maxUploadMb: number; fileRetentionDays: number };
+export type AppSettings = {
+  allowRegistration: boolean;
+  allowGuestMeetings: boolean;
+  maxUploadMb: number;
+  fileRetentionDays: number;
+  /** The app's name, shown everywhere instead of "Flock" (1–40 characters). */
+  appName: string;
+  /** The project link, or '' when repo links are hidden. */
+  repoUrl: string;
+  showRepoLinks: boolean;
+};
+
+/** Public branding every client can read without signing in. */
+export type Branding = { appName: string; repoUrl: string; showRepoLinks: boolean; version: string | null };
+
+/** The installed server version and its changelog (empty when the package has none). */
+export type UpdateInfo = { version: string | null; notes: string };
 
 export type ServerUsage = {
   version: string | null;
@@ -109,6 +126,10 @@ export const api = {
   updateAdminSettings: (patch: Partial<AppSettings>) => request<AppSettings>('PATCH', '/admin/settings', patch),
   adminUsage: () => request<ServerUsage>('GET', '/admin/usage'),
   health: () => request<{ ok: boolean; maxUploadMb?: number }>('GET', '/health'),
+  /** Public branding: app name, project link and the server's installed version. */
+  branding: () => request<Branding>('GET', '/branding'),
+  /** The installed server version and the changelog packaged with it. */
+  updateInfo: () => request<UpdateInfo>('GET', '/update'),
   rooms: () => request<Room[]>('GET', '/rooms'),
   /** expiresInMinutes null = open until closed. */
   createRoom: (title: string, expiresInMinutes: number | null) => request<Room>('POST', '/rooms', { title, expiresInMinutes }),
@@ -141,12 +162,33 @@ export const api = {
     request<Conversation>('PATCH', `/conversations/${id}`, patch),
   messages: (id: string, before?: number) =>
     request<Message[]>('GET', `/conversations/${id}/messages${before ? `?before=${before}` : ''}`),
+  /** Case-insensitive search inside one conversation; newest matches first. */
+  searchMessages: (id: string, q: string, before?: number) =>
+    request<Message[]>(
+      'GET',
+      `/conversations/${id}/search?q=${encodeURIComponent(q)}${before ? `&before=${before}` : ''}`,
+    ),
+  /** Pinned messages of one conversation, newest pin first. */
+  pinnedMessages: (id: string) => request<Message[]>('GET', `/conversations/${id}/pinned`),
   sendMessage: (id: string, body: string, replyToId?: string) =>
     request<Message>('POST', `/conversations/${id}/messages`, { body, replyToId }),
   uploadFile,
+  /** Same upload as `uploadFile`, with an optional caption stored as the message text. */
+  sendFile: uploadFile,
   /** Add (`on` true), remove (false) or toggle (omitted) my reaction. */
   react: (messageId: string, emoji: string, on?: boolean) =>
     request<{ messageId: string; reactions: Reaction[] }>('POST', `/messages/${messageId}/react`, { emoji, on }),
+  /** Edits the text of my own message; returns the updated message. */
+  editMessage: (messageId: string, body: string) => request<Message>('PATCH', `/messages/${messageId}`, { body }),
+  /** Deletes my own message (and its file, when it has one). */
+  deleteMessage: (messageId: string) =>
+    request<{ ok: true; messageId: string }>('DELETE', `/messages/${messageId}`),
+  /** Copies a message into another conversation I'm in, noting the original sender. */
+  forwardMessage: (messageId: string, conversationId: string) =>
+    request<Message>('POST', `/messages/${messageId}/forward`, { conversationId }),
+  /** Pins, unpins (`on: false`) or toggles (omitted) a message. */
+  pinMessage: (messageId: string, on?: boolean) =>
+    request<{ messageId: string; pinnedAt: number | null }>('POST', `/messages/${messageId}/pin`, { on }),
   /** Copies a message into my Saved Messages (created on first use). */
   saveMessage: (messageId: string) => request<Message>('POST', `/messages/${messageId}/save`),
   savedMessages: () => request<Conversation>('GET', '/conversations/saved'),

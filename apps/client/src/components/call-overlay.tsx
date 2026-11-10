@@ -10,12 +10,12 @@ import { meetingLink } from '@/lib/config';
 import { timer } from '@/lib/format';
 import { canSwitchCamera } from '@/lib/native-media';
 import { getNoisePreference, strongNoiseSupported } from '@/lib/noise';
-import { screenShareSupported } from '@/lib/rtc';
+import { setCallChatSounds, setReactionSounds, useCallSoundSettings } from '@/lib/call-sounds';
 import { REACTION_MS, STREAM_PRESETS, useCalls, type CallReaction, type CallRemote, type NetQuality, type StreamFps, type StreamQuality, type VoiceBitrate } from '@/state/calls';
 import { useConversation } from '@/state/chat-store';
 import { colors, onThemeChange, radius } from '@/theme';
 import { Avatar, ConversationAvatar } from './avatar';
-import { Button, Icon, T, type IconName, UnreadBadge } from './ui';
+import { Button, Icon, T, Tooltip, type IconName, UnreadBadge } from './ui';
 import type { User } from '@/lib/types';
 import { CallChatPanel } from './call-chat';
 import { RemoteAudio } from './remote-audio';
@@ -25,23 +25,34 @@ import { num, t } from '@/lib/i18n';
 import { playTestTone } from '@/lib/test-tone';
 import { LevelMeter } from './call/level-meter';
 
-const REACTIONS = ['❤️', '👏', '💡', '🔥'];
+const REACTIONS = ['❤️', '👏', '💡', '🔥', '✨'];
 
 /** Small badge for a weak connection (nothing while it's fine): amber = weak, red = very weak. */
-function NetBadge({ q, size = 22, style }: { q?: NetQuality; size?: number; style?: object }) {
+function NetBadge({ q, size = 22, style, label }: { q?: NetQuality; size?: number; style?: object; label?: string }) {
   if (!q || q === 'good') return null;
   const color = q === 'poor' ? colors.danger : colors.amber;
+  const text = label ?? (q === 'poor' ? t('Very weak connection') : t('Weak connection'));
   return (
-    <View
-      accessibilityLabel={q === 'poor' ? t('Very weak connection') : t('Weak connection')}
-      {...(Platform.OS === 'web' ? ({ title: q === 'poor' ? t('Very weak connection') : t('Weak connection') } as object) : {})}
-      style={[
-        { width: size, height: size, borderRadius: size / 2, backgroundColor: colors.panel, borderWidth: 1.5, borderColor: color, alignItems: 'center', justifyContent: 'center' },
-        style,
-      ]}>
-      <Icon name={q === 'poor' ? 'wifi-off' : 'wifi'} size={Math.round(size * 0.55)} color={color} />
-    </View>
+    <Tooltip label={text}>
+      <View
+        accessibilityRole="image"
+        accessibilityLabel={text}
+        style={[
+          { width: size, height: size, borderRadius: size / 2, backgroundColor: colors.panel, borderWidth: 1.5, borderColor: color, alignItems: 'center', justifyContent: 'center' },
+          style,
+        ]}>
+        <Icon name={q === 'poor' ? 'wifi-off' : 'wifi'} size={Math.round(size * 0.55)} color={color} />
+      </View>
+    </Tooltip>
   );
+}
+
+/** Tooltip text for a connection badge: which side is weak, and how weak. */
+function netBadgeLabel(q: NetQuality | undefined, who?: string | null) {
+  if (!q || q === 'good') return '';
+  if (who === 'you') return q === 'poor' ? t('Your connection is very weak') : t('Your connection is weak');
+  if (who) return q === 'poor' ? t("{name}'s connection is very weak", { name: who }) : t("{name}'s connection is weak", { name: who });
+  return q === 'poor' ? t('Very weak connection') : t('Weak connection');
 }
 
 /** What a call is called: the group's title, or for a direct call the other person's name. */
@@ -62,7 +73,17 @@ export function CallOverlay() {
         <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.canvas }]}>{call.phase === 'active' ? <ActiveCall /> : <RingingCall />}</View>
       )}
       {/* One persistent audio output per participant (web) — it keeps playing while minimized. */}
-      {call.phase === 'active' && call.remotes.map((r) => <RemoteAudio key={r.userId} stream={r.stream} version={call.mediaVersion} outputDeviceId={call.audioOutputId} volume={r.volume ?? 1} />)}
+      {call.phase === 'active' &&
+        call.remotes.map((r) => (
+          <RemoteAudio
+            key={r.userId}
+            stream={r.stream}
+            version={call.mediaVersion}
+            outputDeviceId={call.audioOutputId}
+            // The speaker button silences everyone, on top of each person's own volume.
+            volume={call.speakerMuted ? 0 : (r.volume ?? 1)}
+          />
+        ))}
     </View>
   );
 }
@@ -163,7 +184,7 @@ function MiniCall() {
                 <T variant="labelLg" numberOfLines={1} style={{ flexShrink: 1 }}>
                   {callName(call, shown?.user)}
                 </T>
-                <NetBadge q={shown?.net} size={18} />
+                <NetBadge q={shown?.net} size={18} label={netBadgeLabel(shown?.net, shown?.user?.displayName)} />
               </View>
               <T variant="bodySm" color={colors.amberText} style={{ fontVariant: ['tabular-nums'] }}>
                 {timer(elapsed)}
@@ -199,19 +220,21 @@ function MiniCall() {
           <MiniButton icon="users" active={peopleOpen} onPress={() => setPeopleOpen((open) => !open)} label={t('Show participants')} />
         )}
         <MiniButton icon="maximize-2" active={false} onPress={() => !drag.justDragged() && setMinimized(false)} label={t('Return to call')} />
-        <Pressable
-          accessibilityLabel={t('Hang up')}
-          onPress={hangUp}
-          style={({ pressed }) => ({
-            width: 52,
-            height: 40,
-            borderRadius: 20,
-            backgroundColor: pressed ? '#B91C1C' : colors.dangerDeep,
-            alignItems: 'center',
-            justifyContent: 'center',
-          })}>
-          <Icon name="phone-off" size={18} color={colors.dangerText} />
-        </Pressable>
+        <Tooltip label={t('Hang up')}>
+          <Pressable
+            accessibilityLabel={t('Hang up')}
+            onPress={hangUp}
+            style={({ pressed, hovered }: any) => ({
+              width: 52,
+              height: 40,
+              borderRadius: 20,
+              backgroundColor: pressed ? '#B91C1C' : hovered ? colors.danger : colors.dangerDeep,
+              alignItems: 'center',
+              justifyContent: 'center',
+            })}>
+            <Icon name="phone-off" size={18} color={colors.dangerText} />
+          </Pressable>
+        </Tooltip>
       </View>
     </Animated.View>
   );
@@ -219,22 +242,24 @@ function MiniCall() {
 
 function MiniButton({ icon, active, onPress, label, ring }: { icon: IconName; active: boolean; onPress: () => void; label: string; ring?: boolean }) {
   return (
-    <Pressable
-      accessibilityLabel={label}
-      onPress={onPress}
-      style={({ pressed }) => ({
-        width: 40,
-        height: 40,
-        borderRadius: 20,
-        // Lights up while I'm talking (others see the same on my avatar).
-        borderWidth: 2,
-        borderColor: ring ? colors.amber : 'transparent',
-        backgroundColor: active ? 'rgba(255,184,77,0.22)' : pressed ? colors.surfaceHighest : colors.surfaceHigh,
-        alignItems: 'center',
-        justifyContent: 'center',
-      })}>
-      <Icon name={icon} size={18} color={active ? colors.amberText : colors.text} />
-    </Pressable>
+    <Tooltip label={label}>
+      <Pressable
+        accessibilityLabel={label}
+        onPress={onPress}
+        style={({ pressed, hovered }: any) => ({
+          width: 40,
+          height: 40,
+          borderRadius: 20,
+          // Lights up while I'm talking (others see the same on my avatar).
+          borderWidth: 2,
+          borderColor: ring ? colors.amber : 'transparent',
+          backgroundColor: active ? 'rgba(255,184,77,0.22)' : pressed || hovered ? colors.surfaceHighest : colors.surfaceHigh,
+          alignItems: 'center',
+          justifyContent: 'center',
+        })}>
+        <Icon name={icon} size={18} color={active ? colors.amberText : colors.text} />
+      </Pressable>
+    </Tooltip>
   );
 }
 
@@ -380,7 +405,7 @@ function RingingCall() {
           {incoming && (
             <View style={{ flexDirection: 'row', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
               {[
-                { icon: 'message-square' as const, text: "Can't talk right now" },
+                { icon: 'message-square' as const, text: t("Can't talk right now") },
                 { icon: 'clock' as const, text: t('Call you back?') },
               ].map((q) => (
                 <Pressable
@@ -452,13 +477,14 @@ function useElapsed(since: number | null) {
   return since ? Math.max(0, Math.floor((now - since) / 1000)) : 0;
 }
 
-type Panel = 'chat' | 'quality' | 'invite' | 'audio' | 'mic' | 'more' | 'reactions' | null;
+type Panel = 'chat' | 'quality' | 'invite' | 'audio' | 'mic' | 'more' | 'reactions' | 'cameras' | null;
 
 /** Stitch "Active Video Call": full-bleed remote, draggable self view, glass control dock. */
 function ActiveCall() {
-  const { call, hangUp, toggleMic, toggleCamera, toggleScreenShare, flipCamera, sendReaction, setMinimized } = useCalls();
+  const { call, hangUp, toggleMic, toggleCamera, toggleScreenShare, flipCamera, sendReaction, setMinimized, toggleSpeakerMute, toggleRaiseHand, lowerHand } = useCalls();
   const { self: user } = useCalls();
   const wide = useIsWide();
+  const { width: windowWidth } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   // Tap the stage to hide the controls (less visual noise), tap again to bring them back.
   const [controlsHidden, setControlsHidden] = useState(false);
@@ -470,6 +496,7 @@ function ActiveCall() {
   // Popovers open right above the button that owns them: measure it first, then show.
   const [outX, outRef, measureOut] = useAnchor();
   const [reactX, reactRef, measureReact] = useAnchor();
+  const [camX, camRef, measureCam] = useAnchor();
   const openAt = (measure: ReturnType<typeof useAnchor>[2], p: Exclude<Panel, null>) => {
     if (panel === p) return setPanel(null);
     measure(() => setPanel(p));
@@ -509,6 +536,7 @@ function ActiveCall() {
       net: call.localNet,
       muted: call.micMuted,
       screen: call.sharingScreen,
+      raised: call.raised,
     },
     ...call.remotes.map((r) => ({
       id: r.userId,
@@ -520,6 +548,7 @@ function ActiveCall() {
       net: r.net,
       screen: r.screen && hasVideo(r),
       connecting: !r.stream,
+      raised: call.raisedBy.includes(r.userId),
     })),
   ];
   if (!call.remotes.length) {
@@ -556,13 +585,32 @@ function ActiveCall() {
     setTimeout(() => setLinkCopied(false), 2000);
   };
   const canFlip = canSwitchCamera && !call.cameraOff;
-  const canShare = screenShareSupported();
+  // A chevron on the camera button lists the other cameras (web/desktop with more than one).
+  const canSwitchCameras = Platform.OS === 'web' && call.videoDevices.length > 1;
+  // Phones keep the essentials in the dock and the rest behind "More". Their buttons shrink a little
+  // so six of them plus the hang-up button still fit on a small screen.
+  const dockSize = wide ? 54 : Math.max(36, Math.min(46, Math.floor((windowWidth - 125) / 6)));
+  const raisedCount = (call.raised ? 1 : 0) + call.raisedBy.length;
+  const raisedText =
+    raisedCount > 1
+      ? t('{count} people raised their hands', { count: num(raisedCount) })
+      : call.raised
+        ? t('You raised your hand')
+        : t('{name} raised a hand', { name: call.remotes.find((r) => call.raisedBy.includes(r.userId))?.user?.displayName ?? t('Someone') });
   // Phones keep the essentials in the dock and the rest behind "More".
   const moreItems: MenuItem[] = [
     ...(canFlip ? [{ icon: 'refresh-ccw' as const, label: t('Switch camera'), onPress: flipCamera }] : []),
-    ...(canShare ? [{ icon: 'monitor' as const, label: call.sharingScreen ? t('Stop sharing') : t('Share screen'), active: call.sharingScreen, onPress: toggleScreenShare }] : []),
+    { icon: 'monitor', label: call.sharingScreen ? t('Stop sharing') : t('Share screen'), active: call.sharingScreen, onPress: () => void toggleScreenShare() },
+    { icon: 'smile', label: t('Reactions'), active: panel === 'reactions', onPress: () => setPanel('reactions') },
+    ...(call.isGroup ? [{ emoji: '✋', label: call.raised ? t('Lower hand') : t('Raise hand'), active: call.raised, onPress: toggleRaiseHand }] : []),
     ...(camOn ? [{ icon: selfHidden ? ('eye' as const) : ('eye-off' as const), label: selfHidden ? t('Show my video') : t('Hide my video'), onPress: () => setSelfHidden((h) => !h) }] : []),
-    { icon: 'volume-2', label: t('Audio devices'), onPress: () => setPanel('audio') },
+    {
+      icon: call.speakerMuted ? ('volume-x' as const) : ('volume-2' as const),
+      label: call.speakerMuted ? t('Unmute call audio') : t('Mute call audio'),
+      active: call.speakerMuted,
+      onPress: toggleSpeakerMute,
+    },
+    { icon: 'headphones', label: t('Audio devices'), onPress: () => setPanel('audio') },
     { icon: 'sliders', label: t('Call quality'), onPress: () => setPanel('quality') },
     ...(canInvite ? [{ icon: 'user-plus' as const, label: t('Invite to call'), onPress: () => setPanel('invite') }] : []),
     ...(call.room ? [{ icon: 'link' as const, label: t('Copy meeting link'), onPress: () => void copyMeetingLink() }] : []),
@@ -602,7 +650,7 @@ function ActiveCall() {
             <VideoView key={`remote-${single.userId}-${call.mediaVersion}`} stream={single.stream} />
             <View style={[styles.glass, { position: 'absolute', start: 16, bottom: padBottom, paddingHorizontal: 12, paddingVertical: 5, flexDirection: 'row', gap: 6, alignItems: 'center' }]}>
               <T variant="label">{callName(call, single.user)}</T>
-              <NetBadge q={single.net} size={18} />
+              <NetBadge q={single.net} size={18} label={netBadgeLabel(single.net, single.user?.displayName)} />
             </View>
             <View style={{ position: 'absolute', end: 16, bottom: padBottom }}>
               <LevelMeter stream={single.stream} speaking={single.speaking} version={call.mediaVersion} height={36} />
@@ -689,7 +737,7 @@ function ActiveCall() {
         {/* Bottom controls */}
         <View
           onLayout={(e) => setDockHeight(e.nativeEvent.layout.height)}
-          style={[{ padding: 12, gap: 12, alignItems: 'center' }, chrome]}
+          style={[{ padding: wide ? 12 : 8, gap: 10, alignItems: 'center' }, chrome]}
           pointerEvents={chromePointer}>
           {!!call.notice && (
             <View style={[styles.glass, { paddingHorizontal: 14, paddingVertical: 8, maxWidth: '100%' }]}>
@@ -707,51 +755,88 @@ function ActiveCall() {
               />
             </View>
           )}
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: wide ? 14 : 10, maxWidth: '100%' }}>
-            <View style={[styles.glass, { flexDirection: 'row', alignItems: 'center', gap: wide ? 10 : 8, padding: 8, flexShrink: 1 }]}>
-              <MicButton muted={call.micMuted} speaking={!!call.localSpeaking} panelOpen={panel === 'mic'} onToggle={toggleMic} onOpenPanel={() => toggle('mic')} />
-              <DockButton icon={call.cameraOff ? 'video-off' : 'video'} active={!call.cameraOff} onPress={toggleCamera} label={call.cameraOff ? t('Turn camera on') : t('Turn camera off')} />
-              {wide && canFlip && <DockButton icon="refresh-ccw" active={false} onPress={flipCamera} label={t('Switch camera')} />}
-              {wide && canShare && (
-                <DockButton icon="monitor" active={call.sharingScreen} onPress={toggleScreenShare} label={call.sharingScreen ? t('Stop sharing') : t('Share screen')} />
+          {raisedCount > 0 && (
+            <View style={[styles.glass, { paddingHorizontal: 14, paddingVertical: 8, maxWidth: '100%', flexDirection: 'row', alignItems: 'center', gap: 10, borderColor: colors.amber }]}>
+              <T style={{ fontSize: 18 }}>✋</T>
+              <T variant="body" style={{ flexShrink: 1 }}>
+                {raisedText}
+              </T>
+              {call.raised && (
+                <Tooltip label={t('Lower hand')}>
+                  <Pressable
+                    onPress={lowerHand}
+                    accessibilityLabel={t('Lower hand')}
+                    style={({ pressed, hovered }: any) => ({
+                      paddingHorizontal: 12,
+                      paddingVertical: 5,
+                      borderRadius: radius.pill,
+                      backgroundColor: pressed || hovered ? colors.surfaceHighest : colors.surfaceHigh,
+                    })}>
+                    <T variant="label" color={colors.amberText}>
+                      {t('Lower hand')}
+                    </T>
+                  </Pressable>
+                </Tooltip>
+              )}
+            </View>
+          )}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: wide ? 14 : 8, maxWidth: '100%' }}>
+            <View style={[styles.glass, { flexDirection: 'row', alignItems: 'center', gap: wide ? 8 : 5, padding: wide ? 8 : 5, flexShrink: 1 }]}>
+              <MicButton muted={call.micMuted} speaking={!!call.localSpeaking} panelOpen={panel === 'mic'} onToggle={toggleMic} onOpenPanel={() => toggle('mic')} size={dockSize} />
+              <View ref={outRef} collapsable={false}>
+                <OutputButton muted={call.speakerMuted} panelOpen={panel === 'audio'} onToggleMute={toggleSpeakerMute} onOpenPanel={() => openAt(measureOut, 'audio')} size={dockSize} />
+              </View>
+              <View ref={camRef} collapsable={false}>
+                <CameraButton
+                  off={call.cameraOff}
+                  panelOpen={panel === 'cameras'}
+                  onToggle={toggleCamera}
+                  onOpenPanel={() => openAt(measureCam, 'cameras')}
+                  canSwitch={canSwitchCameras}
+                  size={dockSize}
+                />
+              </View>
+              {wide && canFlip && <DockButton icon="refresh-ccw" active={false} onPress={flipCamera} label={t('Switch camera')} size={dockSize} />}
+              {wide && (
+                <DockButton icon="monitor" active={call.sharingScreen} onPress={() => void toggleScreenShare()} label={call.sharingScreen ? t('Stop sharing') : t('Share screen')} size={dockSize} />
               )}
               <View ref={reactRef} collapsable={false}>
-                <DockButton icon="smile" active={panel === 'reactions'} onPress={() => openAt(measureReact, 'reactions')} label={t('Reactions')} />
+                <DockButton icon="smile" active={panel === 'reactions'} onPress={() => openAt(measureReact, 'reactions')} label={t('Reactions')} size={dockSize} />
               </View>
-              <DockButton icon="message-square" active={panel === 'chat'} onPress={() => toggle('chat')} label={t('Call chat')} badge={panel === 'chat' ? 0 : call.chatUnread} />
+              {wide && call.isGroup && <DockButton emoji="✋" active={call.raised} onPress={toggleRaiseHand} label={call.raised ? t('Lower hand') : t('Raise hand')} size={dockSize} />}
+              <DockButton icon="message-square" active={panel === 'chat'} onPress={() => toggle('chat')} label={t('Call chat')} badge={panel === 'chat' ? 0 : call.chatUnread} size={dockSize} />
               {wide ? (
                 <>
                   {camOn && (
-                    <DockButton icon={selfHidden ? 'eye' : 'eye-off'} active={selfHidden} onPress={() => setSelfHidden((h) => !h)} label={selfHidden ? t('Show my video') : t('Hide my video')} />
+                    <DockButton icon={selfHidden ? 'eye' : 'eye-off'} active={selfHidden} onPress={() => setSelfHidden((h) => !h)} label={selfHidden ? t('Show my video') : t('Hide my video')} size={dockSize} />
                   )}
-                  <View ref={outRef} collapsable={false}>
-                    <OutputButton panelOpen={panel === 'audio'} onOpenPanel={() => openAt(measureOut, 'audio')} />
-                  </View>
-                  <DockButton icon="sliders" active={panel === 'quality'} onPress={() => toggle('quality')} label={t('Call quality')} />
-                  {canInvite && <DockButton icon="user-plus" active={panel === 'invite'} onPress={() => toggle('invite')} label={t('Invite to call')} />}
-                  {!!call.room && <DockButton icon={linkCopied ? 'check' : 'link'} active={linkCopied} onPress={() => void copyMeetingLink()} label={t('Copy meeting link')} />}
+                  <DockButton icon="sliders" active={panel === 'quality'} onPress={() => toggle('quality')} label={t('Call quality')} size={dockSize} />
+                  {canInvite && <DockButton icon="user-plus" active={panel === 'invite'} onPress={() => toggle('invite')} label={t('Invite to call')} size={dockSize} />}
+                  {!!call.room && <DockButton icon={linkCopied ? 'check' : 'link'} active={linkCopied} onPress={() => void copyMeetingLink()} label={t('Copy meeting link')} size={dockSize} />}
                 </>
               ) : (
-                <DockButton icon="more-horizontal" active={panel === 'more' || call.sharingScreen} onPress={() => toggle('more')} label={t('More options')} />
+                <DockButton icon="more-horizontal" active={panel === 'more' || call.sharingScreen} onPress={() => toggle('more')} label={t('More options')} size={dockSize} />
               )}
             </View>
-            <Pressable
-              accessibilityLabel={t('Hang up')}
-              onPress={hangUp}
-              style={({ pressed }) => ({
-                width: wide ? 72 : 64,
-                height: wide ? 64 : 60,
-                borderRadius: 32,
-                backgroundColor: pressed ? '#B91C1C' : colors.danger,
-                alignItems: 'center',
-                justifyContent: 'center',
-                shadowColor: colors.danger,
-                shadowOpacity: 0.55,
-                shadowRadius: 18,
-                elevation: 8,
-              })}>
-              <Icon name="phone-off" size={24} color="#FFFFFF" />
-            </Pressable>
+            <Tooltip label={t('Hang up')}>
+              <Pressable
+                accessibilityLabel={t('Hang up')}
+                onPress={hangUp}
+                style={({ pressed, hovered }: any) => ({
+                  width: wide ? 72 : 56,
+                  height: wide ? 64 : 52,
+                  borderRadius: 32,
+                  backgroundColor: pressed ? '#B91C1C' : colors.danger,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  shadowColor: colors.danger,
+                  shadowOpacity: hovered ? 0.75 : 0.55,
+                  shadowRadius: 18,
+                  elevation: 8,
+                })}>
+                <Icon name="phone-off" size={wide ? 24 : 21} color="#FFFFFF" />
+              </Pressable>
+            </Tooltip>
           </View>
         </View>
       </SafeAreaView>
@@ -770,6 +855,11 @@ function ActiveCall() {
           <View style={{ position: 'absolute', end: 8, bottom: 8 }}>
             <LevelMeter stream={call.localStream} speaking={!!call.localSpeaking} silent={call.micMuted} version={call.mediaVersion} height={24} />
           </View>
+          {call.raised && (
+            <View style={[styles.glass, { position: 'absolute', start: 8, top: 8, paddingHorizontal: 7, paddingVertical: 2, borderColor: colors.amber, backgroundColor: colors.amberTint }]}>
+              <T style={{ fontSize: 16 }}>✋</T>
+            </View>
+          )}
         </SelfView>
       )}
 
@@ -777,12 +867,16 @@ function ActiveCall() {
       {panel === 'quality' && <CallQualityPanel onClose={() => setPanel(null)} />}
       {panel === 'invite' && <CallInvitePanel onClose={() => setPanel(null)} />}
       {panel === 'audio' && <AudioDevicePanel onClose={() => setPanel(null)} bottom={dockHeight + insets.bottom} anchorX={wide ? outX : null} stageWidth={stage.width} />}
+      {panel === 'cameras' && <CameraPanel onClose={() => setPanel(null)} bottom={dockHeight + insets.bottom} anchorX={camX} stageWidth={stage.width} />}
       {panel === 'reactions' && (
         <ReactionsPopover
           onPick={(emoji) => {
             sendReaction(emoji);
             setPanel(null);
           }}
+          raised={call.raised}
+          onToggleRaise={toggleRaiseHand}
+          canRaise={call.isGroup}
           onClose={() => setPanel(null)}
           bottom={dockHeight + insets.bottom}
           anchorX={reactX}
@@ -947,44 +1041,73 @@ function SelfView({
 /** The small round handle on a dock button's corner that opens its menu. */
 function ChevronBadge({ label, open, onPress }: { label: string; open: boolean; onPress: () => void }) {
   return (
-    <Pressable
-      accessibilityLabel={label}
-      onPress={onPress}
-      hitSlop={6}
-      style={({ pressed }) => ({
-        position: 'absolute',
-        end: -4,
-        bottom: -4,
-        width: 24,
-        height: 24,
-        borderRadius: 12,
-        borderWidth: 2,
-        borderColor: colors.canvas,
-        backgroundColor: open ? colors.amber : pressed ? colors.surfaceHigh : colors.surfaceHighest,
-        alignItems: 'center',
-        justifyContent: 'center',
-      })}>
-      <Icon name={open ? 'chevron-down' : 'chevron-up'} size={13} color={open ? colors.onAmber : colors.text} />
-    </Pressable>
+    <View style={{ position: 'absolute', end: -4, bottom: -4 }}>
+      <Tooltip label={label} side="bottom">
+        <Pressable
+          accessibilityLabel={label}
+          onPress={onPress}
+          hitSlop={6}
+          style={({ pressed, hovered }: any) => ({
+            width: 24,
+            height: 24,
+            borderRadius: 12,
+            borderWidth: 2,
+            borderColor: colors.canvas,
+            backgroundColor: open ? colors.amber : pressed || hovered ? colors.surfaceHighest : colors.surfaceHigh,
+            alignItems: 'center',
+            justifyContent: 'center',
+          })}>
+          <Icon name={open ? 'chevron-down' : 'chevron-up'} size={13} color={open ? colors.onAmber : colors.text} />
+        </Pressable>
+      </Tooltip>
+    </View>
   );
 }
 
 /** Mic toggle with a small handle that opens the microphone settings. */
-function MicButton({ muted, speaking, panelOpen, onToggle, onOpenPanel }: { muted: boolean; speaking: boolean; panelOpen: boolean; onToggle: () => void; onOpenPanel: () => void }) {
+function MicButton({ muted, speaking, panelOpen, onToggle, onOpenPanel, size }: { muted: boolean; speaking: boolean; panelOpen: boolean; onToggle: () => void; onOpenPanel: () => void; size?: number }) {
   return (
     <View>
-      <DockButton icon={muted ? 'mic-off' : 'mic'} active={!muted} danger={muted} ring={speaking} onPress={onToggle} label={muted ? t('Unmute') : t('Mute')} />
+      <DockButton icon={muted ? 'mic-off' : 'mic'} active={!muted} danger={muted} ring={speaking} onPress={onToggle} label={muted ? t('Unmute') : t('Mute')} size={size} />
       <ChevronBadge label={t('Microphone settings')} open={panelOpen} onPress={onOpenPanel} />
     </View>
   );
 }
 
-/** Speaker icon with the same handle as the mic; the handle opens the sound output menu. */
-function OutputButton({ panelOpen, onOpenPanel }: { panelOpen: boolean; onOpenPanel: () => void }) {
+/**
+ * Speaker: pressing it mutes/unmutes everyone's audio (like the mic button mutes my microphone);
+ * the small handle opens the sound output menu where each person's volume stays adjustable.
+ */
+function OutputButton({ muted, panelOpen, onToggleMute, onOpenPanel, size }: { muted: boolean; panelOpen: boolean; onToggleMute: () => void; onOpenPanel: () => void; size?: number }) {
+  const label = muted ? t('Unmute call audio') : t('Mute call audio');
   return (
     <View>
-      <DockButton icon="volume-2" active={panelOpen} onPress={onOpenPanel} label={t('Sound output')} />
+      <DockButton icon={muted ? 'volume-x' : 'volume-2'} active={!muted} danger={muted} onPress={onToggleMute} label={label} size={size} />
       <ChevronBadge label={t('Sound output settings')} open={panelOpen} onPress={onOpenPanel} />
+    </View>
+  );
+}
+
+/** Camera toggle with a handle that lists the other cameras when the browser has more than one. */
+function CameraButton({
+  off,
+  panelOpen,
+  onToggle,
+  onOpenPanel,
+  canSwitch,
+  size,
+}: {
+  off: boolean;
+  panelOpen: boolean;
+  onToggle: () => void;
+  onOpenPanel: () => void;
+  canSwitch: boolean;
+  size?: number;
+}) {
+  return (
+    <View>
+      <DockButton icon={off ? 'video-off' : 'video'} active={!off} onPress={onToggle} label={off ? t('Turn camera on') : t('Turn camera off')} size={size} />
+      {canSwitch && <ChevronBadge label={t('Switch camera')} open={panelOpen} onPress={onOpenPanel} />}
     </View>
   );
 }
@@ -1006,78 +1129,258 @@ function useAnchor() {
 }
 
 /** The reaction emoji, shown only while the smile button is open; picking one closes it. */
-function ReactionsPopover({ onPick, onClose, bottom, anchorX, stageWidth }: { onPick: (emoji: string) => void; onClose: () => void; bottom: number; anchorX: number | null; stageWidth: number }) {
+function ReactionsPopover({
+  onPick,
+  onClose,
+  bottom,
+  anchorX,
+  stageWidth,
+  raised,
+  onToggleRaise,
+  canRaise,
+}: {
+  onPick: (emoji: string) => void;
+  onClose: () => void;
+  bottom: number;
+  anchorX: number | null;
+  stageWidth: number;
+  raised: boolean;
+  onToggleRaise: () => void;
+  canRaise: boolean;
+}) {
   return (
-    <Popover onClose={onClose} bottom={bottom} anchorX={anchorX} stageWidth={stageWidth} width={Math.min(300, 76 * REACTIONS.length)}>
-      <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 4 }}>
+    <Popover onClose={onClose} bottom={bottom} anchorX={anchorX} stageWidth={stageWidth} width={Math.min(340, 62 * REACTIONS.length)}>
+      <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 2 }}>
         {REACTIONS.map((e) => (
-          <Pressable
-            key={e}
-            accessibilityLabel={t('React with {emoji}', { emoji: e })}
-            onPress={() => onPick(e)}
-            style={({ pressed }) => ({
-              paddingHorizontal: 12,
-              paddingVertical: 6,
-              borderRadius: radius.pill,
-              backgroundColor: pressed ? colors.surfaceHighest : 'transparent',
-              transform: [{ scale: pressed ? 1.15 : 1 }],
-            })}>
-            <T style={{ fontSize: 24 }}>{e}</T>
-          </Pressable>
+          <Tooltip key={e} label={t('React with {emoji}', { emoji: e })}>
+            <Pressable
+              accessibilityLabel={t('React with {emoji}', { emoji: e })}
+              onPress={() => onPick(e)}
+              style={({ pressed, hovered }: any) => ({
+                paddingHorizontal: 11,
+                paddingVertical: 6,
+                borderRadius: radius.pill,
+                backgroundColor: pressed || hovered ? colors.surfaceHighest : 'transparent',
+                transform: [{ scale: pressed ? 1.15 : 1 }],
+              })}>
+              <T style={{ fontSize: 24 }}>{e}</T>
+            </Pressable>
+          </Tooltip>
         ))}
       </View>
+      {canRaise && (
+        <>
+          <View style={{ height: 1, backgroundColor: colors.hairline }} />
+          <Tooltip label={raised ? t('Lower hand') : t('Raise hand')} style={{ alignSelf: 'stretch' }}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ selected: raised }}
+              accessibilityLabel={raised ? t('Lower hand') : t('Raise hand')}
+              onPress={onToggleRaise}
+              style={({ pressed, hovered }: any) => ({
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 12,
+                minHeight: 44,
+                paddingHorizontal: 12,
+                borderRadius: radius.lg,
+                backgroundColor: raised ? colors.amberTint : pressed || hovered ? colors.surfaceHighest : colors.surfaceHigh,
+              })}>
+              <T style={{ fontSize: 20 }}>✋</T>
+              <T variant="labelLg" style={{ flex: 1 }} color={raised ? colors.amberText : colors.text}>
+                {raised ? t('Lower hand') : t('Raise hand')}
+              </T>
+            </Pressable>
+          </Tooltip>
+        </>
+      )}
     </Popover>
   );
 }
 
-/** Microphone popover: noise cancellation and the input device. */
+/** Camera list: which webcam the call sends. Switching swaps the track; the call keeps running. */
+function CameraPanel({ onClose, bottom, anchorX, stageWidth }: { onClose: () => void; bottom: number; anchorX: number | null; stageWidth: number }) {
+  const { call, selectVideoDevice, refreshVideoDevices } = useCalls();
+  const [busy, setBusy] = useState<string | null>(null);
+  useEffect(() => {
+    void refreshVideoDevices();
+  }, [refreshVideoDevices]);
+  const pick = async (deviceId: string) => {
+    if (busy) return;
+    setBusy(deviceId);
+    try {
+      await selectVideoDevice(deviceId);
+    } finally {
+      setBusy(null);
+    }
+    onClose();
+  };
+  return (
+    <Popover title={t('Switch camera')} onClose={onClose} bottom={bottom} anchorX={anchorX} stageWidth={stageWidth}>
+      {call.videoDevices.map((device) => {
+        const selected = !call.cameraOff && device.id === call.videoDeviceId;
+        return (
+          <Tooltip key={device.id} label={device.label} style={{ alignSelf: 'stretch' }}>
+            <Pressable
+              disabled={busy !== null}
+              onPress={() => void pick(device.id)}
+              accessibilityLabel={device.label}
+              style={({ pressed, hovered }: any) => ({
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 10,
+                minHeight: 44,
+                paddingHorizontal: 12,
+                paddingVertical: 8,
+                borderRadius: radius.lg,
+                borderWidth: 1,
+                borderColor: selected ? colors.amber : colors.surfaceHighest,
+                backgroundColor: selected ? colors.amberTint : pressed || hovered ? colors.surfaceHighest : colors.surfaceHigh,
+              })}>
+              <Icon name={busy === device.id ? 'loader' : selected ? 'check-circle' : 'circle'} size={17} color={selected ? colors.amberText : colors.textMuted} />
+              <T variant="body" style={{ flex: 1 }} numberOfLines={2}>
+                {device.label}
+              </T>
+            </Pressable>
+          </Tooltip>
+        );
+      })}
+      {!call.videoDevices.length && <T color={colors.textMuted}>{t('No camera found. Connect one and try again.')}</T>}
+      <T variant="bodySm" color={colors.textMuted}>
+        {t('Switching cameras keeps the call connected.')}
+      </T>
+    </Popover>
+  );
+}
+
+/**
+ * Live level of every microphone while the mic panel is open: a short-lived getUserMedia per device
+ * feeds the existing LevelMeter analyser. All tracks stop when the panel closes; a device that can't
+ * be opened just has no bars.
+ */
+function useInputDeviceMeters(devices: { id: string }[]) {
+  const [meters, setMeters] = useState<Record<string, MediaStream | null>>({});
+  const key = devices.map((device) => device.id).join('|');
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) return;
+    let cancelled = false;
+    const opened: MediaStream[] = [];
+    const base = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+    void (async () => {
+      for (const device of devices) {
+        if (cancelled) break;
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({
+            audio: device.id === 'default' ? base : { ...base, deviceId: { exact: device.id } },
+          });
+          if (cancelled) {
+            stream.getTracks().forEach((track) => track.stop());
+            break;
+          }
+          opened.push(stream);
+          setMeters((current) => ({ ...current, [device.id]: stream }));
+        } catch {
+          if (!cancelled) setMeters((current) => ({ ...current, [device.id]: null }));
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+      opened.forEach((stream) => stream.getTracks().forEach((track) => track.stop()));
+    };
+    // The device id list is the identity of this effect.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+  return meters;
+}
+
+/** Checkbox-style setting row, like the noise-cancellation switch. */
+function ToggleRow({ label, description, value, onChange }: { label: string; description?: string; value: boolean; onChange: (value: boolean) => void }) {
+  return (
+    <Pressable
+      accessibilityRole="checkbox"
+      accessibilityState={{ checked: value }}
+      accessibilityLabel={label}
+      onPress={() => onChange(!value)}
+      style={({ pressed, hovered }: any) => ({
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+        padding: 12,
+        borderRadius: radius.lg,
+        borderWidth: 1,
+        borderColor: value ? colors.amberTint : 'transparent',
+        backgroundColor: pressed || hovered ? colors.surfaceHighest : colors.surfaceHigh,
+      })}>
+      <View
+        style={{
+          width: 22,
+          height: 22,
+          borderRadius: 6,
+          borderWidth: 2,
+          borderColor: value ? colors.amber : colors.textMuted,
+          backgroundColor: value ? colors.amber : 'transparent',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}>
+        {value && <Icon name="check" size={14} color={colors.onAmber} />}
+      </View>
+      <View style={{ flex: 1 }}>
+        <T variant="labelLg">{label}</T>
+        {!!description && (
+          <T variant="bodySm" color={colors.textMuted}>
+            {description}
+          </T>
+        )}
+      </View>
+    </Pressable>
+  );
+}
+
+/** What to do when the microphone or camera don't work (the failure guidance, in the panels). */
+function MediaHelpNote() {
+  return (
+    <View style={{ gap: 8, padding: 12, borderRadius: radius.lg, backgroundColor: colors.surfaceHigh }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <Icon name="help-circle" size={15} color={colors.amberText} />
+        <T variant="labelLg">{t('Audio & video setup')}</T>
+      </View>
+      {[
+        t('Allow the microphone and camera in your browser site settings (the lock icon next to the address), then reload.'),
+        t('Close other apps that use the microphone or camera and try again.'),
+        t('If an extension or browser policy blocks calls, turn it off or use the Flock desktop app.'),
+      ].map((line) => (
+        <View key={line} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
+          <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: colors.textMuted, marginTop: 7 }} />
+          <T variant="bodySm" color={colors.textMuted} style={{ flex: 1 }}>
+            {line}
+          </T>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+/** Microphone popover: noise cancellation, live input levels and the input device. */
 function MicPanel({ onClose, bottom }: { onClose: () => void; bottom: number }) {
   const { call, setNoiseMode, refreshAudioDevices, selectAudioInput } = useCalls();
   useEffect(() => {
     void refreshAudioDevices();
   }, [refreshAudioDevices]);
   const inputs = call.audioDevices.filter((device) => device.kind === 'input');
+  const meters = useInputDeviceMeters(inputs);
   const on = call.noiseMode !== 'off';
   const strong = strongNoiseSupported();
-  const toggleNoise = () => {
-    if (on) return setNoiseMode('off');
+  const toggleNoise = (next: boolean) => {
+    if (!next) return setNoiseMode('off');
     const preferred = getNoisePreference();
     setNoiseMode(preferred !== 'off' ? preferred : strong ? 'strong' : 'standard');
   };
   return (
     <Popover title={t('Microphone')} onClose={onClose} bottom={bottom}>
-      <Pressable
-        accessibilityRole="checkbox"
-        accessibilityState={{ checked: on }}
-        onPress={toggleNoise}
-        style={({ pressed }) => ({
-          flexDirection: 'row',
-          alignItems: 'center',
-          gap: 12,
-          padding: 12,
-          borderRadius: radius.lg,
-          backgroundColor: pressed ? colors.surfaceHighest : colors.surfaceHigh,
-        })}>
-        <View
-          style={{
-            width: 22,
-            height: 22,
-            borderRadius: 6,
-            borderWidth: 2,
-            borderColor: on ? colors.amber : colors.textMuted,
-            backgroundColor: on ? colors.amber : 'transparent',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}>
-          {on && <Icon name="check" size={14} color={colors.onAmber} />}
-        </View>
-        <View style={{ flex: 1 }}>
-          <T variant="labelLg">{t('Noise cancellation')}</T>
-          <T variant="bodySm" color={colors.textMuted}>
-            {t('Filters out keyboard, fan and background noise.')}
-          </T>
-        </View>
-      </Pressable>
+      <Tooltip label={t('Noise cancellation')} style={{ alignSelf: 'stretch' }}>
+        <ToggleRow label={t('Noise cancellation')} description={t('Filters out keyboard, fan and background noise.')} value={on} onChange={(next) => void toggleNoise(next)} />
+      </Tooltip>
       {on && strong && (
         <ChoiceRow
           values={['standard', 'strong'] as const}
@@ -1087,12 +1390,13 @@ function MicPanel({ onClose, bottom }: { onClose: () => void; bottom: number }) 
           onChange={(v) => setNoiseMode(v)}
         />
       )}
-      {inputs.length > 0 && <DeviceSection title={t('Microphone input')} icon="mic" devices={inputs} selected={call.audioInputId} onSelect={selectAudioInput} />}
+      {inputs.length > 0 && <DeviceSection title={t('Microphone input')} icon="mic" devices={inputs} selected={call.audioInputId} onSelect={selectAudioInput} meters={meters} />}
+      <MediaHelpNote />
     </Popover>
   );
 }
 
-type MenuItem = { icon: IconName; label: string; active?: boolean; onPress: () => void };
+type MenuItem = { icon?: IconName; emoji?: string; label: string; active?: boolean; onPress: () => void };
 
 /** Phone overflow menu for the controls that don't need to be one tap away. */
 function MoreSheet({ items, onClose, bottom }: { items: MenuItem[]; onClose: () => void; bottom: number }) {
@@ -1100,36 +1404,38 @@ function MoreSheet({ items, onClose, bottom }: { items: MenuItem[]; onClose: () 
     <Popover onClose={onClose} bottom={bottom}>
       <View style={{ gap: 2 }}>
         {items.map((item) => (
-          <Pressable
-            key={item.label}
-            onPress={() => {
-              onClose();
-              item.onPress();
-            }}
-            style={({ pressed }) => ({
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: 14,
-              minHeight: 52,
-              paddingHorizontal: 10,
-              borderRadius: radius.lg,
-              backgroundColor: pressed ? colors.surfaceHighest : item.active ? colors.amberTint : 'transparent',
-            })}>
-            <View
-              style={{
-                width: 38,
-                height: 38,
-                borderRadius: 19,
-                backgroundColor: item.active ? 'rgba(255,184,77,0.22)' : colors.surfaceHigh,
+          <Tooltip key={item.label} label={item.label} style={{ alignSelf: 'stretch' }}>
+            <Pressable
+              accessibilityLabel={item.label}
+              onPress={() => {
+                onClose();
+                item.onPress();
+              }}
+              style={({ pressed, hovered }: any) => ({
+                flexDirection: 'row',
                 alignItems: 'center',
-                justifyContent: 'center',
-              }}>
-              <Icon name={item.icon} size={18} color={item.active ? colors.amberText : colors.text} />
-            </View>
-            <T variant="labelLg" color={item.active ? colors.amberText : colors.text} style={{ flex: 1 }}>
-              {item.label}
-            </T>
-          </Pressable>
+                gap: 14,
+                minHeight: 52,
+                paddingHorizontal: 10,
+                borderRadius: radius.lg,
+                backgroundColor: item.active ? colors.amberTint : pressed || hovered ? colors.surfaceHighest : 'transparent',
+              })}>
+              <View
+                style={{
+                  width: 38,
+                  height: 38,
+                  borderRadius: 19,
+                  backgroundColor: item.active ? 'rgba(255,184,77,0.22)' : colors.surfaceHigh,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}>
+                {item.emoji ? <T style={{ fontSize: 18 }}>{item.emoji}</T> : <Icon name={item.icon as IconName} size={18} color={item.active ? colors.amberText : colors.text} />}
+              </View>
+              <T variant="labelLg" color={item.active ? colors.amberText : colors.text} style={{ flex: 1 }}>
+                {item.label}
+              </T>
+            </Pressable>
+          </Tooltip>
         ))}
       </View>
     </Popover>
@@ -1172,9 +1478,14 @@ function Popover({
           <T variant="headlineSm" style={{ flex: 1 }}>
             {title}
           </T>
-          <Pressable onPress={onClose} accessibilityLabel={t('Close')} style={{ padding: 6 }}>
-            <Icon name="x" />
-          </Pressable>
+          <Tooltip label={t('Close')}>
+            <Pressable
+              onPress={onClose}
+              accessibilityLabel={t('Close')}
+              style={({ pressed, hovered }: any) => ({ padding: 6, borderRadius: 12, backgroundColor: pressed || hovered ? colors.surfaceHigh : 'transparent' })}>
+              <Icon name="x" />
+            </Pressable>
+          </Tooltip>
         </View>
       )}
       <ScrollView style={{ flexGrow: 0 }} contentContainerStyle={{ gap: 14, paddingEnd: 12 }}>
@@ -1200,6 +1511,8 @@ type Person = {
   /** They're sharing their screen (it can be opened on the stage). */
   screen?: boolean;
   muted?: boolean;
+  /** Hand raised in a group call. */
+  raised?: boolean;
   connecting?: boolean;
   /** No one here yet: show this text instead of a person. */
   placeholder?: string;
@@ -1245,6 +1558,33 @@ function Tile({ p, width, height, version, compact, onOpenScreen }: { p: Person;
           </T>
         </View>
       )}
+      {/* A raised hand shows on the tile so everyone can see who wants to speak. */}
+      {p.raised && (
+        <View
+          accessibilityLabel={t('Hand raised')}
+          style={[
+            styles.glass,
+            {
+              position: 'absolute',
+              top: compact ? 6 : 10,
+              start: compact ? 6 : 10,
+              paddingHorizontal: compact ? 5 : 8,
+              paddingVertical: compact ? 1 : 3,
+              borderColor: colors.amber,
+              backgroundColor: colors.amberTint,
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 4,
+            },
+          ]}>
+          <T style={{ fontSize: compact ? 13 : 16 }}>✋</T>
+          {!compact && (
+            <T variant="label" color={colors.amberText}>
+              {t('Hand raised')}
+            </T>
+          )}
+        </View>
+      )}
       {!p.placeholder && (
         <View style={{ position: 'absolute', end: compact ? 6 : 10, bottom: compact ? 6 : 10 }}>
           <LevelMeter stream={p.audio} speaking={p.speaking} silent={p.muted} version={version} height={compact ? 20 : 30} />
@@ -1272,7 +1612,7 @@ function Tile({ p, width, height, version, compact, onOpenScreen }: { p: Person;
           <T variant={compact ? 'labelSm' : 'label'} numberOfLines={1} style={{ flexShrink: 1 }}>
             {name}
           </T>
-          <NetBadge q={p.net} size={compact ? 16 : 18} />
+          <NetBadge q={p.net} size={compact ? 16 : 18} label={netBadgeLabel(p.net, p.self ? 'you' : p.user?.displayName)} />
         </View>
       )}
     </Pressable>
@@ -1355,20 +1695,23 @@ function ScreenStage({
       <View style={{ flex: 1, minWidth: 0, minHeight: 0, borderRadius: fullWidth ? 0 : radius.lg, overflow: 'hidden', backgroundColor: '#05070A', borderWidth: fullWidth ? 0 : 2, borderColor: ownerSpeaking ? colors.amber : colors.hairline }}>
         {!!stream && <VideoView key={`focused-screen-${ownerName}-${version}`} stream={stream} contain />}
         <View style={{ position: 'absolute', top: 12, end: 12, flexDirection: 'row', gap: 8 }}>
-          <Pressable
-            onPress={onToggleFullWidth}
-            accessibilityLabel={fullWidth ? t('Show participants') : t('Full width')}
-            {...(Platform.OS === 'web' ? ({ title: fullWidth ? t('Show participants') : t('Full width') } as object) : {})}
-            style={[styles.glass, { height: 40, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 7 }]}>
-            <Icon name={fullWidth ? 'users' : 'maximize-2'} size={16} />
-            <T variant="label">{fullWidth ? t('Show participants') : t('Full width')}</T>
-          </Pressable>
-          <Pressable
-            onPress={onClose}
-            accessibilityLabel={t('Close focused screen')}
-            style={[styles.glass, { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }]}>
-            <Icon name="minimize-2" size={18} />
-          </Pressable>
+          <Tooltip label={fullWidth ? t('Show participants') : t('Full width')}>
+            <Pressable
+              onPress={onToggleFullWidth}
+              accessibilityLabel={fullWidth ? t('Show participants') : t('Full width')}
+              style={({ hovered }: any) => [styles.glass, { height: 40, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 7 }, hovered ? { backgroundColor: colors.surfaceHighest } : null]}>
+              <Icon name={fullWidth ? 'users' : 'maximize-2'} size={16} />
+              <T variant="label">{fullWidth ? t('Show participants') : t('Full width')}</T>
+            </Pressable>
+          </Tooltip>
+          <Tooltip label={t('Close focused screen')} side="bottom">
+            <Pressable
+              onPress={onClose}
+              accessibilityLabel={t('Close focused screen')}
+              style={({ hovered }: any) => [styles.glass, { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }, hovered ? { backgroundColor: colors.surfaceHighest } : null]}>
+              <Icon name="minimize-2" size={18} />
+            </Pressable>
+          </Tooltip>
         </View>
         <View style={[styles.glass, { position: 'absolute', start: 12, bottom: 12, paddingHorizontal: 12, paddingVertical: 6, maxWidth: '70%' }]}>
           <T variant="label" numberOfLines={1}>
@@ -1386,7 +1729,14 @@ function PanelShell({ title, onClose, children }: { title: string; onClose: () =
     <View style={[styles.sidePanel, Platform.OS === 'web' ? ({ boxShadow: '0 18px 50px rgba(0,0,0,0.5)' } as object) : null]}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
         <T variant="headlineSm" style={{ flex: 1 }}>{title}</T>
-        <Pressable onPress={onClose} accessibilityLabel={t('Close')} style={{ padding: 8 }}><Icon name="x" /></Pressable>
+        <Tooltip label={t('Close')}>
+          <Pressable
+            onPress={onClose}
+            accessibilityLabel={t('Close')}
+            style={({ pressed, hovered }: any) => ({ padding: 8, borderRadius: 12, backgroundColor: pressed || hovered ? colors.surfaceHigh : 'transparent' })}>
+            <Icon name="x" />
+          </Pressable>
+        </Tooltip>
       </View>
       {children}
     </View>
@@ -1402,7 +1752,7 @@ function ChoiceRow<T extends string | number>({ values, value, label, display, o
           <Pressable
             key={String(item)}
             onPress={() => onChange(item)}
-            style={{ paddingHorizontal: 14, paddingVertical: 9, borderRadius: radius.pill, borderWidth: 1, borderColor: item === value ? colors.amber : colors.surfaceHighest, backgroundColor: item === value ? colors.amberTint : colors.surfaceHigh }}>
+            style={({ pressed, hovered }: any) => ({ paddingHorizontal: 14, paddingVertical: 9, borderRadius: radius.pill, borderWidth: 1, borderColor: item === value ? colors.amber : colors.surfaceHighest, backgroundColor: item === value ? colors.amberTint : pressed || hovered ? colors.surfaceHighest : colors.surfaceHigh })}>
             <T variant="label" color={item === value ? colors.amberText : colors.text}>{display?.(item) ?? String(item)}</T>
           </Pressable>
         ))}
@@ -1413,11 +1763,13 @@ function ChoiceRow<T extends string | number>({ values, value, label, display, o
 
 function CallQualityPanel({ onClose }: { onClose: () => void }) {
   const { call, setVoiceBitrate, setStreamQuality, setStreamFps } = useCalls();
+  const sound = useCallSoundSettings();
   const qualities: readonly StreamQuality[] = ['2k', '1080p', '720p', '480p'];
   const rates: readonly VoiceBitrate[] = [160, 320];
   const fps: readonly StreamFps[] = [60, 30, 15];
   return (
     <PanelShell title={t('Call quality')} onClose={onClose}>
+      <ScrollView style={{ flexGrow: 0 }} contentContainerStyle={{ gap: 20 }}>
       <View style={{ gap: 6 }}>
         <ChoiceRow values={rates} value={call.voiceBitrate} label={t('Voice quality')} display={(v) => `${v} Kbps`} onChange={(v) => void setVoiceBitrate(v)} />
         <T variant="bodySm" color={colors.textMuted}>{t('Applies to everyone in this call.')}</T>
@@ -1439,6 +1791,26 @@ function CallQualityPanel({ onClose }: { onClose: () => void }) {
           <T variant="bodySm" color={colors.textMuted} style={{ flex: 1 }}>{t('Screen share quality and FPS appear here once you start sharing your screen.')}</T>
         </View>
       )}
+      <View style={{ gap: 8 }}>
+        <T variant="labelLg">{t('Call sounds')}</T>
+        <Tooltip label={t('Reaction sounds')} style={{ alignSelf: 'stretch' }}>
+          <ToggleRow
+            label={t('Reaction sounds')}
+            description={t('A short tone when you send or receive a reaction.')}
+            value={sound.reactionSounds}
+            onChange={(next) => setReactionSounds(next)}
+          />
+        </Tooltip>
+        <Tooltip label={t('Call chat sounds')} style={{ alignSelf: 'stretch' }}>
+          <ToggleRow
+            label={t('Call chat sounds')}
+            description={t('A notification when a message arrives in the call chat.')}
+            value={sound.chatSounds}
+            onChange={(next) => setCallChatSounds(next)}
+          />
+        </Tooltip>
+      </View>
+      </ScrollView>
     </PanelShell>
   );
 }
@@ -1449,12 +1821,15 @@ function DeviceSection({
   devices,
   selected,
   onSelect,
+  meters,
 }: {
   title: string;
   icon: IconName;
   devices: { id: string; label: string }[];
   selected: string;
   onSelect: (id: string) => Promise<void>;
+  /** Live input streams, so every microphone row shows its own level while this panel is open. */
+  meters?: Record<string, MediaStream | null>;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   return (
@@ -1463,26 +1838,44 @@ function DeviceSection({
         <Icon name={icon} size={16} color={colors.amberText} />
         <T variant="labelLg">{title}</T>
       </View>
-      {devices.map((device) => (
-        <Pressable
-          key={device.id}
-          disabled={busy !== null}
-          onPress={async () => {
-            setBusy(device.id);
-            try { await onSelect(device.id); } finally { setBusy(null); }
-          }}
-          style={{ flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 44, paddingHorizontal: 12, paddingVertical: 8, borderRadius: radius.lg, borderWidth: 1, borderColor: selected === device.id ? colors.amber : colors.surfaceHighest, backgroundColor: selected === device.id ? colors.amberTint : colors.surfaceHigh }}>
-          <Icon name={busy === device.id ? 'loader' : selected === device.id ? 'check-circle' : 'circle'} size={17} color={selected === device.id ? colors.amberText : colors.textMuted} />
-          <T variant="body" style={{ flex: 1 }} numberOfLines={2}>{device.label}</T>
-        </Pressable>
-      ))}
+      {devices.map((device) => {
+        const meter = meters?.[device.id];
+        return (
+          <Tooltip key={device.id} label={device.label} style={{ alignSelf: 'stretch' }}>
+            <Pressable
+              disabled={busy !== null}
+              onPress={async () => {
+                setBusy(device.id);
+                try { await onSelect(device.id); } finally { setBusy(null); }
+              }}
+              accessibilityLabel={device.label}
+              style={({ pressed, hovered }: any) => ({
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 10,
+                minHeight: 44,
+                paddingHorizontal: 12,
+                paddingVertical: 8,
+                borderRadius: radius.lg,
+                borderWidth: 1,
+                borderColor: selected === device.id ? colors.amber : colors.surfaceHighest,
+                backgroundColor: selected === device.id ? colors.amberTint : pressed || hovered ? colors.surfaceHighest : colors.surfaceHigh,
+              })}>
+              <Icon name={busy === device.id ? 'loader' : selected === device.id ? 'check-circle' : 'circle'} size={17} color={selected === device.id ? colors.amberText : colors.textMuted} />
+              <T variant="body" style={{ flex: 1 }} numberOfLines={2}>{device.label}</T>
+              {/* Live level bar per input, like the browser's own device picker. */}
+              {!!meter && <LevelMeter stream={meter} height={22} width={3} />}
+            </Pressable>
+          </Tooltip>
+        );
+      })}
     </View>
   );
 }
 
-/** Sound output popover: per-person volume, output device and a test sound. Microphone choice lives in the mic menu. */
+/** Sound output popover: mute-all, per-person volume, output device and a test sound. */
 function AudioDevicePanel({ onClose, bottom, anchorX, stageWidth }: { onClose: () => void; bottom: number; anchorX: number | null; stageWidth: number }) {
-  const { call, refreshAudioDevices, selectAudioOutput, setParticipantVolume } = useCalls();
+  const { call, refreshAudioDevices, selectAudioOutput, setParticipantVolume, toggleSpeakerMute } = useCalls();
   const [tone, setTone] = useState<'idle' | 'playing' | 'failed'>('idle');
   useEffect(() => { void refreshAudioDevices(); }, [refreshAudioDevices]);
   const outputs = call.audioDevices.filter((device) => device.kind === 'output');
@@ -1493,9 +1886,21 @@ function AudioDevicePanel({ onClose, bottom, anchorX, stageWidth }: { onClose: (
   };
   return (
     <Popover title={t('Sound output')} onClose={onClose} bottom={bottom} anchorX={anchorX} stageWidth={stageWidth}>
-      {call.remotes.length > 0 && <T variant="labelLg">{t('Participant volume')}</T>}
+      <Tooltip label={call.speakerMuted ? t('Unmute call audio') : t('Mute call audio')} style={{ alignSelf: 'stretch' }}>
+        <ToggleRow
+          label={t('Mute all call audio')}
+          description={t("Mutes everyone's voice and call sounds on your device. Each person's volume below still applies when you unmute.")}
+          value={call.speakerMuted}
+          onChange={() => toggleSpeakerMute()}
+        />
+      </Tooltip>
+      {call.remotes.length > 0 && (
+        <T variant="labelLg" color={call.speakerMuted ? colors.textMuted : colors.text}>
+          {t('Participant volume')}
+        </T>
+      )}
       {call.remotes.map((remote) => (
-        <View key={remote.userId} style={{ gap: 4 }}>
+        <View key={remote.userId} style={{ gap: 4, opacity: call.speakerMuted ? 0.55 : 1 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
             <Icon name={(remote.volume ?? 1) === 0 ? 'volume-x' : (remote.volume ?? 1) < 0.5 ? 'volume-1' : 'volume-2'} size={16} color={colors.textMuted} />
             <T variant="label" style={{ flex: 1 }} numberOfLines={1}>{remote.user?.displayName ?? t('Someone')}</T>
@@ -1511,6 +1916,7 @@ function AudioDevicePanel({ onClose, bottom, anchorX, stageWidth }: { onClose: (
         <T variant="bodySm" color={colors.textMuted}>{t('On phones, Bluetooth and wired communication routes pair their microphone and speaker together.')}</T>
       )}
       {!outputs.length && <T color={colors.textMuted}>{t('No audio devices found')}</T>}
+      <MediaHelpNote />
     </Popover>
   );
 }
@@ -1575,29 +1981,55 @@ function CallInvitePanel({ onClose }: { onClose: () => void }) {
   );
 }
 
-function DockButton({ icon, active, onPress, label, badge = 0, danger, ring }: { icon: IconName; active: boolean; onPress: () => void; label: string; badge?: number; danger?: boolean; ring?: boolean }) {
+function DockButton({
+  icon,
+  emoji,
+  active,
+  onPress,
+  label,
+  badge = 0,
+  danger,
+  ring,
+  size: sizeProp,
+}: {
+  icon?: IconName;
+  /** Shown instead of an icon (Feather has no hand glyph). */
+  emoji?: string;
+  active: boolean;
+  onPress: () => void;
+  label: string;
+  badge?: number;
+  danger?: boolean;
+  ring?: boolean;
+  size?: number;
+}) {
   const wide = useIsWide();
-  const size = wide ? 54 : 50;
+  const size = sizeProp ?? (wide ? 54 : 50);
   return (
-    <Pressable
-      accessibilityLabel={label}
-      onPress={onPress}
-      {...(Platform.OS === 'web' ? ({ title: label } as object) : {})}
-      style={({ pressed }) => ({
-        width: size,
-        height: size,
-        borderRadius: size / 2,
-        backgroundColor: danger ? colors.dangerTint : active ? 'rgba(255,184,77,0.22)' : pressed ? colors.surfaceHighest : colors.surfaceHigh,
-        alignItems: 'center',
-        justifyContent: 'center',
-        transform: [{ scale: pressed ? 0.94 : 1 }],
-        // The mic lights up while I'm talking (others see the same on my avatar).
-        borderWidth: 2,
-        borderColor: ring ? colors.amber : 'transparent',
-      })}>
-      <Icon name={icon} size={22} color={danger ? colors.danger : active ? colors.amberText : colors.text} />
-      {badge > 0 && <UnreadBadge count={badge} style={{ position: 'absolute', top: 2, end: 2 }} />}
-    </Pressable>
+    <Tooltip label={label}>
+      <Pressable
+        accessibilityLabel={label}
+        onPress={onPress}
+        style={({ pressed, hovered }: any) => ({
+          width: size,
+          height: size,
+          borderRadius: size / 2,
+          backgroundColor: danger ? colors.dangerTint : active ? 'rgba(255,184,77,0.22)' : pressed || hovered ? colors.surfaceHighest : colors.surfaceHigh,
+          alignItems: 'center',
+          justifyContent: 'center',
+          transform: [{ scale: pressed ? 0.94 : 1 }],
+          // The mic lights up while I'm talking (others see the same on my avatar).
+          borderWidth: 2,
+          borderColor: ring ? colors.amber : 'transparent',
+        })}>
+        {emoji ? (
+          <T style={{ fontSize: Math.round(size * 0.42), lineHeight: Math.round(size * 0.5) }}>{emoji}</T>
+        ) : (
+          <Icon name={icon as IconName} size={Math.round(size * 0.41)} color={danger ? colors.danger : active ? colors.amberText : colors.text} />
+        )}
+        {badge > 0 && <UnreadBadge count={badge} style={{ position: 'absolute', top: 2, end: 2 }} />}
+      </Pressable>
+    </Tooltip>
   );
 }
 

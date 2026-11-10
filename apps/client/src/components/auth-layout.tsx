@@ -11,22 +11,22 @@ import { FlockMark, FlockTile } from './logo';
 import { Icon, T, type IconName } from './ui';
 import { t } from '@/lib/i18n';
 
-const FEATURES: { icon: IconName; color: string; title: string; body: string }[] = [
+const FEATURES: { icon: IconName; tone: 'accent' | 'teal'; title: string; body: string }[] = [
   {
     icon: 'lock',
-    color: colors.amber,
+    tone: 'accent',
     title: 'Private by design',
     body: 'Your conversations stay between you and the people you talk to.',
   },
   {
     icon: 'video',
-    color: colors.teal,
+    tone: 'teal',
     title: 'Instant video huddles',
     body: 'Jump from a chat into a crisp call with a single tap.',
   },
   {
     icon: 'monitor',
-    color: colors.amber,
+    tone: 'accent',
     title: 'Every device, in sync',
     body: 'Phone, web and desktop share one live inbox in real time.',
   },
@@ -94,7 +94,7 @@ export function AuthLayout({ title, subtitle, children }: { title: string; subti
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }}>
         <LinearGradient
-          colors={['rgba(255,184,77,0.10)', `${colors.canvas}00`]}
+          colors={[colors.amberTint, `${colors.canvas}00`]}
           style={{ position: 'absolute', left: 0, right: 0, top: 0, height: 360 }}
         />
         {scroll(form)}
@@ -106,7 +106,7 @@ export function AuthLayout({ title, subtitle, children }: { title: string; subti
     <View style={{ flex: 1, flexDirection: 'row', backgroundColor: colors.canvas }}>
       <View style={{ flex: 1, padding: 64, justifyContent: 'space-between', overflow: 'hidden' }}>
         <LinearGradient
-          colors={['rgba(255,184,77,0.10)', `${colors.canvas}00`, colors.rail]}
+          colors={[colors.amberTint, `${colors.canvas}00`, colors.rail]}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
           style={{ position: 'absolute', inset: 0 } as any}
@@ -165,7 +165,7 @@ export function AuthLayout({ title, subtitle, children }: { title: string; subti
                     alignItems: 'center',
                     justifyContent: 'center',
                   }}>
-                  <Icon name={f.icon} color={f.color} size={20} />
+                  <Icon name={f.icon} color={f.tone === 'teal' ? colors.teal : colors.amber} size={20} />
                 </View>
                 <View style={{ flex: 1, gap: 4 }}>
                   <T variant="headlineSm">{t(f.title)}</T>

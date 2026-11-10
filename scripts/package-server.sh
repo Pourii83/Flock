@@ -54,6 +54,17 @@ chmod +x "$STAGE/install.sh" "$STAGE/uninstall.sh"
 printf '%s\n' "$VERSION" > "$STAGE/VERSION"
 printf 'node=%s\narch=linux-%s\n' "$NODE_VERSION" "$ARCH" >> "$STAGE/VERSION"
 
+# Changelog of this build, shown by the app after an update (read from /opt/flock/RELEASE_NOTES.md).
+echo "==> Writing release notes"
+LAST_TAG="$(git -C "$ROOT" describe --tags --abbrev=0 2>/dev/null || true)"
+if [ -n "$LAST_TAG" ]; then
+  git -C "$ROOT" log --oneline "$LAST_TAG..HEAD" > "$STAGE/RELEASE_NOTES.md" 2>/dev/null || true
+else
+  git -C "$ROOT" log --oneline -20 > "$STAGE/RELEASE_NOTES.md" 2>/dev/null || true
+fi
+# Built exactly on the last tag? The range is empty, so fall back to the recent commits.
+[ -s "$STAGE/RELEASE_NOTES.md" ] || git -C "$ROOT" log --oneline -20 > "$STAGE/RELEASE_NOTES.md" 2>/dev/null || :
+
 FILE="$OUT/$NAME-linux-$ARCH.tar.gz"
 tar -czf "$FILE" -C "$(dirname "$STAGE")" "$NAME"
 (cd "$OUT" && sha256sum "$(basename "$FILE")" > "$(basename "$FILE").sha256")

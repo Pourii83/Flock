@@ -94,6 +94,84 @@ const light: Palette = {
 const PALETTES: Record<ThemeMode, Palette> = { dark, light };
 export const colors: Palette = { ...dark };
 
+// ---------- accent color ----------
+// The user picks an accent in Settings; every amber token is derived from it so the whole UI
+// (buttons, badges, call glow, selected states) follows the same color. Defaults match the design.
+
+export const DEFAULT_ACCENT = '#FFB84D';
+const ACCENT_KEY = 'flock.accent';
+let accent = DEFAULT_ACCENT;
+const accentListeners = new Set<() => void>();
+export const getAccent = () => accent;
+export const onAccentChange = (fn: () => void) => {
+  accentListeners.add(fn);
+  return () => void accentListeners.delete(fn);
+};
+
+type Rgb = { r: number; g: number; b: number };
+function parseHex(hex: string): Rgb | null {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return null;
+  const n = parseInt(m[1]!, 16);
+  return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+}
+const toHex = ({ r, g, b }: Rgb) => `#${[r, g, b].map((v) => Math.round(v).toString(16).padStart(2, '0')).join('')}`.toUpperCase();
+const mix = (hex: string, other: string, amount: number): string => {
+  const a = parseHex(hex);
+  const b = parseHex(other);
+  if (!a || !b) return hex;
+  return toHex({ r: a.r + (b.r - a.r) * amount, g: a.g + (b.g - a.g) * amount, b: a.b + (b.b - a.b) * amount });
+};
+const alpha = (hex: string, a: number): string => {
+  const c = parseHex(hex);
+  return c ? `rgba(${c.r}, ${c.g}, ${c.b}, ${a})` : hex;
+};
+/** Dark text on a light accent, light text on a dark one. */
+const onColor = (hex: string): string => {
+  const c = parseHex(hex);
+  if (!c) return '#3D2600';
+  const lum = (0.299 * c.r + 0.587 * c.g + 0.114 * c.b) / 255;
+  return lum > 0.55 ? '#1A1205' : '#FFFFFF';
+};
+
+function applyAccentTokens() {
+  if (!parseHex(accent)) return;
+  const p = mode === 'dark' ? dark : light;
+  p.amber = accent;
+  p.amberGlow = alpha(accent, mode === 'dark' ? 0.25 : 0.22);
+  p.amberTint = alpha(accent, mode === 'dark' ? 0.12 : 0.14);
+  p.onAmber = onColor(accent);
+  if (mode === 'dark') {
+    p.amberSoft = mix(accent, '#FFFFFF', 0.62);
+    p.amberText = accent;
+    p.amberSoftText = mix(accent, '#FFFFFF', 0.7);
+    p.onAmberMuted = mix(accent, '#000000', 0.45);
+  } else {
+    p.amberSoft = mix(accent, '#FFFFFF', 0.76);
+    p.amberText = mix(accent, '#000000', 0.42);
+    p.amberSoftText = mix(accent, '#000000', 0.52);
+    p.onAmberMuted = mix(accent, '#000000', 0.5);
+  }
+}
+
+function paintColors() {
+  Object.assign(colors, PALETTES[mode]);
+}
+
+/** Changes the accent everywhere; the app root is keyed by it, like the theme mode. */
+export async function setAccent(next: string) {
+  if (!parseHex(next)) return;
+  accent = next.startsWith('#') ? next.toUpperCase() : `#${next}`.toUpperCase();
+  if (mode === 'dark' || mode === 'light') applyAccentTokens();
+  paintColors();
+  accentListeners.forEach((fn) => fn());
+  await setItem(ACCENT_KEY, accent);
+}
+
+export function useAccent() {
+  return useSyncExternalStore(onAccentChange, getAccent, getAccent);
+}
+
 let mode: ThemeMode = 'dark';
 const listeners = new Set<() => void>();
 export const getThemeMode = () => mode;
@@ -104,9 +182,9 @@ export const onThemeChange = (fn: () => void) => {
 
 /** Swaps every color token; the app root is keyed by the mode so everything re-renders. */
 export function applyTheme(next: ThemeMode) {
-  if (next === mode) return;
   mode = next;
-  Object.assign(colors, PALETTES[next]);
+  applyAccentTokens();
+  paintColors();
   if (Platform.OS === 'web' && typeof document !== 'undefined') {
     document.documentElement.style.colorScheme = next;
     document.body.style.backgroundColor = colors.canvas;
@@ -134,6 +212,10 @@ export const getThemePreference = () => preference;
 export async function loadTheme() {
   const saved = (await getItem(THEME_KEY)) as ThemePreference | null;
   if (saved === 'dark' || saved === 'light' || saved === 'system') preference = saved;
+  const savedAccent = await getItem(ACCENT_KEY);
+  if (savedAccent && /^#?[0-9a-f]{6}$/i.test(savedAccent.trim())) {
+    accent = savedAccent.trim().startsWith('#') ? savedAccent.trim().toUpperCase() : `#${savedAccent.trim()}`.toUpperCase();
+  }
   applyTheme(resolve(preference));
   Appearance.addChangeListener(() => {
     if (preference === 'system') applyTheme(resolve('system'));

@@ -1,18 +1,17 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Pressable, View } from 'react-native';
+import { View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ChatList } from '@/components/chat-list';
 import { ChatThread } from '@/components/chat-thread';
 import { ContactPanel } from '@/components/contact-panel';
 import { EmptyStage } from '@/components/empty-state';
-import { ConnectionBanner, DesktopTopBar, MobileHeader, PageTitle } from '@/components/shell';
-import { Icon } from '@/components/ui';
+import { ConnectionBanner, DesktopTopBar, MobileHeader } from '@/components/shell';
 import { useIsWide, useShowDetailsPanel } from '@/hooks/use-layout';
 import { useChat } from '@/state/chat-store';
 import { colors } from '@/theme';
-import { t, num } from '@/lib/i18n';
+import { t } from '@/lib/i18n';
 
 export default function ChatsScreen() {
   const wide = useIsWide();
@@ -20,7 +19,6 @@ export default function ChatsScreen() {
   const { c: selectedId } = useLocalSearchParams<{ c?: string }>();
   const [detailsOpen, setDetailsOpen] = useState(true);
   const conversations = useChat((s) => s.conversations);
-  const activeCount = conversations.filter((c) => c.unreadCount > 0).length;
 
   // Drop a stale selection (e.g. after signing in as someone else).
   const loaded = useChat((s) => s.loaded);
@@ -35,32 +33,6 @@ export default function ChatsScreen() {
       <SafeAreaView edges={['top']} style={{ flex: 1, backgroundColor: colors.canvas }}>
         <MobileHeader />
         <ConnectionBanner />
-        <View style={{ paddingHorizontal: 20, paddingTop: 4, paddingBottom: 12 }}>
-          <PageTitle
-            title={t('Chats')}
-            pill={activeCount ? t('{n} unread', { n: num(activeCount) }) : undefined}
-            action={
-              <Pressable
-                accessibilityLabel={t('New chat')}
-                onPress={newChat}
-                style={({ pressed }) => ({
-                  width: 56,
-                  height: 56,
-                  borderRadius: 28,
-                  backgroundColor: colors.amber,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  transform: [{ scale: pressed ? 0.94 : 1 }],
-                  shadowColor: colors.amber,
-                  shadowOpacity: 0.45,
-                  shadowRadius: 16,
-                  elevation: 8,
-                })}>
-                <Icon name="plus" size={26} color={colors.onAmber} />
-              </Pressable>
-            }
-          />
-        </View>
         <ChatList variant="mobile" onOpen={(c) => router.push(`/chat/${c.id}`)} onNewChat={newChat} />
       </SafeAreaView>
     );

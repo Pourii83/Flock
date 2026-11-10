@@ -5,6 +5,7 @@ import { ActivityIndicator, ScrollView, Switch, View } from 'react-native';
 import { ModalFrame } from '@/components/modal-frame';
 import { Button, Field, Icon, SectionLabel, T, type IconName } from '@/components/ui';
 import { api, type AppSettings, type ServerUsage } from '@/lib/api';
+import { DEFAULT_REPO, setBranding } from '@/lib/brand';
 import { num, t } from '@/lib/i18n';
 import { useAuth } from '@/state/auth';
 import { colors, radius } from '@/theme';
@@ -174,6 +175,8 @@ function SettingsForm() {
   const [draft, setDraft] = useState<AppSettings | null>(null);
   const [upload, setUpload] = useState('');
   const [retention, setRetention] = useState('');
+  const [appName, setAppName] = useState('');
+  const [repoUrl, setRepoUrl] = useState('');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null);
 
@@ -184,6 +187,8 @@ function SettingsForm() {
         setDraft(s);
         setUpload(String(s.maxUploadMb));
         setRetention(String(s.fileRetentionDays));
+        setAppName(s.appName);
+        setRepoUrl(s.repoUrl);
       },
       (e) => setMessage({ text: e instanceof Error ? e.message : String(e), ok: false }),
     );
@@ -192,21 +197,47 @@ function SettingsForm() {
   if (!draft || !saved) return message ? <T color={colors.danger}>{message.text}</T> : null;
   const uploadMb = Number(upload);
   const retentionDays = Number(retention);
-  const valid = Number.isInteger(uploadMb) && uploadMb >= 1 && uploadMb <= 4096 && Number.isInteger(retentionDays) && retentionDays >= 1 && retentionDays <= 365;
+  const name = appName.trim();
+  const repo = repoUrl.trim();
+  const nameValid = name.length >= 1 && name.length <= 40;
+  // Empty means "no project link"; otherwise it must be an http(s) URL.
+  const repoValid = !repo || /^https?:\/\/[^\s]+$/i.test(repo);
+  const valid =
+    Number.isInteger(uploadMb) &&
+    uploadMb >= 1 &&
+    uploadMb <= 4096 &&
+    Number.isInteger(retentionDays) &&
+    retentionDays >= 1 &&
+    retentionDays <= 365 &&
+    nameValid &&
+    repoValid;
   const dirty =
     draft.allowRegistration !== saved.allowRegistration ||
     draft.allowGuestMeetings !== saved.allowGuestMeetings ||
+    draft.showRepoLinks !== saved.showRepoLinks ||
     uploadMb !== saved.maxUploadMb ||
-    retentionDays !== saved.fileRetentionDays;
+    retentionDays !== saved.fileRetentionDays ||
+    name !== saved.appName ||
+    repo !== saved.repoUrl;
 
   const save = async () => {
     setBusy(true);
     setMessage(null);
     try {
-      const next = await api.updateAdminSettings({ ...draft, maxUploadMb: uploadMb, fileRetentionDays: retentionDays });
+      const next = await api.updateAdminSettings({
+        ...draft,
+        maxUploadMb: uploadMb,
+        fileRetentionDays: retentionDays,
+        appName: name,
+        repoUrl: repo,
+      });
       setSaved(next);
       setDraft(next);
+      setAppName(next.appName);
+      setRepoUrl(next.repoUrl);
       setMessage({ text: t('Settings saved — they apply right away'), ok: true });
+      // The brand store feeds the app name/link everywhere: refresh it after a save.
+      api.branding().then(setBranding, () => {});
     } catch (e) {
       setMessage({ text: e instanceof Error ? e.message : String(e), ok: false });
     } finally {
@@ -218,6 +249,35 @@ function SettingsForm() {
     <View style={{ gap: 12 }}>
       <SectionLabel>{t('App settings')}</SectionLabel>
       <View style={{ gap: 16, padding: 16, borderRadius: radius.lg, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.surfaceHigh }}>
+        <Field
+          label={t('App name')}
+          icon="type"
+          value={appName}
+          onChangeText={setAppName}
+          maxLength={40}
+          placeholder={t('Flock')}
+          error={nameValid ? null : t('1 to 40 characters')}
+        />
+        <T variant="bodySm" color={colors.textMuted}>
+          {t('Every "Flock" in the app becomes this name, for everyone on this server.')}
+        </T>
+        <Field
+          label={t('Repository link')}
+          icon="github"
+          value={repoUrl}
+          onChangeText={setRepoUrl}
+          placeholder={DEFAULT_REPO}
+          autoCapitalize="none"
+          autoCorrect={false}
+          maxLength={200}
+          error={repoValid ? null : t('Must start with http:// or https://')}
+        />
+        <Toggle
+          label={t('Show repository links')}
+          hint={t('Shows the project link in Settings, the app info dialog and the update box.')}
+          value={draft.showRepoLinks}
+          onChange={(v) => setDraft({ ...draft, showRepoLinks: v })}
+        />
         <Toggle
           label={t('Open sign-up')}
           hint={t('Anyone who can reach this server can create an account. Turn off to keep the server to existing accounts.')}

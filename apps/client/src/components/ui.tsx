@@ -16,9 +16,13 @@ import {
   type TextStyle,
   type ViewStyle,
 } from 'react-native';
+import Svg, { Path } from 'react-native-svg';
 
 import { isRTL, t } from '@/lib/i18n';
 import { colors, fonts, radius, type, type TypeVariant } from '@/theme';
+
+// App-styled hover tooltip (web/desktop); platform files: tooltip.web.tsx / tooltip.tsx.
+export { Tooltip } from './tooltip';
 
 // Web-only: hide the browser focus ring on inputs (we draw our own).
 export const noOutline = { outlineStyle: 'none' } as unknown as TextStyle;
@@ -70,6 +74,18 @@ const DIRECTIONAL = new Set<IconName>(['arrow-left', 'arrow-right', 'chevron-lef
 export function Icon({ name, size = 20, color = colors.text }: { name: IconName; size?: number; color?: string }) {
   const mirror = isRTL() && DIRECTIONAL.has(name);
   return <Feather name={name} size={size} color={color} style={mirror ? { transform: [{ scaleX: -1 }] } : undefined} />;
+}
+
+/** A real pushpin (📌 shape), for pinned chats and pinned messages. */
+export function PushPin({ size = 18, color = colors.text }: { size?: number; color?: string }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M16 9V4h1c.55 0 1-.45 1-1s-.45-1-1-1H7c-.55 0-1 .45-1 1s.45 1 1 1h1v5c0 1.66-1.34 3-3 3v2h5.97v7l1 1 1-1v-7H19v-2c-1.66 0-3-1.34-3-3z"
+        fill={color}
+      />
+    </Svg>
+  );
 }
 
 /** Circular / rounded icon button with press + hover feedback. */
@@ -265,6 +281,7 @@ export function SearchBar({
   right,
   style,
   autoFocus,
+  onEscape,
 }: {
   value: string;
   onChangeText: (t: string) => void;
@@ -273,6 +290,7 @@ export function SearchBar({
   right?: ReactNode;
   style?: StyleProp<ViewStyle>;
   autoFocus?: boolean;
+  onEscape?: () => void;
 }) {
   return (
     <View
@@ -298,6 +316,10 @@ export function SearchBar({
         placeholderTextColor={colors.textMuted}
         autoFocus={autoFocus}
         autoCapitalize="none"
+        // Esc closes the panel that owns the field (react-native-web doesn't bubble this reliably).
+        onKeyPress={(e: any) => {
+          if (e?.nativeEvent?.key === 'Escape') onEscape?.();
+        }}
         style={[
           { flex: 1, minWidth: 0, color: colors.text, fontFamily: fonts.regular, fontSize: 14, height: '100%' },
           noOutline,

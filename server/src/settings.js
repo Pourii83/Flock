@@ -7,12 +7,39 @@ const envInt = (name, fallback) => {
   return Number.isFinite(n) ? n : fallback;
 };
 
+const DEFAULT_REPO_URL = 'https://github.com/Pourii83/Flock';
+
+/** App name shown everywhere instead of "Flock": 1–40 characters. */
+const cleanAppName = (value) => {
+  if (typeof value !== 'string') return undefined;
+  const name = value.trim();
+  return name.length >= 1 && name.length <= 40 ? name : undefined;
+};
+
+/** The project link: an http(s) URL, or '' to hide it everywhere. */
+const cleanRepoUrl = (value) => {
+  if (typeof value !== 'string') return undefined;
+  const raw = value.trim();
+  if (!raw) return '';
+  if (raw.length > 200) return undefined;
+  try {
+    const url = new URL(raw);
+    return (url.protocol === 'http:' || url.protocol === 'https:') && url.hostname ? raw : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
 /** name -> [default, validate(value) => cleaned value or undefined] */
 const FIELDS = {
   allowRegistration: [process.env.ALLOW_REGISTRATION !== '0', (v) => (typeof v === 'boolean' ? v : undefined)],
   allowGuestMeetings: [true, (v) => (typeof v === 'boolean' ? v : undefined)],
   maxUploadMb: [envInt('MAX_UPLOAD_MB', 100), (v) => (Number.isInteger(v) && v >= 1 && v <= 4096 ? v : undefined)],
   fileRetentionDays: [envInt('FILE_RETENTION_DAYS', 7), (v) => (Number.isInteger(v) && v >= 1 && v <= 365 ? v : undefined)],
+  // Branding: the app's name and the project link, shown (or hidden) around the clients.
+  appName: [cleanAppName(process.env.APP_NAME) ?? 'Flock', cleanAppName],
+  repoUrl: [cleanRepoUrl(process.env.REPO_URL) ?? DEFAULT_REPO_URL, cleanRepoUrl],
+  showRepoLinks: [process.env.SHOW_REPO_LINKS !== '0', (v) => (typeof v === 'boolean' ? v : undefined)],
 };
 
 let current = Object.fromEntries(Object.entries(FIELDS).map(([k, [d]]) => [k, d]));

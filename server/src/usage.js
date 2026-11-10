@@ -2,11 +2,11 @@
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 import { UPLOAD_DIR } from './avatars.js';
 import { now, one } from './db.js';
 import { onlineCount } from './presence.js';
+import { installedVersion } from './version.js';
 
 /** CPU busy share over a short window (all cores). */
 async function cpuPercent(ms = 250) {
@@ -38,13 +38,7 @@ async function folderBytes(dir) {
 }
 
 async function version() {
-  // Installed packages carry /opt/flock/VERSION next to the server folder.
-  const here = path.dirname(fileURLToPath(import.meta.url));
-  for (const file of [path.join(here, '..', '..', 'VERSION'), path.join(here, '..', 'VERSION')]) {
-    const text = await fs.readFile(file, 'utf8').catch(() => null);
-    if (text) return text.split('\n')[0].trim();
-  }
-  return null;
+  return installedVersion();
 }
 
 export async function serverUsage(live) {

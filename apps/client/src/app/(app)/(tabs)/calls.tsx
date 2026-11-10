@@ -7,7 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Avatar } from '@/components/avatar';
 import { EmptyStage } from '@/components/empty-state';
 import { DesktopTopBar, MobileHeader, PageTitle } from '@/components/shell';
-import { Button, Field, Icon, SectionLabel, T } from '@/components/ui';
+import { Button, Field, Icon, IconButton, SectionLabel, T, Tooltip } from '@/components/ui';
 import { useIsWide } from '@/hooks/use-layout';
 import { api } from '@/lib/api';
 import { dayAndTime, duration } from '@/lib/format';
@@ -207,10 +207,60 @@ function MeetingsCard() {
               {untilLabel(room.expiresAt)}
             </T>
           </View>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-            <Button title={copied === room.id ? t('Copied') : t('Copy link')} icon={copied === room.id ? 'check' : 'copy'} size="sm" variant="ghost" onPress={() => void copy(room)} />
-            <Button title={t('Join')} icon="video" size="sm" disabled={call.phase !== 'idle'} onPress={() => void join(room)} />
-            <Button title={t('Close room')} icon="x-circle" size="sm" variant="ghost" loading={busy === room.id} onPress={() => void close(room)} />
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+            {/* Compact icon actions with tooltips so the three actions fit on one line. */}
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 4,
+                padding: 3,
+                borderRadius: radius.pill,
+                borderWidth: 1,
+                borderColor: colors.surfaceHigh,
+                backgroundColor: colors.canvas,
+              }}>
+              <Tooltip label={copied === room.id ? t('Copied') : t('Copy link')} style={{ alignSelf: 'center' }}>
+                <IconButton
+                  name={copied === room.id ? 'check' : 'copy'}
+                  label={copied === room.id ? t('Copied') : t('Copy link')}
+                  onPress={() => void copy(room)}
+                  size={36}
+                  iconSize={16}
+                  bg={copied === room.id ? colors.tealTint : colors.surfaceHigh}
+                  activeBg={colors.surfaceHighest}
+                  color={copied === room.id ? colors.teal : colors.text}
+                />
+              </Tooltip>
+              <View style={{ width: 1, height: 20, backgroundColor: colors.surfaceHighest }} />
+              <Tooltip label={t('Join')} style={{ alignSelf: 'center' }}>
+                <IconButton
+                  name="video"
+                  label={t('Join')}
+                  onPress={() => void join(room)}
+                  disabled={call.phase !== 'idle'}
+                  size={36}
+                  iconSize={16}
+                  bg={colors.amber}
+                  activeBg={colors.amberSoft}
+                  color={colors.onAmber}
+                />
+              </Tooltip>
+              <View style={{ width: 1, height: 20, backgroundColor: colors.surfaceHighest }} />
+              <Tooltip label={t('Close room')} style={{ alignSelf: 'center' }}>
+                <IconButton
+                  name="x-circle"
+                  label={t('Close room')}
+                  onPress={() => void close(room)}
+                  disabled={busy === room.id}
+                  size={36}
+                  iconSize={16}
+                  bg={colors.dangerTint}
+                  activeBg={colors.dangerTint}
+                  color={colors.danger}
+                />
+              </Tooltip>
+            </View>
           </View>
         </View>
       ))}
@@ -274,19 +324,22 @@ function CallRow({ log }: { log: CallLog }) {
           </T>
         </View>
       </View>
-      <Pressable
-        onPress={callBack}
-        accessibilityLabel={t('Call back')}
-        style={{
-          width: 48,
-          height: 48,
-          borderRadius: 24,
-          backgroundColor: log.missed ? colors.dangerDeep : colors.surfaceHigh,
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}>
-        <Icon name={log.video ? 'video' : 'phone'} size={20} color={log.missed ? colors.danger : log.video ? colors.amberText : colors.teal} />
-      </Pressable>
+      <Tooltip label={t('Call back')} style={{ alignSelf: 'center' }}>
+        <Pressable
+          onPress={callBack}
+          accessibilityRole="button"
+          accessibilityLabel={t('Call back')}
+          style={({ hovered, pressed }: any) => ({
+            width: 48,
+            height: 48,
+            borderRadius: 24,
+            backgroundColor: log.missed ? colors.dangerDeep : hovered || pressed ? colors.surfaceHighest : colors.surfaceHigh,
+            alignItems: 'center',
+            justifyContent: 'center',
+          })}>
+          <Icon name={log.video ? 'video' : 'phone'} size={20} color={log.missed ? colors.danger : log.video ? colors.amberText : colors.teal} />
+        </Pressable>
+      </Tooltip>
     </Pressable>
   );
 }
@@ -372,7 +425,7 @@ export default function CallsScreen() {
         </View>
         <EmptyStage
           title={t('Huddle up in one tap')}
-          body="Start a crisp voice or video call from any conversation. Calls connect peer-to-peer over WebRTC."
+          body={t('Start a crisp voice or video call from any conversation. Calls connect peer-to-peer over WebRTC.')}
           onNewChat={() => router.push('/new-chat')}
           secondary={{
             label: t('Open chats'),

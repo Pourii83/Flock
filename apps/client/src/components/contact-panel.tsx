@@ -14,15 +14,16 @@ import { useCalls } from '@/state/calls';
 import { chatStore, useConversation } from '@/state/chat-store';
 import { colors, radius } from '@/theme';
 import { Avatar, ConversationAvatar } from './avatar';
-import { Button, Field, Icon, IconButton, T, type IconName } from './ui';
+import { Button, Field, Icon, IconButton, PushPin, T, type IconName } from './ui';
 
 const RANK: Record<GroupRole, number> = { member: 0, admin: 1, owner: 2 };
 
-function Action({ icon, label, onPress, active }: { icon: IconName; label: string; onPress: () => void; active?: boolean }) {
+function Action({ icon, pin, label, onPress, active }: { icon?: IconName; pin?: boolean; label: string; onPress: () => void; active?: boolean }) {
   return (
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
+      accessibilityLabel={label}
       style={({ hovered }: any) => ({
         flex: 1,
         alignItems: 'center',
@@ -31,7 +32,7 @@ function Action({ icon, label, onPress, active }: { icon: IconName; label: strin
         borderRadius: radius.lg,
         backgroundColor: hovered ? colors.surfaceHigh : colors.surface,
       })}>
-      <Icon name={icon} size={20} color={active ? colors.amberText : colors.text} />
+      {pin ? <PushPin size={20} color={active ? colors.amberText : colors.text} /> : <Icon name={icon ?? 'circle'} size={20} color={active ? colors.amberText : colors.text} />}
       <T variant="label" color={active ? colors.amberText : colors.textMuted}>
         {label}
       </T>
@@ -96,7 +97,7 @@ export function ConversationInfo({ conversationId, onClose }: { conversationId: 
             onPress={() => chatStore.setMuted(conversation.id, !conversation.muted)}
           />
           <Action
-            icon="map-pin"
+            pin
             label={conversation.pinned ? t('Pinned') : t('Pin')}
             active={conversation.pinned}
             onPress={() => chatStore.setPinned(conversation.id, !conversation.pinned)}

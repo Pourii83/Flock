@@ -8,7 +8,7 @@ import { t } from '@/lib/i18n';
 import { useCalls } from '@/state/calls';
 import { colors, fonts, radius } from '@/theme';
 import { LinkedText } from './linked-text';
-import { Icon, IconButton, noOutline, persianFont, T } from './ui';
+import { Icon, IconButton, noOutline, persianFont, T, Tooltip } from './ui';
 
 /**
  * Height of the on-screen keyboard on phones (0 elsewhere). The call overlay floats above the
@@ -36,12 +36,18 @@ function useKeyboardHeight() {
  * are never stored, and disappear when the call ends.
  */
 export function CallChatPanel({ onClose }: { onClose: () => void }) {
-  const { call, sendChat, readChat } = useCalls();
+  const { call, sendChat, readChat, setChatOpen } = useCalls();
   const wide = useIsWide();
   const keyboard = useKeyboardHeight();
   const insets = useSafeAreaInsets();
   const [text, setText] = useState('');
   const listRef = useRef<FlatListType<(typeof call.chat)[number]>>(null);
+
+  // Tells the call that the panel is open: no notification sound for messages read on screen.
+  useEffect(() => {
+    setChatOpen(true);
+    return () => setChatOpen(false);
+  }, [setChatOpen]);
 
   // While the panel is open, everything is read; keep the newest message in view.
   useEffect(() => {
@@ -84,7 +90,9 @@ export function CallChatPanel({ onClose }: { onClose: () => void }) {
             {t('Messages disappear when the call ends.')}
           </T>
         </View>
-        <IconButton name="x" label={t('Close')} onPress={onClose} size={34} iconSize={18} />
+        <Tooltip label={t('Close')}>
+          <IconButton name="x" label={t('Close')} onPress={onClose} size={34} iconSize={18} />
+        </Tooltip>
       </View>
 
       <FlatList
@@ -150,20 +158,23 @@ export function CallChatPanel({ onClose }: { onClose: () => void }) {
             persianFont(text || t('Write a message…'), { fontFamily: fonts.regular }),
           ]}
         />
-        <Pressable
-          onPress={send}
-          disabled={!text.trim()}
-          accessibilityLabel={t('Send')}
-          style={{
-            width: 42,
-            height: 42,
-            borderRadius: 21,
-            alignItems: 'center',
-            justifyContent: 'center',
-            backgroundColor: text.trim() ? colors.amber : colors.surfaceHigh,
-          }}>
-          <Icon name="send" size={17} color={text.trim() ? colors.canvas : colors.textMuted} />
-        </Pressable>
+        <Tooltip label={t('Send')} side="bottom">
+          <Pressable
+            onPress={send}
+            disabled={!text.trim()}
+            accessibilityLabel={t('Send')}
+            style={({ pressed, hovered }: any) => ({
+              width: 42,
+              height: 42,
+              borderRadius: 21,
+              alignItems: 'center',
+              justifyContent: 'center',
+              transform: [{ scale: pressed ? 0.94 : 1 }],
+              backgroundColor: text.trim() ? colors.amber : pressed || hovered ? colors.surfaceHighest : colors.surfaceHigh,
+            })}>
+            <Icon name="send" size={17} color={text.trim() ? colors.canvas : colors.textMuted} />
+          </Pressable>
+        </Tooltip>
       </View>
     </View>
   );

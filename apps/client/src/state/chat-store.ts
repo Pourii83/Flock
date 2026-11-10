@@ -19,6 +19,10 @@ type State = {
   typing: Record<string, string[]>;
   /** conversationId -> call running there (group calls can be joined late). */
   activeCalls: Record<string, ActiveCall>;
+  /** conversationId -> its latest pinned message, when the server knows one. */
+  pinned: Record<string, Message | null>;
+  /** Which conversations already had their pinned message fetched. */
+  pinnedLoaded: Record<string, boolean>;
   /** Set while a meeting guest (no account) is connected only for a meeting room. */
   guest: User | null;
 };
@@ -31,6 +35,8 @@ const initialState = (): State => ({
   hasMore: {},
   typing: {},
   activeCalls: {},
+  pinned: {},
+  pinnedLoaded: {},
   guest: null,
 });
 
@@ -79,6 +85,11 @@ class ChatStore {
     });
     socket.on('disconnect', () => this.set({ connected: false }));
     socket.on('message:new', (m: Message) => this.receiveMessage(m));
+    socket.on('message:updated', (payload: { conversationId?: string; message?: Message } | Message) =>
+      this.updateMessage((payload as { message?: Message }).message ?? (payload as Message)),
+    );
+    socket.on('message:deleted', (payload: unknown) => this.removeMessage(payload));
+    socket.on('message:pinned', (payload: unknown) => this.handlePinned(payload));
     socket.on('message:reactions', ({ conversationId, messageId, reactions }: { conversationId: string; messageId: string; reactions: Reaction[] }) =>
       this.setReactions(conversationId, messageId, reactions),
     );
@@ -245,6 +256,7 @@ class ChatStore {
   async openConversation(id: string) {
     this.openConversationId = id;
     if (!this.state.messages[id]) await this.loadMessages(id);
+    if (!this.state.pinnedLoaded[id]) void this.loadPinned(id);
     this.markRead(id);
   }
 
@@ -279,6 +291,191 @@ class ChatStore {
     }));
   }
 
+  /** Loads (once) the conversation's currently pinned message for the thread banner. */
+  async loadPinned(conversationId: string, force = false) {
+    if (this.state.pinnedLoaded[conversationId] && !force) return;
+    try {
+      const list = (await api.pinnedMessages(conversationId)).map((m) => this.reveal(m));
+      const latest = [...list].sort(
+        (a, b) => (b.pinnedAt ?? b.createdAt) - (a.pinnedAt ?? a.createdAt),
+      )[0];
+      this.set((s) => ({
+        pinned: { ...s.pinned, [conversationId]: latest ?? null },
+        pinnedLoaded: { ...s.pinnedLoaded, [conversationId]: true },
+      }));
+      if (latest) this.upsertMessage(latest);
+    } catch {
+      // Older servers without pin support: no banner.
+      this.set((s) => ({ pinnedLoaded: { ...s.pinnedLoaded, [conversationId]: true } }));
+    }
+  }
+
+  private messageById(conversationId: string, messageId: string | undefined): Message | undefined {
+    if (!messageId) return undefined;
+    return this.state.messages[conversationId]?.find((m) => m.id === messageId);
+  }
+
+  /** Updates a loaded message, or inserts it (chronologically) when it's older than what's loaded. */
+  upsertMessage(incoming: Message) {
+    const m = this.reveal(incoming);
+    const list = this.state.messages[m.conversationId];
+    if (!list) return;
+    if (list.some((existing) => existing.id === m.id)) {
+      this.updateMessage(m);
+      return;
+    }
+    const at = list.findIndex((existing) => existing.createdAt > m.createdAt);
+    const next = at < 0 ? [...list, m] : [...list.slice(0, at), m, ...list.slice(at)];
+    this.set((s) => ({ messages: { ...s.messages, [m.conversationId]: next } }));
+  }
+
+  private setPinnedLocal(conversationId: string, message: Message | null) {
+    this.set((s) => ({
+      pinned: { ...s.pinned, [conversationId]: message },
+      pinnedLoaded: { ...s.pinnedLoaded, [conversationId]: true },
+    }));
+  }
+
+  /** Applies an edited message or a server-side field change to the loaded list. */
+  private updateMessage(incoming: Message) {
+    const m = this.reveal(incoming);
+    const editedAt = m.editedAt;
+    const pinnedAt = m.pinnedAt;
+    this.patchMessage(m.conversationId, m.id, () => ({
+      body: m.body,
+      ...(m.reactions ? { reactions: m.reactions } : {}),
+      ...(editedAt != null ? { editedAt } : {}),
+      ...(pinnedAt != null ? { pinnedAt } : {}),
+    }));
+    const conversation = this.state.conversations.find((c) => c.id === m.conversationId);
+    if (conversation?.lastMessage?.id === m.id) this.patchConversation(m.conversationId, () => ({ lastMessage: m }));
+    if (pinnedAt) this.setPinnedLocal(m.conversationId, m);
+  }
+
+  /** `message:deleted` arrives as an id, or as { messageId, conversationId }. */
+  private removeMessage(payload: unknown) {
+    const data = (typeof payload === 'string' ? { messageId: payload } : (payload ?? {})) as {
+      id?: string;
+      messageId?: string;
+      conversationId?: string;
+    };
+    const messageId = data.messageId ?? data.id;
+    if (!messageId) return;
+    this.set((s) => {
+      const messages = { ...s.messages };
+      const ids = data.conversationId ? [data.conversationId] : Object.keys(messages);
+      let removedConversation: string | undefined;
+      for (const id of ids) {
+        const list = messages[id];
+        if (!list?.some((m) => m.id === messageId)) continue;
+        messages[id] = list.filter((m) => m.id !== messageId);
+        removedConversation = id;
+        break;
+      }
+      const pinned = { ...s.pinned };
+      const pinnedId = removedConversation ?? data.conversationId;
+      if (pinnedId && pinned[pinnedId]?.id === messageId) pinned[pinnedId] = null;
+      return { messages, pinned };
+    });
+    // Keep the chat list preview in sync when the last message disappeared.
+    for (const c of this.state.conversations) {
+      if (c.lastMessage?.id !== messageId) continue;
+      const list = this.state.messages[c.id] ?? [];
+      this.patchConversation(c.id, () => ({ lastMessage: list[list.length - 1] ?? null }));
+    }
+  }
+
+  /** `message:pinned` arrives as { conversationId, messageId, pinnedAt } (pinnedAt null = unpinned). */
+  private handlePinned(payload: unknown) {
+    const data = (payload ?? {}) as Record<string, unknown>;
+    const conversationId = data.conversationId as string | undefined;
+    if (!conversationId) return;
+    const messageId = data.messageId as string | undefined;
+    const hasPinnedAt = Object.prototype.hasOwnProperty.call(data, 'pinnedAt');
+    const explicit = typeof data.pinned === 'boolean' ? data.pinned : undefined;
+    const pinnedAt = (hasPinnedAt ? (data.pinnedAt as number | null) : undefined) ?? null;
+    const pinned = explicit ?? pinnedAt != null;
+    if (messageId) this.patchMessage(conversationId, messageId, () => ({ pinnedAt }));
+    if (!pinned) {
+      this.setPinnedLocal(conversationId, null);
+      // Another pinned message may be next in line for the banner.
+      if (this.state.messages[conversationId]) void this.loadPinned(conversationId, true);
+      return;
+    }
+    // The banner shows the message text: it may not be in the loaded page yet.
+    const known = this.messageById(conversationId, messageId);
+    if (known) this.setPinnedLocal(conversationId, { ...known, pinnedAt });
+    else void this.loadPinned(conversationId, true);
+  }
+
+  /** Pin or unpin a message (the banner and the server event keep every client in sync). */
+  async setPinnedMessage(message: Message, pinned: boolean) {
+    const result = await api.pinMessage(message.id, pinned);
+    const pinnedAt = pinned ? (result.pinnedAt ?? Date.now()) : null;
+    this.patchMessage(message.conversationId, message.id, () => ({ pinnedAt }));
+    this.setPinnedLocal(message.conversationId, pinned ? { ...message, pinnedAt } : null);
+    return pinned;
+  }
+
+  /** Saves an edited body; secret chats re-encrypt for the peer device like send() does. */
+  async editMessage(message: Message, body: string) {
+    const trimmed = body.trim();
+    if (!trimmed) throw new Error(t('Message is empty'));
+    const conversation = this.state.conversations.find((c) => c.id === message.conversationId);
+    const status = conversation ? secretStatus(conversation, this.me?.id) : null;
+    const wire = status?.state === 'ready' ? encryptText(trimmed, status.peerKey) : trimmed;
+    const updated = await api.editMessage(message.id, wire);
+    const editedAt = updated.editedAt ?? Date.now();
+    this.patchMessage(message.conversationId, message.id, () => ({ body: trimmed, editedAt }));
+    const known = this.messageById(message.conversationId, message.id);
+    if (known && this.state.conversations.find((c) => c.id === message.conversationId)?.lastMessage?.id === message.id) {
+      this.patchConversation(message.conversationId, () => ({ lastMessage: { ...known, body: trimmed } }));
+    }
+    return { ...message, body: trimmed, editedAt };
+  }
+
+  async deleteMessage(message: Message) {
+    await api.deleteMessage(message.id);
+    this.removeMessage({ conversationId: message.conversationId, messageId: message.id });
+  }
+
+  /** Copies a message into another conversation ("forwarded from …"). */
+  async forwardMessage(message: Message, targetConversationId: string) {
+    const forwarded = await api.forwardMessage(message.id, targetConversationId);
+    this.receiveMessage(forwarded);
+    return forwarded;
+  }
+
+  async searchMessages(conversationId: string, query: string) {
+    const list = await api.searchMessages(conversationId, query);
+    return list.map((m) => this.reveal(m));
+  }
+
+  /** Makes sure a message is loaded (bounded paging) so the thread can scroll to it. */
+  async findMessage(conversationId: string, messageId: string): Promise<Message | null> {
+    const local = () => this.state.messages[conversationId]?.find((m) => m.id === messageId);
+    const found = local();
+    if (found) return found;
+    if (!this.state.messages[conversationId]) {
+      await this.loadMessages(conversationId).catch(() => {});
+      const afterLoad = local();
+      if (afterLoad) return afterLoad;
+    }
+    for (let page = 0; page < 20; page++) {
+      if (!this.state.hasMore[conversationId]) break;
+      try {
+        await this.loadOlder(conversationId);
+      } catch {
+        break;
+      }
+      const hit = local();
+      if (hit) return hit;
+    }
+    // Too far back to page in (bounded); the caller decides what to do with it.
+    const pinned = this.state.pinned[conversationId];
+    return pinned?.id === messageId ? pinned : null;
+  }
+
   private receiveMessage(incoming: Message) {
     const m = this.reveal(incoming);
     this.set((s) => {
@@ -287,6 +484,7 @@ class ChatStore {
       if (list.some((x) => x.id === m.id)) return {};
       return { messages: { ...s.messages, [m.conversationId]: [...list, m] } };
     });
+    if (m.pinnedAt) this.setPinnedLocal(m.conversationId, m);
     const known = this.state.conversations.find((c) => c.id === m.conversationId);
     if (!known) {
       api.conversation(m.conversationId).then((c) => this.upsertConversation(c), () => {});
@@ -348,8 +546,9 @@ class ChatStore {
     }
   }
 
-  async sendFile(conversationId: string, asset: DocumentPickerAsset, replyTo?: Message | null) {
-    const saved = await api.uploadFile(conversationId, asset, replyTo?.id);
+  async sendFile(conversationId: string, asset: DocumentPickerAsset, replyTo?: Message | null, caption?: string) {
+    const trimmed = caption?.trim();
+    const saved = await api.sendFile(conversationId, asset, replyTo?.id, trimmed || undefined);
     // Socket delivery and the HTTP response can race; receiveMessage de-duplicates by id.
     this.receiveMessage(saved);
     return saved;
@@ -455,3 +654,4 @@ export const useConversation = (id: string | undefined) =>
   useChat((s) => (id ? s.conversations.find((c) => c.id === id) : undefined));
 export const useMessages = (id: string) => useChat((s) => s.messages[id] ?? EMPTY);
 export const useTyping = (id: string) => useChat((s) => s.typing[id] ?? EMPTY);
+export const usePinned = (id: string) => useChat((s) => s.pinned[id] ?? null);

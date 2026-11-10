@@ -5,6 +5,7 @@ import { t } from './i18n';
 
 export type AudioDeviceChoice = { id: string; label: string; kind: 'input' | 'output' };
 export type AudioDeviceStatus = { devices: AudioDeviceChoice[]; selectedInputId: string; selectedOutputId: string };
+export type VideoDeviceChoice = { id: string; label: string };
 
 /**
  * A readable device name: no USB vendor:product id ("(24ae:7003)"), no Windows endpoint number
@@ -52,6 +53,26 @@ const browserAudioDevices = async (): Promise<AudioDeviceStatus> => {
   }
   return { devices, selectedInputId: 'default', selectedOutputId: 'default' };
 };
+
+/**
+ * The cameras the browser can see, for the in-call camera switch. Before the camera permission is
+ * granted browsers hide both names and ids, so only readable entries are listed (the list refreshes
+ * once a camera has been opened).
+ */
+export async function listCameras(): Promise<VideoDeviceChoice[]> {
+  const media = (globalThis as any).navigator?.mediaDevices;
+  if (!media?.enumerateDevices) return [];
+  try {
+    const listed = (await media.enumerateDevices()) as MediaDeviceInfo[];
+    const cameras = listed.filter((device) => device.kind === 'videoinput' && !!device.deviceId);
+    return cameras.map((device, index) => ({
+      id: device.deviceId,
+      label: device.label ? cleanDeviceLabel(device.label) : t('Camera {n}', { n: index + 1 }),
+    }));
+  } catch {
+    return [];
+  }
+}
 
 export const initNativeWebRTC = () => false;
 

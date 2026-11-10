@@ -666,6 +666,8 @@ for d in node server web; do
   mv "$PREFIX/$d.new" "$PREFIX/$d"
 done
 cp "$SRC/VERSION" "$SRC/uninstall.sh" "$PREFIX/" 2>/dev/null || true
+# The release changelog, when the package ships one (the app shows it after an update).
+if [ -f "$SRC/RELEASE_NOTES.md" ]; then cp "$SRC/RELEASE_NOTES.md" "$PREFIX/RELEASE_NOTES.md"; fi
 chown -R root:root "$PREFIX"
 chmod -R a+rX "$PREFIX"
 chmod 755 "$PREFIX/node/bin/node" "$PREFIX/uninstall.sh" 2>/dev/null || true
