@@ -488,6 +488,7 @@ const fa: Record<string, string> = {
   'Focus shared screen': 'بزرگ‌نمایی صفحهٔ اشتراکی',
   'Open screen': 'باز کردن صفحه',
   'Close focused screen': 'بستن نمایش بزرگ صفحه',
+  'Full width': 'تمام عرض',
   '{name} is sharing': '{name} در حال اشتراک‌گذاری است',
   'Voice quality': 'کیفیت صدا',
   'Screen share quality': 'کیفیت اشتراک صفحه',

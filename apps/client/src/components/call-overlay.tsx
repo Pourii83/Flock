@@ -475,6 +475,9 @@ function ActiveCall() {
     measure(() => setPanel(p));
   };
   const [focusedScreen, setFocusedScreen] = useState<string | null>(null);
+  // "Full width" on a shared screen collapses the participant strip so only the stream shows.
+  // It is remembered per sharer and drops back to the normal layout when the screen closes.
+  const [fullWidthSharer, setFullWidthSharer] = useState<string | null>(null);
   const [stage, setStage] = useState({ width: 0, height: 0 });
   const [dockHeight, setDockHeight] = useState(180);
   const [headerHeight, setHeaderHeight] = useState(116);
@@ -532,6 +535,10 @@ function ActiveCall() {
   const [dismissedScreen, setDismissedScreen] = useState<string | null>(null);
   const shownScreen = focusedScreen && sharers.includes(focusedScreen) ? focusedScreen : (sharers.find((id) => id !== dismissedScreen) ?? null);
   const shownRemote = call.remotes.find((r) => r.userId === shownScreen);
+  // A full-width shared screen takes the whole stage: the people strip collapses and is not shown,
+  // so the viewer can watch the stream without the tiles beside it.
+  const fullWidth = !!shownScreen && fullWidthSharer === shownScreen;
+  const toggleFullWidth = () => setFullWidthSharer((current) => (current === shownScreen ? null : shownScreen));
   // One-to-one video: their camera fills the screen and mine floats in a corner.
   const fullBleed = !shownScreen && !!single && hasVideo(single) && !single.screen;
   // With the controls hidden, the stage takes the room they leave.
@@ -582,9 +589,12 @@ function ActiveCall() {
             version={call.mediaVersion}
             padTop={padTop}
             padBottom={padBottom}
+            fullWidth={fullWidth}
+            onToggleFullWidth={toggleFullWidth}
             onClose={() => {
               setDismissedScreen(shownScreen);
               setFocusedScreen(null);
+              setFullWidthSharer(null);
             }}
           />
         ) : fullBleed && single ? (
@@ -1301,7 +1311,8 @@ function TileGrid({ people, version, padTop, padBottom, onOpenScreen }: { people
   );
 }
 
-/** A shared screen in the middle; everyone (me first) in a strip beside it, or below it on phones. */
+/** A shared screen in the middle; everyone (me first) in a strip beside it, or below it on phones.
+ *  "Full width" drops the strip and lets the stream use the whole stage. */
 function ScreenStage({
   stream,
   ownerName,
@@ -1310,6 +1321,8 @@ function ScreenStage({
   version,
   padTop,
   padBottom,
+  fullWidth,
+  onToggleFullWidth,
   onClose,
 }: {
   stream: MediaStream | null | undefined;
@@ -1319,11 +1332,13 @@ function ScreenStage({
   version: number;
   padTop: number;
   padBottom: number;
+  fullWidth: boolean;
+  onToggleFullWidth: () => void;
   onClose: () => void;
 }) {
   const wide = useIsWide();
   const stripTile = wide ? { width: 200, height: 118 } : { width: 124, height: 88 };
-  const strip = (
+  const strip = fullWidth ? null : (
     <ScrollView
       horizontal={!wide}
       style={wide ? { width: stripTile.width, flexGrow: 0, flexShrink: 0 } : { height: stripTile.height, flexGrow: 0, flexShrink: 0 }}
@@ -1336,17 +1351,29 @@ function ScreenStage({
     </ScrollView>
   );
   return (
-    <View style={{ flex: 1, minHeight: 0, flexDirection: wide ? 'row' : 'column', paddingTop: padTop, paddingBottom: padBottom, paddingHorizontal: 10, gap: 10 }}>
-      <View style={{ flex: 1, minWidth: 0, minHeight: 0, borderRadius: radius.lg, overflow: 'hidden', backgroundColor: '#05070A', borderWidth: 2, borderColor: ownerSpeaking ? colors.amber : colors.hairline }}>
+    <View style={{ flex: 1, minHeight: 0, flexDirection: wide && !fullWidth ? 'row' : 'column', paddingTop: padTop, paddingBottom: padBottom, paddingHorizontal: fullWidth ? 0 : 10, gap: fullWidth ? 0 : 10 }}>
+      <View style={{ flex: 1, minWidth: 0, minHeight: 0, borderRadius: fullWidth ? 0 : radius.lg, overflow: 'hidden', backgroundColor: '#05070A', borderWidth: fullWidth ? 0 : 2, borderColor: ownerSpeaking ? colors.amber : colors.hairline }}>
         {!!stream && <VideoView key={`focused-screen-${ownerName}-${version}`} stream={stream} contain />}
-        <Pressable
-          onPress={onClose}
-          accessibilityLabel={t('Close focused screen')}
-          style={[styles.glass, { position: 'absolute', top: 12, end: 12, width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }]}>
-          <Icon name="minimize-2" size={18} />
-        </Pressable>
-        <View style={[styles.glass, { position: 'absolute', start: 12, bottom: 12, paddingHorizontal: 12, paddingVertical: 6 }]}>
-          <T variant="label">{t('{name} is sharing', { name: ownerName })}</T>
+        <View style={{ position: 'absolute', top: 12, end: 12, flexDirection: 'row', gap: 8 }}>
+          <Pressable
+            onPress={onToggleFullWidth}
+            accessibilityLabel={fullWidth ? t('Show participants') : t('Full width')}
+            {...(Platform.OS === 'web' ? ({ title: fullWidth ? t('Show participants') : t('Full width') } as object) : {})}
+            style={[styles.glass, { height: 40, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 7 }]}>
+            <Icon name={fullWidth ? 'users' : 'maximize-2'} size={16} />
+            <T variant="label">{fullWidth ? t('Show participants') : t('Full width')}</T>
+          </Pressable>
+          <Pressable
+            onPress={onClose}
+            accessibilityLabel={t('Close focused screen')}
+            style={[styles.glass, { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }]}>
+            <Icon name="minimize-2" size={18} />
+          </Pressable>
+        </View>
+        <View style={[styles.glass, { position: 'absolute', start: 12, bottom: 12, paddingHorizontal: 12, paddingVertical: 6, maxWidth: '70%' }]}>
+          <T variant="label" numberOfLines={1}>
+            {t('{name} is sharing', { name: ownerName })}
+          </T>
         </View>
       </View>
       {strip}
