@@ -11,7 +11,7 @@ import { useAuth } from '@/state/auth';
 import { chatStore, useChat } from '@/state/chat-store';
 import { colors, radius } from '@/theme';
 import { ConversationAvatar } from './avatar';
-import { ContextMenu } from './context-menu';
+import { ContextMenu, type ContextMenuItem } from './context-menu';
 import { EmojiPickerModal } from './emoji-picker';
 import { Icon, IconButton, T } from './ui';
 
@@ -98,25 +98,21 @@ export function MessageMenu({
     void chatStore.react(message, emoji);
   };
 
+  // Only offer what actually applies to this message: disabled rows are noise (user request).
+  const menuItems: ContextMenuItem[] = [{ icon: 'corner-up-left', label: t('Reply'), onPress: onReply }];
+  if (canAct && isText && mine) menuItems.push({ icon: 'edit-2', label: t('Edit'), onPress: onEdit });
+  if (canForward) menuItems.push({ icon: 'corner-up-right', label: t('Forward'), onPress: () => setForwardOpen(true) });
+  if (canAct && isText) menuItems.push({ icon: 'copy', label: t('Copy'), onPress: () => void copy() });
+  if (canSave) menuItems.push({ icon: 'bookmark', label: t('Saved Messages'), onPress: () => void save() });
+  if (canDelete) menuItems.push({ icon: 'trash-2', label: t('Delete'), danger: true, onPress: () => void remove() });
+  if (canPin) menuItems.push({ pin: true, label: pinned ? t('Unpin') : t('Pin'), onPress: () => void togglePin() });
+
   return (
     <>
       <ContextMenu
         point={menuPoint}
         onClose={() => setMenuPoint(null)}
-        items={[
-          { icon: 'corner-up-left', label: t('Reply'), disabled: !canAct, onPress: onReply },
-          { icon: 'edit-2', label: t('Edit'), disabled: !(canAct && isText && mine), onPress: onEdit },
-          {
-            icon: 'corner-up-right',
-            label: t('Forward'),
-            disabled: !canForward,
-            onPress: () => setForwardOpen(true),
-          },
-          { icon: 'copy', label: t('Copy'), disabled: !(canAct && isText), onPress: () => void copy() },
-          { icon: 'bookmark', label: t('Saved Messages'), disabled: !canSave, onPress: () => void save() },
-          { icon: 'trash-2', label: t('Delete'), danger: true, disabled: !canDelete, onPress: () => void remove() },
-          { pin: true, label: pinned ? t('Unpin') : t('Pin'), disabled: !canPin, onPress: () => void togglePin() },
-        ]}
+        items={menuItems}
         emoji={QUICK_REACTIONS}
         onEmoji={react}
         onEmojiMore={() => {
