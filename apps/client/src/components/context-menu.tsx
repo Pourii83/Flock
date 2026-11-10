@@ -16,7 +16,9 @@ export type ContextMenuItem = {
   onPress: () => void;
 };
 
-const MENU_W = 240;
+// Wide enough for the label column and the seven-item emoji row (6 emoji + the "+" picker):
+// 7 × 32 px + 6 × 2 px gaps + padding still fits with room to spare.
+const MENU_W = 280;
 const ROW_H = 44;
 
 export function ContextMenu({

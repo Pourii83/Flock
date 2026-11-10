@@ -52,15 +52,51 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   return readResponse<T>(res);
 }
 
-async function uploadFile(conversationId: string, asset: DocumentPickerAsset, replyToId?: string, caption?: string): Promise<Message> {
+async function uploadFile(
+  conversationId: string,
+  asset: DocumentPickerAsset,
+  replyToId?: string,
+  caption?: string,
+  /** 0..1 upload progress, when the platform can report it (web/desktop). */
+  onProgress?: (fraction: number) => void,
+): Promise<Message> {
   const form = new FormData();
   const part = asset.file ?? ({ uri: asset.uri, name: asset.name, type: asset.mimeType || 'application/octet-stream' } as any);
   form.append('file', part);
   if (replyToId) form.append('replyToId', replyToId);
   if (caption?.trim()) form.append('caption', caption.trim());
+  const url = `${getApiUrl()}/api/conversations/${conversationId}/files`;
+  // fetch() cannot report upload progress; XHR can, so big files get a real bar on web/desktop.
+  if (onProgress && typeof XMLHttpRequest !== 'undefined') {
+    return new Promise<Message>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', url);
+      for (const [name, value] of Object.entries(getAuthHeaders())) xhr.setRequestHeader(name, value);
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable) onProgress(Math.min(1, event.loaded / event.total));
+      };
+      xhr.onload = () => {
+        let data: any = {};
+        try {
+          data = JSON.parse(xhr.responseText || '{}');
+        } catch {
+          data = {};
+        }
+        if (xhr.status >= 200 && xhr.status < 300) {
+          onProgress(1);
+          resolve(data as Message);
+          return;
+        }
+        if (xhr.status === 401 && authToken) onUnauthorized?.();
+        reject(new ApiError(data?.error ? t(data.error) : t('Request failed ({status})', { status: xhr.status }), xhr.status));
+      };
+      xhr.onerror = () => reject(new ApiError(t("Can't reach the Flock server. Check your connection."), 0));
+      xhr.send(form);
+    });
+  }
   let res: Response;
   try {
-    res = await fetch(`${getApiUrl()}/api/conversations/${conversationId}/files`, {
+    res = await fetch(url, {
       method: 'POST',
       headers: getAuthHeaders(),
       body: form,

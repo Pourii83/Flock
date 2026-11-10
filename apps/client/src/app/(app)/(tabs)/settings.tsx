@@ -1,7 +1,7 @@
 import Constants from 'expo-constants';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Linking, Platform, Pressable, ScrollView, TextInput, View } from 'react-native';
+import { Platform, Pressable, ScrollView, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AppInfoDialog } from '@/components/app-info-dialog';
@@ -219,7 +219,6 @@ function SettingsBody() {
   const connected = useChat((s) => s.connected);
   const brand = useBranding();
   const [about, setAbout] = useState(false);
-  const repo = brand.showRepoLinks ? brand.repoUrl : '';
 
   return (
     <ScrollView contentContainerStyle={{ padding: 20, gap: 20, paddingBottom: 120, maxWidth: 720, width: '100%', alignSelf: 'center' }}>
@@ -277,15 +276,8 @@ function SettingsBody() {
         <InfoRow icon="smartphone" label={t('Platform')} value={Platform.OS === 'web' ? t('Web / Desktop') : Platform.OS} />
         <InfoRow icon="info" label={t('Version')} value={Constants.expoConfig?.version ?? '—'} />
         <View style={{ height: 1, backgroundColor: colors.hairline, marginVertical: 4 }} />
+        {/* The repository link lives in the About dialog only (user request). */}
         <ActionRow icon="info" label={t('About {name}', { name: brand.appName })} onPress={() => setAbout(true)} />
-        {!!repo && (
-          <ActionRow
-            icon="github"
-            label={t('Repository')}
-            value={repo.replace(/^https?:\/\//, '')}
-            onPress={() => Linking.openURL(repo).catch(() => {})}
-          />
-        )}
       </Card>
 
       <Button title={t('Sign out')} icon="log-out" variant="danger" onPress={logout} />

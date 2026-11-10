@@ -992,7 +992,9 @@ function AttachmentCard({ message, mine }: { message: Message; mine: boolean }) 
   const image = attachment.mimeType.startsWith('image/');
   const video = attachment.mimeType.startsWith('video/');
   // Photos and videos open in the viewer; the download icon still saves the file.
-  const viewable = image || video;
+  const media = image || video;
+  // A file message's body is the caption the sender typed.
+  const caption = (message.body ?? '').trim();
   const download = async () => {
     if (!attachment.url) return;
     setOpening(true);
@@ -1005,41 +1007,94 @@ function AttachmentCard({ message, mine }: { message: Message; mine: boolean }) 
       setOpening(false);
     }
   };
-  const press = () => (viewable ? setViewing(true) : void download());
+  const press = () => (media ? setViewing(true) : void download());
   return (
-    <Pressable onPress={press} disabled={expired || opening} style={{ minWidth: 210, maxWidth: 320, gap: 10 }}>
-      {image && !expired && attachment.url && (
-        <Image source={attachmentSource(attachment.url)} style={{ width: '100%', aspectRatio: 4 / 3, borderRadius: 12, backgroundColor: colors.surface }} contentFit="cover" />
-      )}
+    <View style={{ minWidth: 210, maxWidth: 320, gap: 8 }}>
       <MediaViewer
         media={viewing && attachment.url ? { url: attachment.url, name: attachment.name, mimeType: attachment.mimeType } : null}
         onClose={() => setViewing(false)}
       />
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-        <View style={{ width: 42, height: 42, borderRadius: 13, alignItems: 'center', justifyContent: 'center', backgroundColor: mine ? 'rgba(61,38,0,0.10)' : colors.surface }}>
-          {opening ? <ActivityIndicator color={mine ? colors.onAmber : colors.amberText} /> : <Icon name={expired ? 'clock' : image ? 'image' : video ? 'film' : 'file'} size={20} color={mine ? colors.onAmber : colors.amberText} />}
+      {media && !expired && attachment.url ? (
+        // Photos/videos: the file name and download sit on the image's top-right corner, so the
+        // caption can breathe underneath.
+        <View style={{ position: 'relative', borderRadius: 12, overflow: 'hidden', backgroundColor: colors.surface }}>
+          <Pressable onPress={() => setViewing(true)} accessibilityLabel={attachment.name} style={{ width: '100%' }}>
+            {image ? (
+              <Image source={attachmentSource(attachment.url)} style={{ width: '100%', aspectRatio: 4 / 3, backgroundColor: colors.surface }} contentFit="cover" />
+            ) : (
+              <View style={{ width: '100%', aspectRatio: 16 / 9, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface }}>
+                <View style={{ width: 54, height: 54, borderRadius: 27, backgroundColor: colors.glass, alignItems: 'center', justifyContent: 'center' }}>
+                  <Icon name="play" size={22} color={colors.text} />
+                </View>
+              </View>
+            )}
+          </Pressable>
+          <View pointerEvents="box-none" style={{ position: 'absolute', top: 8, end: 8, flexDirection: 'row', alignItems: 'center', gap: 6, maxWidth: '86%' }}>
+            <View
+              style={{
+                maxWidth: '72%',
+                backgroundColor: colors.glass,
+                borderWidth: 1,
+                borderColor: colors.hairline,
+                borderRadius: radius.pill,
+                paddingHorizontal: 9,
+                paddingVertical: 4,
+              }}>
+              <T variant="labelSm" color={colors.text} numberOfLines={1}>
+                {attachment.name}
+              </T>
+            </View>
+            <Tooltip label={t('Download')}>
+              <IconButton
+                name="download"
+                label={t('Download')}
+                size={30}
+                iconSize={14}
+                color={colors.text}
+                bg={colors.glass}
+                activeBg={colors.surfaceHigh}
+                disabled={opening}
+                onPress={() => void download()}
+              />
+            </Tooltip>
+          </View>
         </View>
-        <View style={{ flex: 1, minWidth: 0 }}>
-          <T variant="labelLg" color={mine ? colors.onAmber : colors.text} numberOfLines={2}>{attachment.name}</T>
-          <T variant="bodySm" color={mine ? '#72521B' : colors.textMuted}>
-            {expired ? t('File expired') : `${bytesLabel(attachment.size)} · ${t('Original quality')}`}
-          </T>
-        </View>
-        {!expired && (
-          <IconButton
-            name="download"
-            label={t('Download')}
-            size={36}
-            iconSize={18}
-            color={mine ? colors.onAmber : colors.amberText}
-            activeBg={mine ? 'rgba(61,38,0,0.10)' : colors.surface}
-            disabled={opening}
-            onPress={() => void download()}
-          />
-        )}
-      </View>
+      ) : (
+        <Pressable onPress={press} disabled={expired || opening} style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+          <View style={{ width: 42, height: 42, borderRadius: 13, alignItems: 'center', justifyContent: 'center', backgroundColor: mine ? 'rgba(61,38,0,0.10)' : colors.surface }}>
+            {opening ? <ActivityIndicator color={mine ? colors.onAmber : colors.amberText} /> : <Icon name={expired ? 'clock' : image ? 'image' : video ? 'film' : 'file'} size={20} color={mine ? colors.onAmber : colors.amberText} />}
+          </View>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <T variant="labelLg" color={mine ? colors.onAmber : colors.text} numberOfLines={2}>{attachment.name}</T>
+            <T variant="bodySm" color={mine ? '#72521B' : colors.textMuted}>
+              {expired ? t('File expired') : `${bytesLabel(attachment.size)} · ${t('Original quality')}`}
+            </T>
+          </View>
+          {!expired && (
+            <IconButton
+              name="download"
+              label={t('Download')}
+              size={36}
+              iconSize={18}
+              color={mine ? colors.onAmber : colors.amberText}
+              activeBg={mine ? 'rgba(61,38,0,0.10)' : colors.surface}
+              disabled={opening}
+              onPress={() => void download()}
+            />
+          )}
+        </Pressable>
+      )}
+      {!!caption && (
+        <LinkedText
+          variant="bodyLg"
+          color={mine ? colors.onAmber : colors.text}
+          linkColor={mine ? '#5A3A00' : colors.amberText}
+          style={{ fontSize: 16, lineHeight: 24 }}>
+          {caption}
+        </LinkedText>
+      )}
       {!!error && <T variant="bodySm" color={colors.danger}>{error}</T>}
-    </Pressable>
+    </View>
   );
 }
 
@@ -1179,8 +1234,12 @@ function Composer({
   const seenEditId = useRef<string | null>(null);
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
+  /** 0..1 while a file is uploading (web/desktop); null otherwise. */
+  const [progress, setProgress] = useState<number | null>(null);
   const [uploadError, setUploadError] = useState('');
   const [savingEdit, setSavingEdit] = useState(false);
+  /** A file is being dragged over the app: show the drop hint while the chat is open. */
+  const [dragOver, setDragOver] = useState(false);
   // Image/file staged from a paste or the picker: waits for Send with an optional caption.
   const [staged, setStaged] = useState<{ asset: DocumentPicker.DocumentPickerAsset; preview: string | null } | null>(null);
   const [caption, setCaption] = useState('');
@@ -1266,13 +1325,15 @@ function Composer({
     setUploadError('');
     if (!(await checkSize(asset))) return;
     setUploading(true);
+    setProgress(0);
     try {
-      await chatStore.sendFile(conversation.id, asset, replyTo);
+      await chatStore.sendFile(conversation.id, asset, replyTo, undefined, (f) => setProgress(f));
       onClearReply();
     } catch (e) {
       setUploadError(e instanceof Error ? e.message : t('Could not upload file'));
     } finally {
       setUploading(false);
+      setProgress(null);
     }
   };
 
@@ -1299,8 +1360,9 @@ function Composer({
     if (!(await checkSize(staged.asset))) return;
     setUploading(true);
     setUploadError('');
+    setProgress(0);
     try {
-      await chatStore.sendFile(conversation.id, staged.asset, replyTo, caption);
+      await chatStore.sendFile(conversation.id, staged.asset, replyTo, caption, (f) => setProgress(f));
       setStaged(null);
       setCaption('');
       onClearReply();
@@ -1309,6 +1371,7 @@ function Composer({
       setUploadError(e instanceof Error ? e.message : t('Could not upload file'));
     } finally {
       setUploading(false);
+      setProgress(null);
     }
   };
 
@@ -1341,8 +1404,7 @@ function Composer({
     inputRef.current?.focus();
   };
 
-  // Ctrl+V with an image on the clipboard stages it for a caption. Web only: native TextInput has
-  // no paste event. Clipboards holding text too (Word, Excel) paste as text.
+  // Ctrl+V with an image on the clipboard stages it for a caption. Web only: native TextInput has  // no paste event. Clipboards holding text too (Word, Excel) paste as text.
   const stageRef = useRef(stageAsset);
   useEffect(() => {
     stageRef.current = stageAsset;
@@ -1374,6 +1436,48 @@ function Composer({
     };
     node.addEventListener('paste', onPaste);
     return () => node.removeEventListener('paste', onPaste);
+  }, [blocked, filesAllowed]);
+
+  // Drag a file from the OS onto the chat: stage it for a caption, same as paste/pick.
+  useEffect(() => {
+    if (Platform.OS !== 'web' || blocked || !filesAllowed) return;
+    const hasFiles = (event: DragEvent) => !!event.dataTransfer && Array.from(event.dataTransfer.types).includes('Files');
+    const onDragOver = (event: DragEvent) => {
+      if (!hasFiles(event)) return;
+      event.preventDefault();
+      setDragOver(true);
+    };
+    const onDragLeave = (event: DragEvent) => {
+      // relatedTarget is set while moving between elements; only a window leave ends the drag.
+      if (event.relatedTarget) return;
+      setDragOver(false);
+    };
+    const onDrop = (event: DragEvent) => {
+      const file = event.dataTransfer?.files?.[0];
+      if (!file) return;
+      event.preventDefault();
+      setDragOver(false);
+      const ext = file.type.split('/')[1]?.replace('jpeg', 'jpg').replace(/\+.*/, '') || 'bin';
+      void stageRef.current({
+        uri: '', // unused on web: the upload sends `file`
+        name: file.name || `dropped-${Date.now()}.${ext}`,
+        size: file.size,
+        mimeType: file.type || 'application/octet-stream',
+        lastModified: file.lastModified,
+        file,
+      });
+    };
+    const onDragEnd = () => setDragOver(false);
+    window.addEventListener('dragover', onDragOver);
+    window.addEventListener('dragleave', onDragLeave);
+    window.addEventListener('drop', onDrop);
+    window.addEventListener('dragend', onDragEnd);
+    return () => {
+      window.removeEventListener('dragover', onDragOver);
+      window.removeEventListener('dragleave', onDragLeave);
+      window.removeEventListener('drop', onDrop);
+      window.removeEventListener('dragend', onDragEnd);
+    };
   }, [blocked, filesAllowed]);
 
 
@@ -1508,6 +1612,16 @@ function Composer({
               })}>
               {uploading ? <ActivityIndicator color={colors.onAmber} size="small" /> : <Icon name="send" size={17} color={colors.onAmber} />}
             </Pressable>
+          </View>
+        </View>
+      )}
+      {progress !== null && (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+          <T variant="bodySm" color={colors.textMuted} style={{ fontVariant: ['tabular-nums'] }}>
+            {t('Uploading…')} {Math.round(progress * 100)}%
+          </T>
+          <View style={{ flex: 1, height: 6, borderRadius: 3, backgroundColor: colors.surfaceHigh, overflow: 'hidden' }}>
+            <View style={{ width: `${Math.max(2, Math.round(progress * 100))}%`, height: '100%', backgroundColor: colors.amber }} />
           </View>
         </View>
       )}

@@ -57,6 +57,8 @@ function saveDevice(kind: keyof typeof DEVICE_KEYS, id: string) {
 export type CallRemote = {
   volume?: number;
   speaking?: boolean;
+  /** They muted their microphone (announced over signaling). */
+  muted?: boolean;
   /** How well my connection to them is doing (absent until measured). */
   net?: NetQuality;
   userId: string;
@@ -447,7 +449,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const announceMedia = useCallback(
     (to?: string) => {
       const c = callRef.current;
-      signal({ type: 'media', video: !!screenTrack.current || !c.cameraOff, screen: !!screenTrack.current }, to);
+      signal({ type: 'media', video: !!screenTrack.current || !c.cameraOff, screen: !!screenTrack.current, muted: c.micMuted }, to);
       // A newcomer adopts the call's voice quality if someone already changed it.
       if (to && c.voiceBitrateAt) signal({ type: 'quality', voiceBitrate: c.voiceBitrate, at: c.voiceBitrateAt }, to);
     },
@@ -634,8 +636,12 @@ export function CallProvider({ children }: { children: ReactNode }) {
         if (!callRef.current.chatOpen && !callRef.current.speakerMuted) playCallChatSound();
         return;
       }
+      if (data?.type === 'muted' && typeof data.muted === 'boolean') {
+        upsertRemote(from, { muted: data.muted });
+        return;
+      }
       if (data?.type === 'media') {
-        upsertRemote(from, { video: !!data.video, screen: !!data.screen });
+        upsertRemote(from, { video: !!data.video, screen: !!data.screen, ...(typeof data.muted === 'boolean' ? { muted: data.muted } : {}) });
         return;
       }
       if (data?.type === 'offer') {
@@ -1052,7 +1058,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
     const muted = !c.micMuted;
     c.localStream?.getAudioTracks().forEach((t) => (t.enabled = !muted));
     patch({ micMuted: muted });
-  }, [patch]);
+    // Let the others show the muted badge next to this participant.
+    signal({ type: 'muted', muted });
+  }, [patch, signal]);
 
   const toggleCamera = useCallback(async () => {
     const c = callRef.current;

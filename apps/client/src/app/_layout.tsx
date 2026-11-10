@@ -1,9 +1,9 @@
 import { Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold, useFonts } from '@expo-google-fonts/inter';
 import { Vazirmatn_400Regular, Vazirmatn_500Medium, Vazirmatn_600SemiBold, Vazirmatn_700Bold } from '@expo-google-fonts/vazirmatn';
-import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
+import { DarkTheme, DefaultTheme, router, Stack, ThemeProvider, usePathname } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
@@ -27,8 +27,26 @@ function navigationTheme(mode: 'dark' | 'light') {
   };
 }
 
+/**
+ * The app root is re-keyed when the theme, accent, language or app name changes (see LocalizedApp),
+ * which remounts the navigator. This keeps the current route outside React so the fresh navigator
+ * can put the user back on the same screen instead of dropping them on Chats.
+ */
+let currentPath = '/';
+
+function PathTracker() {
+  const pathname = usePathname();
+  useEffect(() => {
+    currentPath = pathname;
+  }, [pathname]);
+  return null;
+}
+
 function RootStack() {
   const { ready, user } = useAuth();
+  // Captured once on mount: the fresh navigator lands on the root immediately after mounting, so
+  // reading the module value again on later renders would lose the screen the user came from.
+  const restoreTo = useRef(currentPath);
   const [fontsLoaded] = useFonts({
     Inter_400Regular,
     Inter_500Medium,
@@ -42,6 +60,25 @@ function RootStack() {
 
   useEffect(() => {
     if (ready && fontsLoaded) SplashScreen.hideAsync().catch(() => {});
+  }, [ready, fontsLoaded]);
+
+  // A re-keyed navigator starts on its initial route; return to the screen the user was on.
+  // Runs once per mount only: later navigations must not be hijacked by the captured route.
+  const restored = useRef(false);
+  useEffect(() => {
+    if (!ready || !fontsLoaded || restored.current) return;
+    restored.current = true;
+    if (!restoreTo.current || restoreTo.current === '/') return;
+    // Give the fresh navigator a tick to finish mounting, then go back to the captured route.
+    const timer = setTimeout(() => {
+      try {
+        router.replace(restoreTo.current as never);
+      } catch {
+        // The navigator can briefly be unavailable while it mounts; the user stays on the root.
+      }
+    }, 60);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount/reset only
   }, [ready, fontsLoaded]);
 
   if (!ready || !fontsLoaded) return null;
@@ -82,6 +119,7 @@ function LocalizedApp() {
     <ThemeProvider value={navigationTheme(mode)}>
       <StatusBar style={mode === 'light' ? 'dark' : 'light'} />
       <View key={`${lang}-${mode}-${accent}-${brand.appName}`} {...({ dir } as object)} style={{ flex: 1, direction: dir, backgroundColor: colors.canvas }}>
+        <PathTracker />
         <RootStack />
         <CallOverlay />
       </View>

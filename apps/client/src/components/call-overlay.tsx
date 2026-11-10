@@ -253,7 +253,7 @@ function MiniButton({ icon, active, onPress, label, ring }: { icon: IconName; ac
           // Lights up while I'm talking (others see the same on my avatar).
           borderWidth: 2,
           borderColor: ring ? colors.amber : 'transparent',
-          backgroundColor: active ? 'rgba(255,184,77,0.22)' : pressed || hovered ? colors.surfaceHighest : colors.surfaceHigh,
+          backgroundColor: active ? colors.amberGlow : pressed || hovered ? colors.surfaceHighest : colors.surfaceHigh,
           alignItems: 'center',
           justifyContent: 'center',
         })}>
@@ -336,7 +336,7 @@ function RingingCall() {
   return (
     <SafeAreaView style={{ flex: 1 }}>
       <LinearGradient
-        colors={['rgba(255,184,77,0.10)', `${colors.canvas}00`]}
+        colors={[colors.amberTint, `${colors.canvas}00`]}
         style={{ position: 'absolute', left: 0, right: 0, top: 0, height: '60%' }}
       />
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'space-between', padding: 24, maxWidth: 520, width: '100%', alignSelf: 'center' }}>
@@ -364,12 +364,12 @@ function RingingCall() {
                 height: 240,
                 borderRadius: 120,
                 borderWidth: 18,
-                borderColor: 'rgba(255,184,77,0.35)',
+                borderColor: colors.amberGlow,
                 opacity: ringOpacity,
                 transform: [{ scale: ringScale }],
               }}
             />
-            <View style={{ position: 'absolute', width: 230, height: 230, borderRadius: 115, borderWidth: 14, borderColor: 'rgba(255,184,77,0.22)' }} />
+            <View style={{ position: 'absolute', width: 230, height: 230, borderRadius: 115, borderWidth: 14, borderColor: colors.amberGlow }} />
             {call.isGroup && conversation ? (
               <ConversationAvatar conversation={conversation} meId={user?.id} size={180} />
             ) : (
@@ -546,6 +546,7 @@ function ActiveCall() {
       speaking: !!r.speaking,
       audio: r.stream,
       net: r.net,
+      muted: r.muted,
       screen: r.screen && hasVideo(r),
       connecting: !r.stream,
       raised: call.raisedBy.includes(r.userId),
@@ -650,6 +651,7 @@ function ActiveCall() {
             <VideoView key={`remote-${single.userId}-${call.mediaVersion}`} stream={single.stream} />
             <View style={[styles.glass, { position: 'absolute', start: 16, bottom: padBottom, paddingHorizontal: 12, paddingVertical: 5, flexDirection: 'row', gap: 6, alignItems: 'center' }]}>
               <T variant="label">{callName(call, single.user)}</T>
+              {single.muted && <Icon name="mic-off" size={14} color={colors.danger} />}
               <NetBadge q={single.net} size={18} label={netBadgeLabel(single.net, single.user?.displayName)} />
             </View>
             <View style={{ position: 'absolute', end: 16, bottom: padBottom }}>
@@ -1425,7 +1427,7 @@ function MoreSheet({ items, onClose, bottom }: { items: MenuItem[]; onClose: () 
                   width: 38,
                   height: 38,
                   borderRadius: 19,
-                  backgroundColor: item.active ? 'rgba(255,184,77,0.22)' : colors.surfaceHigh,
+                  backgroundColor: item.active ? colors.amberGlow : colors.surfaceHigh,
                   alignItems: 'center',
                   justifyContent: 'center',
                 }}>
@@ -1583,6 +1585,26 @@ function Tile({ p, width, height, version, compact, onOpenScreen }: { p: Person;
               {t('Hand raised')}
             </T>
           )}
+        </View>
+      )}
+      {/* A prominent muted badge: the name chip at the bottom is easy to miss on a busy stage. */}
+      {!p.placeholder && p.muted && !p.screen && (
+        <View
+          accessibilityLabel={t('Muted')}
+          style={[
+            styles.glass,
+            {
+              position: 'absolute',
+              top: compact ? 6 : 10,
+              end: compact ? 6 : 10,
+              width: compact ? 22 : 26,
+              height: compact ? 22 : 26,
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderColor: colors.danger,
+            },
+          ]}>
+          <Icon name="mic-off" size={compact ? 12 : 14} color={colors.danger} />
         </View>
       )}
       {!p.placeholder && (
@@ -2014,7 +2036,7 @@ function DockButton({
           width: size,
           height: size,
           borderRadius: size / 2,
-          backgroundColor: danger ? colors.dangerTint : active ? 'rgba(255,184,77,0.22)' : pressed || hovered ? colors.surfaceHighest : colors.surfaceHigh,
+          backgroundColor: danger ? colors.dangerTint : active ? colors.amberGlow : pressed || hovered ? colors.surfaceHighest : colors.surfaceHigh,
           alignItems: 'center',
           justifyContent: 'center',
           transform: [{ scale: pressed ? 0.94 : 1 }],

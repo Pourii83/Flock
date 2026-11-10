@@ -546,9 +546,9 @@ class ChatStore {
     }
   }
 
-  async sendFile(conversationId: string, asset: DocumentPickerAsset, replyTo?: Message | null, caption?: string) {
+  async sendFile(conversationId: string, asset: DocumentPickerAsset, replyTo?: Message | null, caption?: string, onProgress?: (fraction: number) => void) {
     const trimmed = caption?.trim();
-    const saved = await api.sendFile(conversationId, asset, replyTo?.id, trimmed || undefined);
+    const saved = await api.sendFile(conversationId, asset, replyTo?.id, trimmed || undefined, onProgress);
     // Socket delivery and the HTTP response can race; receiveMessage de-duplicates by id.
     this.receiveMessage(saved);
     return saved;

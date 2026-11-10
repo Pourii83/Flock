@@ -650,6 +650,7 @@ const fa: Record<string, string> = {
   'Cancel edit': 'لغو ویرایش',
   'Could not save changes': 'ذخیرهٔ تغییرات ممکن نشد',
   'Add a caption…': 'یک توضیح بنویسید…',
+  'Uploading…': 'در حال آپلود…',
   'Delete message': 'حذف پیام',
   'Delete this message for everyone?': 'این پیام برای همه حذف شود؟',
   Delete: 'حذف',
