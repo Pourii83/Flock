@@ -7,7 +7,7 @@ import { StyleSheet } from 'react-native';
 import { attachmentSource } from '@/lib/attachments';
 
 /** A still frame of a chat video (Android/iOS). Renders nothing until the frame is ready or if it fails. */
-export function VideoThumb({ url }: { url: string; size?: number }) {
+export function VideoThumb({ url, onSize }: { url: string; size?: number; mimeType?: string; onSize?: (width: number, height: number) => void }) {
   const player = useVideoPlayer(attachmentSource(url));
   const { status } = useEvent(player, 'statusChange', { status: player.status });
   const [thumb, setThumb] = useState<VideoThumbnail | null>(null);
@@ -23,6 +23,11 @@ export function VideoThumb({ url }: { url: string; size?: number }) {
       cancelled = true;
     };
   }, [status, player, thumb]);
+
+  useEffect(() => {
+    if (thumb) onSize?.(thumb.width, thumb.height);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- report once per frame
+  }, [thumb]);
 
   if (!thumb) return null;
   return <Image source={thumb} style={StyleSheet.absoluteFill} contentFit="cover" />;

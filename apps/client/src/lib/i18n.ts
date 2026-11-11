@@ -415,6 +415,7 @@ const fa: Record<string, string> = {
 
   // ----- channels -----
   'Custom color': 'رنگ دلخواه',
+  Channels: 'کانال‌ها',
   'New channel': 'کانال جدید',
   'Channel name': 'نام کانال',
   'Channel Info': 'اطلاعات کانال',

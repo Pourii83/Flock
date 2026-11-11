@@ -14,7 +14,7 @@ import { ConversationAvatar, isSavedConversation } from './avatar';
 import { Button, Chip, Icon, IconButton, PushPin, SearchBar, T, Tooltip, UnreadBadge } from './ui';
 import { t, num, isRTL } from '@/lib/i18n';
 
-type Filter = 'all' | 'unread' | 'groups';
+type Filter = 'all' | 'unread' | 'groups' | 'channels';
 
 /** Window coordinates of a press. react-native-web exposes clientX/clientY or pageX/pageY. */
 function pressPoint(event: any): { x: number; y: number } {
@@ -31,7 +31,8 @@ function useFilteredConversations(query: string, filter: Filter) {
     const q = query.trim().toLowerCase();
     return conversations.filter((c) => {
       if (filter === 'unread' && c.unreadCount === 0) return false;
-      if (filter === 'groups' && c.type === 'direct') return false;
+      if (filter === 'groups' && c.type !== 'group') return false;
+      if (filter === 'channels' && c.type !== 'channel') return false;
       if (!q) return true;
       return (
         (isSavedConversation(c) ? t('Saved Messages') : c.name).toLowerCase().includes(q) ||
@@ -186,7 +187,8 @@ export function ChatList({
   const all = useChat((s) => s.conversations);
   const list = useFilteredConversations(query, filter);
   const unreadCount = all.filter((c) => c.unreadCount > 0).length;
-  const groupCount = all.filter((c) => c.type !== 'direct').length;
+  const groupCount = all.filter((c) => c.type === 'group').length;
+  const channelCount = all.filter((c) => c.type === 'channel').length;
   const desktop = variant === 'desktop';
 
   const closeSearch = useCallback(() => {
@@ -269,10 +271,11 @@ export function ChatList({
         />
       )}
 
-      <View style={{ flexDirection: 'row', gap: 8 }}>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
         <Chip label={t('All')} count={all.length} active={filter === 'all'} onPress={() => setFilter('all')} />
         <Chip label={t('Unread')} dot={unreadCount > 0} active={filter === 'unread'} onPress={() => setFilter('unread')} />
         <Chip label={t('Groups')} count={groupCount} active={filter === 'groups'} onPress={() => setFilter('groups')} />
+        <Chip label={t('Channels')} count={channelCount} active={filter === 'channels'} onPress={() => setFilter('channels')} />
       </View>
     </View>
   );

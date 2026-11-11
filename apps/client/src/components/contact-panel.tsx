@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, ScrollView, View } from 'react-native';
 
 import { useIsWide } from '@/hooks/use-layout';
 import { api } from '@/lib/api';
@@ -378,10 +378,15 @@ function Members({ conversation, meId }: { conversation: Conversation; meId?: st
                     {m.id === meId ? ` ${t('(you)')}` : ''}
                   </T>
                   <RoleBadge role={m.role} />
+                  {/* On the same line as the name; the handle stays left-to-right even in Persian. */}
+                  <T
+                    variant="bodySm"
+                    color={colors.textMuted}
+                    numberOfLines={1}
+                    style={{ flexShrink: 2, minWidth: 0, writingDirection: 'ltr', ...(Platform.OS === 'web' ? ({ direction: 'ltr', unicodeBidi: 'isolate' } as object) : {}) }}>
+                    @{m.username}
+                  </T>
                 </View>
-                <T variant="bodySm" color={colors.textMuted}>
-                  @{m.username}
-                </T>
               </View>
               {actions.length > 0 && <Icon name={open ? 'chevron-up' : 'more-vertical'} size={18} color={colors.textMuted} />}
             </Pressable>

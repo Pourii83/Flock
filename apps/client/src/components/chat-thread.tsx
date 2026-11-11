@@ -1198,6 +1198,8 @@ function AttachmentCard({ message, mine }: { message: Message; mine: boolean }) 
   const [opening, setOpening] = useState(false);
   const [error, setError] = useState('');
   const [viewing, setViewing] = useState(false);
+  // The video's own proportions (known once its first frame is read); 16:9 until then.
+  const [videoRatio, setVideoRatio] = useState(16 / 9);
   if (!attachment) return <T color={mine ? colors.onAmber : colors.textMuted}>{t('File unavailable')}</T>;
   const expired = attachment.expired || !attachment.url;
   const image = attachment.mimeType.startsWith('image/');
@@ -1235,8 +1237,15 @@ function AttachmentCard({ message, mine }: { message: Message; mine: boolean }) 
             {image ? (
               <Image source={attachmentSource(attachment.url)} style={{ width: '100%', aspectRatio: 4 / 3, backgroundColor: colors.surface }} contentFit="cover" />
             ) : (
-              <View style={{ width: '100%', aspectRatio: 16 / 9, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface, overflow: 'hidden' }}>
-                <VideoThumb url={attachment.url} size={attachment.size} />
+              <View style={{ width: '100%', aspectRatio: videoRatio, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface, overflow: 'hidden' }}>
+                <VideoThumb
+                  url={attachment.url}
+                  size={attachment.size}
+                  mimeType={attachment.mimeType}
+                  onSize={(w, h) => h > 0 && setVideoRatio(Math.min(2, Math.max(0.75, w / h)))}
+                />
+                {/* A soft scrim keeps the play button readable over any frame. */}
+                <View pointerEvents="none" style={{ position: 'absolute', inset: 0, backgroundColor: 'rgba(0,0,0,0.18)' }} />
                 <View style={{ width: 54, height: 54, borderRadius: 27, backgroundColor: colors.glass, alignItems: 'center', justifyContent: 'center' }}>
                   <Icon name="play" size={22} color={colors.text} />
                 </View>
