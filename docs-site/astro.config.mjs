@@ -6,26 +6,32 @@ import starlight from '@astrojs/starlight';
 
 const t = (en, fa) => ({ label: en, translations: { fa } });
 
-// Screenshots load from Cloudflare R2 (flock.iranset.online). On networks where that fails or hangs,
-// switch each image to the docs site's own copy (data-fallback): on error, or if it hasn't loaded in 4 s.
+// Screenshots load from Cloudflare R2 (flock.iranset.online). data-fallback lists the next sources,
+// space-separated: Arvan Object Storage, then the docs site's own copy. An image moves to the next
+// source when it errors or hasn't finished loading within 4 s of starting on its current one.
 const imageFallback = `(() => {
-  const swap = (img) => {
-    const f = img.dataset.fallback;
-    if (!f) return;
-    img.dataset.fallback = '';
-    img.src = f;
+  const WAIT = 4000;
+  const loaded = (img) => img.complete && img.naturalWidth > 0;
+  const watch = (img) => {
+    clearTimeout(img._fallbackTimer);
+    img._fallbackTimer = setTimeout(() => { if (!loaded(img)) next(img); }, WAIT);
+  };
+  const next = (img) => {
+    const rest = (img.dataset.fallback || '').split(' ').filter(Boolean);
+    if (!rest.length) return;
+    img.dataset.fallback = rest.slice(1).join(' ');
+    img.src = rest[0];
+    watch(img);
   };
   document.addEventListener('error', (e) => {
     const t = e.target;
-    if (t instanceof HTMLImageElement && t.dataset.fallback) swap(t);
+    if (t instanceof HTMLImageElement && t.dataset.fallback) next(t);
   }, true);
-  const check = () => setTimeout(() => {
-    for (const img of document.querySelectorAll('img[data-fallback]')) {
-      if (img.dataset.fallback && !(img.complete && img.naturalWidth)) swap(img);
-    }
-  }, 4000);
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', check);
-  else check();
+  const start = () => {
+    for (const img of document.querySelectorAll('img[data-fallback]')) if (!loaded(img)) watch(img);
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
+  else start();
 })();`;
 
 export default defineConfig({

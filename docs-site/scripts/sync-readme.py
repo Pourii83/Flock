@@ -17,6 +17,8 @@ PUBLIC = ROOT / 'docs-site' / 'public'
 REPO = 'https://github.com/Pourii83/Flock'
 # Screenshots are served from the flock-media R2 bucket (Cloudflare), not from the docs site.
 MEDIA = 'https://flock.iranset.online'
+# Second source when Cloudflare is blocked or slow: the flock-media bucket on Arvan Object Storage.
+MEDIA_IR = 'https://flock-media.s3.ir-central1.arvanstorage.ir'
 
 # Page for each ##/### section, in README order. None = dropped (the table of contents).
 SECTIONS = [
@@ -108,8 +110,8 @@ def build(lang: str):
                 return m.group(0)
             return f'{m.group(1)}({target})'
         text = re.sub(r'(\[[^\]]*\])\(#([^)]+)\)', anchor, text)
-        # Primary copy on Cloudflare; the docs site's own copy is the fallback (see fallback script in astro.config.mjs).
-        text = re.sub(r'src="docs/screenshots/([^"]+)"', lambda m: f'src="{MEDIA}/{m.group(1)}" data-fallback="/screenshots/{m.group(1)}"', text)
+        # Cloudflare first, then Arvan, then the docs site's own copy (fallback script in astro.config.mjs).
+        text = re.sub(r'src="docs/screenshots/([^"]+)"', lambda m: f'src="{MEDIA}/{m.group(1)}" data-fallback="{MEDIA_IR}/{m.group(1)} /screenshots/{m.group(1)}"', text)
         text = text.replace('apps/client/assets/images/icon.png', '/flock-icon.png')
         # Other relative links point at files in the repository.
         text = re.sub(r'\]\((?!https?:|/|#|mailto:)([^)]+)\)', lambda m: f']({REPO}/blob/main/{m.group(1)})', text)
