@@ -502,6 +502,24 @@ export const ROLE_RANK = { member: 0, admin: 1, owner: 2 };
 export const getRole = async (conversationId, userId) =>
   (await one('SELECT role FROM members WHERE conversation_id = $1 AND user_id = $2', [conversationId, userId]))?.role ?? null;
 
+// ---------- invite links ----------
+
+const INVITE_RE = /^[A-Za-z0-9_-]{8,40}$/;
+export const newInviteCode = () => crypto.randomBytes(12).toString('base64url');
+
+/** Sets (or, with null, revokes) the conversation's invite code. */
+export const setInviteCode = (conversationId, code) =>
+  query('UPDATE conversations SET invite_code = $2 WHERE id = $1', [conversationId, code]);
+
+/** The group or channel an invite code points at, or null when it never existed or was revoked. */
+export const getConversationByInvite = (code) =>
+  typeof code === 'string' && INVITE_RE.test(code)
+    ? one("SELECT * FROM conversations WHERE invite_code = $1 AND type IN ('group', 'channel')", [code])
+    : null;
+
+export const memberCount = async (conversationId) =>
+  Number((await one('SELECT COUNT(*) AS n FROM members WHERE conversation_id = $1', [conversationId]))?.n ?? 0);
+
 export const getConversationRow = (id) => (isUuid(id) ? one('SELECT * FROM conversations WHERE id = $1', [id]) : null);
 
 export const updateGroupInfo = (id, { name, description }) =>

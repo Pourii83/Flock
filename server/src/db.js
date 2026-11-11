@@ -131,6 +131,9 @@ export async function migrate() {
         ALTER TABLE conversations ADD CONSTRAINT conversations_type_check CHECK (type IN ('direct', 'group', 'channel'));
       END IF;
     END $$;
+    -- Invite links: one revocable code per group/channel (NULL = no active link).
+    ALTER TABLE conversations ADD COLUMN IF NOT EXISTS invite_code TEXT;
+    CREATE UNIQUE INDEX IF NOT EXISTS conversations_invite_code ON conversations (invite_code) WHERE invite_code IS NOT NULL;
     -- Editing: when the sender last changed the text (NULL = never edited).
     ALTER TABLE messages ADD COLUMN IF NOT EXISTS edited_at BIGINT;
     -- Pinning: when the message was pinned in its conversation (NULL = not pinned).

@@ -1,10 +1,16 @@
-import { Stack } from 'expo-router';
+import { router, Stack } from 'expo-router';
+import { useEffect } from 'react';
 
 import { useIsWide } from '@/hooks/use-layout';
+import { takePendingInvite } from '@/lib/pending-invite';
 import { colors } from '@/theme';
 
 export default function AppLayout() {
   const wide = useIsWide();
+  // An invite link opened before signing in: continue to it now that there is an account.
+  useEffect(() => {
+    void takePendingInvite().then((code) => code && router.replace(`/join/${code}` as never));
+  }, []);
   // Dialog-style screens: centered card on wide screens, sliding sheet on phones.
   const sheet = wide
     ? ({ presentation: 'transparentModal', animation: 'fade', contentStyle: { backgroundColor: 'transparent' } } as const)

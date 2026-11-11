@@ -1,10 +1,12 @@
+import * as Clipboard from 'expo-clipboard';
 import { router } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, ScrollView, View } from 'react-native';
 
 import { useIsWide } from '@/hooks/use-layout';
 import { api } from '@/lib/api';
 import { pickAvatar } from '@/lib/avatar-upload';
+import { inviteLink } from '@/lib/config';
 import { confirm } from '@/lib/confirm';
 import { lastSeenLabel } from '@/lib/format';
 import { num, t } from '@/lib/i18n';
@@ -251,6 +253,106 @@ function RoleBadge({ role }: { role?: GroupRole }) {
   );
 }
 
+/** Invite link of a group or channel: admins can create and copy it, only the owner can revoke or replace it. */
+function InviteLink({ conversation }: { conversation: Conversation }) {
+  const isOwner = (conversation.myRole ?? 'member') === 'owner';
+  const channel = conversation.type === 'channel';
+  // undefined = loading, null = no active link.
+  const [code, setCode] = useState<string | null | undefined>(undefined);
+  const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    api.groupInvite(conversation.id).then(
+      (res) => !cancelled && setCode(res.code),
+      () => !cancelled && setCode(null),
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [conversation.id]);
+
+  const run = async (fn: () => Promise<{ code: string | null }>) => {
+    setBusy(true);
+    setError('');
+    try {
+      setCode((await fn()).code);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : t('Could not update the invite link'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const copy = async () => {
+    if (!code) return;
+    await Clipboard.setStringAsync(inviteLink(code));
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const revoke = async () => {
+    const ok = await confirm(
+      t('Revoke link'),
+      t('The current link stops working right away. People already in the {kind} stay.', { kind: channel ? t('channel') : t('group') }),
+      t('Revoke link'),
+      t('Cancel'),
+    );
+    if (ok) await run(() => api.revokeGroupInvite(conversation.id));
+  };
+
+  const replace = async () => {
+    const ok = await confirm(
+      t('New link (revokes the old one)'),
+      t('The current link stops working right away and a new one is made.'),
+      t('Create invite link'),
+      t('Cancel'),
+    );
+    if (ok) await run(() => api.createGroupInvite(conversation.id, true));
+  };
+
+  if (code === undefined) return null;
+  return (
+    <View style={{ gap: 10, padding: 14, borderRadius: radius.lg, backgroundColor: colors.surface }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <Icon name="link" size={16} color={colors.amberText} />
+        <T variant="labelLg">{t('Invite link')}</T>
+      </View>
+      {code ? (
+        <>
+          <T
+            variant="bodySm"
+            color={colors.textMuted}
+            numberOfLines={2}
+            selectable
+            style={{ writingDirection: 'ltr', textAlign: 'left', ...(Platform.OS === 'web' ? ({ direction: 'ltr', unicodeBidi: 'isolate', wordBreak: 'break-all' } as object) : {}) }}>
+            {inviteLink(code)}
+          </T>
+          <Button title={copied ? t('Link copied') : t('Copy link')} icon={copied ? 'check' : 'copy'} size="sm" onPress={() => void copy()} />
+          {isOwner && (
+            <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+              <Button title={t('New link (revokes the old one)')} icon="refresh-cw" size="sm" variant="subtle" loading={busy} onPress={() => void replace()} />
+              <Button title={t('Revoke link')} icon="slash" size="sm" variant="danger" loading={busy} onPress={() => void revoke()} />
+            </View>
+          )}
+          <T variant="bodySm" color={colors.textDim}>
+            {isOwner ? t('Anyone with this link can join. Only the owner can revoke it.') : t('Anyone with this link can join.')}
+          </T>
+        </>
+      ) : (
+        <Button title={t('Create invite link')} icon="plus" size="sm" loading={busy} onPress={() => void run(() => api.createGroupInvite(conversation.id))} />
+      )}
+      {!!error && (
+        <T variant="bodySm" color={colors.danger}>
+          {error}
+        </T>
+      )}
+    </View>
+  );
+}
+
 function Members({ conversation, meId }: { conversation: Conversation; meId?: string }) {
   const wide = useIsWide();
   const myRole = conversation.myRole ?? 'member';
@@ -353,6 +455,7 @@ function Members({ conversation, meId }: { conversation: Conversation; meId?: st
           </T>
         </Pressable>
       )}
+      {canAdd && <InviteLink conversation={conversation} />}
       {conversation.members.map((m) => {
         const actions = actionsFor(m);
         const open = openId === m.id;

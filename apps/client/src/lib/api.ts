@@ -130,6 +130,9 @@ export type AppSettings = {
 /** Public branding every client can read without signing in. */
 export type Branding = { appName: string; repoUrl: string; showRepoLinks: boolean; version: string | null };
 
+/** What an invite link leads to, shown before joining. */
+export type InviteInfo = { id: string; type: 'group' | 'channel'; name: string; description: string; avatarUrl: string | null; memberCount: number; member: boolean };
+
 /** The installed server version and its changelog (empty when the package has none). */
 export type UpdateInfo = { version: string | null; notes: string; notesFa?: string };
 
@@ -203,6 +206,13 @@ export const api = {
     request<Conversation>('PATCH', `/conversations/${id}/info`, patch),
   setGroupAvatar: (id: string, base64: string) => request<Conversation>('PUT', `/conversations/${id}/avatar`, { data: base64 }),
   removeGroupAvatar: (id: string) => request<Conversation>('DELETE', `/conversations/${id}/avatar`),
+  /** The group/channel's invite code (null when there is no active link). */
+  groupInvite: (id: string) => request<{ code: string | null }>('GET', `/conversations/${id}/invite`),
+  /** Creates the link when there is none; `reset` (owner) replaces it and so revokes the old one. */
+  createGroupInvite: (id: string, reset = false) => request<{ code: string | null }>('POST', `/conversations/${id}/invite`, reset ? { reset: true } : {}),
+  revokeGroupInvite: (id: string) => request<{ code: string | null }>('DELETE', `/conversations/${id}/invite`),
+  inviteInfo: (code: string) => request<InviteInfo>('GET', `/invite/${encodeURIComponent(code)}`),
+  joinInvite: (code: string) => request<Conversation>('POST', `/invite/${encodeURIComponent(code)}/join`),
   addMembers: (id: string, userIds: string[]) => request<Conversation>('POST', `/conversations/${id}/members`, { userIds }),
   /** Removes a member, or leaves when `userId` is yourself. */
   removeMember: (id: string, userId: string) => request<{ ok: true }>('DELETE', `/conversations/${id}/members/${userId}`),

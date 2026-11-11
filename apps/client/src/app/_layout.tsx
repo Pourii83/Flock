@@ -103,6 +103,8 @@ function RootStack() {
         </Stack.Protected>
         {/* Meeting links open with or without an account. */}
         <Stack.Screen name="meet/[code]" />
+      {/* Invite links need an account; the page asks signed-out people to sign in first. */}
+      <Stack.Screen name="join/[code]" />
       </Stack>
     </View>
   );

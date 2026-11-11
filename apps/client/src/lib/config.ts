@@ -40,6 +40,12 @@ export function meetingLink(code: string) {
   return `${base}/meet/${code}`;
 }
 
+/** Shareable invite link to a group or channel; opens the join page. */
+export function inviteLink(code: string) {
+  const base = !isInstalledApp && typeof window !== 'undefined' && window.location?.origin?.startsWith('http') ? window.location.origin : getApiUrl();
+  return `${base}/join/${code}`;
+}
+
 /** Loads the saved server address; call once before any API request. */
 export async function loadServerUrl() {
   if (!isInstalledApp) return;

@@ -564,6 +564,57 @@ export function createRouter(realtime) {
     next();
   };
 
+  // ---------- invite links ----------
+
+  const inviteInfo = (conv) => ({ code: conv.invite_code ?? null });
+
+  // The current link (admins and the owner can see it); code is null when there is none.
+  r.get('/conversations/:id/invite', group('admin'), async (req, res) => res.json(inviteInfo(req.group)));
+
+  // Creates the link if there is none (admins and the owner); 'reset' (owner only) swaps in a new code, which kills the old link.
+  r.post('/conversations/:id/invite', group('admin'), async (req, res) => {
+    const reset = req.body?.reset === true;
+    if (reset && req.role !== 'owner') return res.status(403).json({ error: 'Only the owner can revoke the invite link' });
+    let code = req.group.invite_code;
+    if (!code || reset) {
+      code = repo.newInviteCode();
+      await repo.setInviteCode(req.group.id, code);
+    }
+    res.json({ code });
+  });
+
+  // Revokes the link for good; only the owner can.
+  r.delete('/conversations/:id/invite', group('owner'), async (req, res) => {
+    await repo.setInviteCode(req.group.id, null);
+    res.json({ code: null });
+  });
+
+  // What a link leads to (shown before joining). Revoked or unknown codes look the same.
+  r.get('/invite/:code', async (req, res) => {
+    const conv = await repo.getConversationByInvite(req.params.code);
+    if (!conv) return res.status(404).json({ error: 'This invite link is not valid anymore' });
+    res.json({
+      id: conv.id,
+      type: conv.type,
+      name: conv.name || '',
+      description: conv.description ?? '',
+      avatarUrl: conv.avatar_path ? `/api/avatars/${conv.avatar_path}` : null,
+      memberCount: await repo.memberCount(conv.id),
+      member: await repo.isMember(conv.id, req.userId),
+    });
+  });
+
+  r.post('/invite/:code/join', async (req, res) => {
+    const conv = await repo.getConversationByInvite(req.params.code);
+    if (!conv) return res.status(404).json({ error: 'This invite link is not valid anymore' });
+    const added = await repo.addMembers(conv.id, [req.userId]);
+    if (added.length) {
+      await systemMessage(conv.id, req.userId, { e: 'joined-link' });
+      await realtime.notifyConversation(conv.id);
+    }
+    res.json(await repo.getConversation(conv.id, req.userId));
+  });
+
   r.patch('/conversations/:id/info', group('admin'), async (req, res) => {
     const { name, description } = req.body || {};
     const nextName = typeof name === 'string' ? name.trim().slice(0, 80) : undefined;
