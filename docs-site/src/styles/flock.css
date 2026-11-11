@@ -15,6 +15,11 @@
   --sl-color-gray-6: #161d2a;
   --sl-color-black: #0b0e14;
 }
+/* Wider text column: commands and option tables need the room, and on wide screens the
+   "On this page" column otherwise takes all the leftover width. */
+@media (min-width: 72rem) {
+  :root { --sl-content-width: 62rem; }
+}
 :root[data-theme='light'] {
   --sl-color-accent-low: #ffe7c2;
   --sl-color-accent: #b26b00;
