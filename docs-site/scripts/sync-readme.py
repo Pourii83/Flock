@@ -108,7 +108,8 @@ def build(lang: str):
                 return m.group(0)
             return f'{m.group(1)}({target})'
         text = re.sub(r'(\[[^\]]*\])\(#([^)]+)\)', anchor, text)
-        text = text.replace('docs/screenshots/', f'{MEDIA}/')
+        # Primary copy on Cloudflare; the docs site's own copy is the fallback (see fallback script in astro.config.mjs).
+        text = re.sub(r'src="docs/screenshots/([^"]+)"', lambda m: f'src="{MEDIA}/{m.group(1)}" data-fallback="/screenshots/{m.group(1)}"', text)
         text = text.replace('apps/client/assets/images/icon.png', '/flock-icon.png')
         # Other relative links point at files in the repository.
         text = re.sub(r'\]\((?!https?:|/|#|mailto:)([^)]+)\)', lambda m: f']({REPO}/blob/main/{m.group(1)})', text)
@@ -154,5 +155,9 @@ def build(lang: str):
 
 if __name__ == '__main__':
     shutil.copy2(ROOT / 'apps' / 'client' / 'assets' / 'images' / 'icon.png', PUBLIC / 'flock-icon.png')
+    # Fallback copies of the screenshots, served by the docs site itself (not committed).
+    (PUBLIC / 'screenshots').mkdir(parents=True, exist_ok=True)
+    for png in (ROOT / 'docs' / 'screenshots').glob('*.png'):
+        shutil.copy2(png, PUBLIC / 'screenshots' / png.name)
     build('en')
     build('fa')

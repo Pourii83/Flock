@@ -11,21 +11,21 @@ editUrl: https://github.com/Pourii83/Flock/edit/main/README.fa.md
 از یک کدبیس **React Native (Expo)** ساخته می‌شود و به‌صورت **وب‌اپ (PWA)**، **اپ اندروید** و **اپ ویندوز** در دسترس است، با سرور **Node.js و PostgreSQL**.
 
 <p align="center">
-  <img src="https://flock.iranset.online/chats.png" alt="چت گروهی با پاسخ، واکنش و اطلاعات گروه با لینک دعوت، روی دسکتاپ" width="100%" />
+  <img src="https://flock.iranset.online/chats.png" data-fallback="/screenshots/chats.png" alt="چت گروهی با پاسخ، واکنش و اطلاعات گروه با لینک دعوت، روی دسکتاپ" width="100%" />
 </p>
 
 <table>
   <tr>
-    <td width="50%"><img src="https://flock.iranset.online/channel.png" alt="کانال با لینک دعوت" /></td>
-    <td width="50%"><img src="https://flock.iranset.online/video-call.png" alt="تماس تصویری تمام‌صفحه" /></td>
+    <td width="50%"><img src="https://flock.iranset.online/channel.png" data-fallback="/screenshots/channel.png" alt="کانال با لینک دعوت" /></td>
+    <td width="50%"><img src="https://flock.iranset.online/video-call.png" data-fallback="/screenshots/video-call.png" alt="تماس تصویری تمام‌صفحه" /></td>
   </tr>
   <tr>
     <td align="center"><sub>کانال با لینک دعوت</sub></td>
     <td align="center"><sub>تماس تصویری تمام‌صفحه</sub></td>
   </tr>
   <tr>
-    <td width="50%"><img src="https://flock.iranset.online/persian.png" alt="رابط فارسی، راست به چپ" /></td>
-    <td width="50%" align="center"><img src="https://flock.iranset.online/mobile.png" alt="اندروید و وب موبایل" width="230" /></td>
+    <td width="50%"><img src="https://flock.iranset.online/persian.png" data-fallback="/screenshots/persian.png" alt="رابط فارسی، راست به چپ" /></td>
+    <td width="50%" align="center"><img src="https://flock.iranset.online/mobile.png" data-fallback="/screenshots/mobile.png" alt="اندروید و وب موبایل" width="230" /></td>
   </tr>
   <tr>
     <td align="center"><sub>رابط فارسی، راست به چپ</sub></td>
@@ -34,7 +34,7 @@ editUrl: https://github.com/Pourii83/Flock/edit/main/README.fa.md
 </table>
 
 <p align="center">
-  <img src="https://flock.iranset.online/settings.png" alt="تنظیمات: حذف نویز، تم و چرخه‌ی رنگ" width="100%" />
+  <img src="https://flock.iranset.online/settings.png" data-fallback="/screenshots/settings.png" alt="تنظیمات: حذف نویز، تم و چرخه‌ی رنگ" width="100%" />
   <br /><sub>تنظیمات: حذف نویز، تم و چرخه‌ی رنگ</sub>
 </p>
 

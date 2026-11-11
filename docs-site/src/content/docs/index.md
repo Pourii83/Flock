@@ -10,21 +10,21 @@ editUrl: https://github.com/Pourii83/Flock/edit/main/README.md
 Flock is a self-hosted messenger for you and your friends: chats, voice and video calls, screen sharing and meeting links, all on your own server. It runs from one **React Native (Expo)** codebase as a **web app (PWA)**, an **Android app** and a **Windows app**, with a **Node.js + PostgreSQL** server.
 
 <p align="center">
-  <img src="https://flock.iranset.online/chats.png" alt="Group chat with replies, reactions and group info with invite link, on desktop" width="100%" />
+  <img src="https://flock.iranset.online/chats.png" data-fallback="/screenshots/chats.png" alt="Group chat with replies, reactions and group info with invite link, on desktop" width="100%" />
 </p>
 
 <table>
   <tr>
-    <td width="50%"><img src="https://flock.iranset.online/channel.png" alt="A channel with its invite link" /></td>
-    <td width="50%"><img src="https://flock.iranset.online/video-call.png" alt="Full-screen video call" /></td>
+    <td width="50%"><img src="https://flock.iranset.online/channel.png" data-fallback="/screenshots/channel.png" alt="A channel with its invite link" /></td>
+    <td width="50%"><img src="https://flock.iranset.online/video-call.png" data-fallback="/screenshots/video-call.png" alt="Full-screen video call" /></td>
   </tr>
   <tr>
     <td align="center"><sub>A channel with its invite link</sub></td>
     <td align="center"><sub>Full-screen video call</sub></td>
   </tr>
   <tr>
-    <td width="50%"><img src="https://flock.iranset.online/persian.png" alt="Persian interface, right to left" /></td>
-    <td width="50%" align="center"><img src="https://flock.iranset.online/mobile.png" alt="Android and mobile web" width="230" /></td>
+    <td width="50%"><img src="https://flock.iranset.online/persian.png" data-fallback="/screenshots/persian.png" alt="Persian interface, right to left" /></td>
+    <td width="50%" align="center"><img src="https://flock.iranset.online/mobile.png" data-fallback="/screenshots/mobile.png" alt="Android and mobile web" width="230" /></td>
   </tr>
   <tr>
     <td align="center"><sub>Persian interface, right to left</sub></td>
@@ -33,7 +33,7 @@ Flock is a self-hosted messenger for you and your friends: chats, voice and vide
 </table>
 
 <p align="center">
-  <img src="https://flock.iranset.online/settings.png" alt="Settings: noise cancellation, theme and the accent color wheel" width="100%" />
+  <img src="https://flock.iranset.online/settings.png" data-fallback="/screenshots/settings.png" alt="Settings: noise cancellation, theme and the accent color wheel" width="100%" />
   <br /><sub>Settings: noise cancellation, theme and the accent color wheel</sub>
 </p>
 

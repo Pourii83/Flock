@@ -6,6 +6,28 @@ import starlight from '@astrojs/starlight';
 
 const t = (en, fa) => ({ label: en, translations: { fa } });
 
+// Screenshots load from Cloudflare R2 (flock.iranset.online). On networks where that fails or hangs,
+// switch each image to the docs site's own copy (data-fallback): on error, or if it hasn't loaded in 4 s.
+const imageFallback = `(() => {
+  const swap = (img) => {
+    const f = img.dataset.fallback;
+    if (!f) return;
+    img.dataset.fallback = '';
+    img.src = f;
+  };
+  document.addEventListener('error', (e) => {
+    const t = e.target;
+    if (t instanceof HTMLImageElement && t.dataset.fallback) swap(t);
+  }, true);
+  const check = () => setTimeout(() => {
+    for (const img of document.querySelectorAll('img[data-fallback]')) {
+      if (img.dataset.fallback && !(img.complete && img.naturalWidth)) swap(img);
+    }
+  }, 4000);
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', check);
+  else check();
+})();`;
+
 export default defineConfig({
   site: 'https://docs.flock.beer',
   integrations: [
@@ -15,6 +37,7 @@ export default defineConfig({
       logo: { src: './src/assets/flock-mark.png' },
       favicon: '/favicon.png',
       customCss: ['./src/styles/flock.css'],
+      head: [{ tag: 'script', content: imageFallback }],
       social: [
         { icon: 'github', label: 'GitHub', href: 'https://github.com/Pourii83/Flock' },
       ],
