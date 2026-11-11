@@ -1174,6 +1174,19 @@ function Bubble({
   );
 }
 
+/**
+ * An empty input follows the app's direction (the browser would pick LTR for an empty field and
+ * scramble a Persian placeholder with an English name in it); once there is text, the field goes
+ * back to guessing the direction from what is typed, so mixed messages still flow naturally.
+ */
+function emptyInputDirection(value: string) {
+  if (value) return {};
+  const rtl = isRTL();
+  return Platform.OS === 'web'
+    ? ({ dir: rtl ? 'rtl' : 'ltr' } as object)
+    : ({ textAlign: rtl ? 'right' : 'left', writingDirection: rtl ? 'rtl' : 'ltr' } as object);
+}
+
 function bytesLabel(size: number) {
   if (size >= 1024 * 1024) return `${(size / 1024 / 1024).toFixed(size >= 10 * 1024 * 1024 ? 0 : 1)} MB`;
   if (size >= 1024) return `${Math.ceil(size / 1024)} KB`;
@@ -1759,6 +1772,7 @@ function Composer({
               onChangeText={setCaption}
               placeholder={t('Add a caption…')}
               placeholderTextColor={colors.textMuted}
+              {...emptyInputDirection(caption)}
               multiline
               style={[
                 {
@@ -1856,6 +1870,7 @@ function Composer({
             onChangeText={onChange}
             placeholder={placeholder}
             placeholderTextColor={colors.textMuted}
+            {...emptyInputDirection(text)}
             multiline
             numberOfLines={1}
             onContentSizeChange={(event) => {

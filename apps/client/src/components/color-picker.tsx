@@ -1,6 +1,7 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import { useEffect, useRef, useState } from 'react';
 import { PanResponder, View, type LayoutChangeEvent } from 'react-native';
+import Svg, { Circle, Defs, Path, RadialGradient, Stop } from 'react-native-svg';
 
 import { colors } from '@/theme';
 
@@ -140,5 +141,32 @@ export function ColorPicker({ value, onChange }: { value: string; onChange: (hex
         />
       </View>
     </View>
+  );
+}
+
+const WEDGES = 48;
+
+/** A color wheel (hue around, white in the middle) used as the picker's button face. */
+export function ColorWheel({ size = 34 }: { size?: number }) {
+  const r = size / 2;
+  const point = (angle: number) => `${(r + r * Math.cos(angle)).toFixed(2)} ${(r + r * Math.sin(angle)).toFixed(2)}`;
+  const wedge = (i: number) => {
+    const a0 = ((i / WEDGES) * 360 - 90) * (Math.PI / 180);
+    const a1 = (((i + 1.15) / WEDGES) * 360 - 90) * (Math.PI / 180); // slight overlap hides seams
+    return `M ${r} ${r} L ${point(a0)} A ${r} ${r} 0 0 1 ${point(a1)} Z`;
+  };
+  return (
+    <Svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+      <Defs>
+        <RadialGradient id="fade" cx="50%" cy="50%" r="50%">
+          <Stop offset="0" stopColor="#FFFFFF" stopOpacity="1" />
+          <Stop offset="0.75" stopColor="#FFFFFF" stopOpacity="0" />
+        </RadialGradient>
+      </Defs>
+      {Array.from({ length: WEDGES }, (_, i) => (
+        <Path key={i} d={wedge(i)} fill={hsvToHex({ h: (i / WEDGES) * 360, s: 1, v: 1 })} />
+      ))}
+      <Circle cx={r} cy={r} r={r} fill="url(#fade)" />
+    </Svg>
   );
 }

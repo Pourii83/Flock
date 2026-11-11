@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, View } from 'react-native';
+import { Pressable, View, useWindowDimensions } from 'react-native';
 
 import { t } from '@/lib/i18n';
 import { colors, getThemePreference, radius, setThemePreference, type ThemePreference } from '@/theme';
@@ -15,10 +15,12 @@ const OPTIONS: { value: ThemePreference; label: string; icon: IconName }[] = [
 /** Dark / Light / System switch (Settings). The app repaints right away. */
 export function ThemePicker() {
   const [value, setValue] = useState(getThemePreference());
+  // On phones the icon sits above the label: side by side, a wrapped label pushed it to the corner.
+  const stacked = useWindowDimensions().width < 520;
   return (
     <View
       accessibilityRole="radiogroup"
-      style={{ flexDirection: 'row', gap: 4, padding: 4, borderRadius: radius.pill, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.surfaceHigh }}>
+      style={{ flexDirection: 'row', gap: 4, padding: 4, borderRadius: stacked ? 26 : radius.pill, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.surfaceHigh }}>
       {OPTIONS.map((o) => {
         const active = o.value === value;
         return (
@@ -37,12 +39,12 @@ export function ThemePicker() {
               flexBasis: 0,
               minWidth: 0,
               paddingHorizontal: 6,
-              flexDirection: 'row',
+              flexDirection: stacked ? 'column' : 'row',
               alignItems: 'center',
               justifyContent: 'center',
-              gap: 8,
-              paddingVertical: 10,
-              borderRadius: radius.pill,
+              gap: stacked ? 4 : 8,
+              paddingVertical: stacked ? 8 : 10,
+              borderRadius: stacked ? 22 : radius.pill,
               backgroundColor: active ? colors.amber : hovered ? colors.surfaceHigh : 'transparent',
             })}>
             <Icon name={o.icon} size={16} color={active ? colors.onAmber : colors.textMuted} />

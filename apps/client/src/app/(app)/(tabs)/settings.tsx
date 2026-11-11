@@ -6,12 +6,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AppInfoDialog } from '@/components/app-info-dialog';
 import { Avatar } from '@/components/avatar';
-import { ColorPicker } from '@/components/color-picker';
+import { ColorPicker, ColorWheel } from '@/components/color-picker';
 import { LanguagePicker } from '@/components/language-picker';
 import { NoisePicker } from '@/components/noise-picker';
 import { ThemePicker } from '@/components/theme-picker';
 import { DesktopTopBar, MobileHeader, PageTitle } from '@/components/shell';
-import { LinearGradient } from 'expo-linear-gradient';
 import { Button, Card, Icon, SectionLabel, T, noOutline, type IconName } from '@/components/ui';
 import { useIsWide } from '@/hooks/use-layout';
 import { ServerField, useServerField } from '@/components/server-field';
@@ -193,6 +192,7 @@ function AccentPicker() {
             backgroundColor: colors.canvas,
             paddingHorizontal: 14,
           }}>
+          <View style={{ width: 18, height: 18, borderRadius: 9, backgroundColor: valid ? trimmed : colors.surfaceHigh, borderWidth: 1, borderColor: colors.surfaceHighest }} />
           <TextInput
             value={hex}
             onChangeText={setHex}
@@ -218,17 +218,9 @@ function AccentPicker() {
             borderWidth: 2,
             borderColor: pickerOpen ? colors.text : colors.surfaceHigh,
           }}>
-          <LinearGradient
-            colors={['#FF0000', '#FFFF00', '#00FF00', '#00FFFF', '#0000FF', '#FF00FF', '#FF0000']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={{ flex: 1, borderRadius: 20, alignItems: 'center', justifyContent: 'center' }}>
-            <View style={{ width: 20, height: 20, borderRadius: 10, backgroundColor: valid ? trimmed : colors.surfaceHigh, borderWidth: 2, borderColor: '#FFFFFF' }} />
-          </LinearGradient>
+          <ColorWheel />
         </Pressable>
-        <View style={{ flex: 1, alignItems: 'flex-end' }}>
-          <Button title={t('Apply')} size="sm" onPress={apply} disabled={!valid || trimmed === current} />
-        </View>
+        <Button title={t('Apply')} size="sm" onPress={apply} disabled={!valid || trimmed === current} />
       </View>
       {pickerOpen && <ColorPicker value={valid ? trimmed : current} onChange={setHex} />}
       {!valid && (
