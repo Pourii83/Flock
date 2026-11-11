@@ -270,7 +270,7 @@ export function ChatList({
         data={list}
         keyExtractor={(c) => c.id}
         ListHeaderComponent={header}
-        contentContainerStyle={{ padding: desktop ? 16 : 16, paddingTop: desktop ? 20 : 8, gap: desktop ? 2 : 8, paddingBottom: 120 }}
+        contentContainerStyle={{ padding: desktop ? 16 : 16, paddingTop: desktop ? 20 : 8, gap: desktop ? 2 : 8, paddingBottom: desktop ? 16 : 120 }}
         renderItem={({ item }) => (
           <ChatRow c={item} card={!desktop} selected={item.id === selectedId} onPress={() => onOpen(item)} />
         )}
