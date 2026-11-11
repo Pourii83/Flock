@@ -412,6 +412,8 @@ sudo ./flock-server/install.sh --domain chat.example.com
 
 ## اپ‌ها
 
+**دمو را امتحان کنید:** [app.flock.beer](https://app.flock.beer) آخرین ریلیز را به‌صورت وب‌اپ روی یک سرور دمو اجرا می‌کند. داده‌های دمو ممکن است هر وقت پاک شوند؛ چیزی که می‌خواهید بماند را آنجا نگذارید.
+
 از [Releases](https://github.com/Pourii83/Flock/releases) دانلود کنید:
 
 - **وب‌اپ (PWA):** آدرس سرور را باز کنید. در کروم و اج گزینه‌ی *Install app* را بزنید. در آیفون از *Share ← Add to Home Screen* استفاده کنید.
@@ -457,6 +459,7 @@ scripts/     package-server.sh (بسته‌ی آفلاین سرور)، build-and
 - **بسته‌ی سرور:** `scripts/package-server.sh x64` (یا `arm64`) فایل `dist/flock-server-linux-x64.tar.gz` را می‌سازد. با push کردن یک تگ مثل `v1.7.0`، گیت‌هاب اکشنز هر دو را می‌سازد و به ریلیز اضافه می‌کند.
 - **اندروید:** به‌صورت محلی با Gradle ساخته و با کلید خودتان امضا می‌شود: `scripts/build-android.sh` (به Android SDK و JDK 21 نیاز دارد). تماس فقط در بیلد واقعی کار می‌کند و Expo Go تماس ندارد.
 - **ویندوز:** `cd apps/desktop && npm install && npm run dist:win`.
+- **PWA دمو:** با push کردن تگ ریلیز، `.github/workflows/deploy-pwa.yml` هم اجرا می‌شود و برنچ `pwa` را به همان ریلیز می‌برد. Vercel این برنچ را با `scripts/build-pwa.sh` می‌سازد. آدرس سرور دمو متغیر `PWA_API_URL` در پروژه‌ی Vercel است و فقط داخل همین بیلد قرار می‌گیرد؛ اپ‌های اندروید و ویندوز هیچ سرور پیش‌فرضی ندارند.
 
 ## لایسنس
 

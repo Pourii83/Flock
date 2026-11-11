@@ -1,0 +1,38 @@
+name: Deploy demo PWA
+
+# Every release tag moves the `pwa` branch to that commit. Vercel builds only the `pwa` branch
+# (its production branch; other branches are skipped by the project's Ignored Build Step) with
+# `bash scripts/build-pwa.sh "$PWA_API_URL"` and serves it at app.flock.beer.
+# The demo server's address lives only in the Vercel project's PWA_API_URL variable;
+# installed apps (Android, Windows) never get a default server.
+#
+# Triggered by the tag push, not by the release event: releases created with GITHUB_TOKEN
+# do not start other workflows.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to deploy (e.g. v1.11.0)'
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: deploy-pwa
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    # Forks have no Vercel project behind them.
+    if: github.repository == 'Pourii83/Flock'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref_name }}
+      - name: Move the pwa branch to this release
+        run: git push --force origin HEAD:refs/heads/pwa

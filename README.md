@@ -405,6 +405,8 @@ The relay only ever sees encrypted call traffic. More in [deploy/INSTALL.md](dep
 
 ## Apps
 
+**Try the demo:** [app.flock.beer](https://app.flock.beer) runs the latest release as a web app on a demo server. Demo data can be wiped at any time; don't use it for anything you want to keep.
+
 Download them from [Releases](https://github.com/Pourii83/Flock/releases):
 
 - **Web app (PWA):** open your server's address. In Chrome/Edge choose *Install app*; on iPhone use *Share → Add to Home Screen*.
@@ -446,6 +448,7 @@ scripts/     package-server.sh (offline server package), build-android.sh
 - **Server package:** `scripts/package-server.sh x64` (or `arm64`) builds `dist/flock-server-linux-x64.tar.gz`. Pushing a tag like `v1.7.0` builds both with GitHub Actions and attaches them to a release.
 - **Android:** built locally with Gradle and signed with your own key: `scripts/build-android.sh` (needs the Android SDK and JDK 21). Calls need a real build; Expo Go can't make calls.
 - **Windows:** `cd apps/desktop && npm install && npm run dist:win`.
+- **Demo PWA:** pushing a release tag also runs `.github/workflows/deploy-pwa.yml`, which moves the `pwa` branch to the release. Vercel builds that branch with `scripts/build-pwa.sh`. The demo server's address is the Vercel project's `PWA_API_URL` variable and is baked into that build only; the Android and Windows apps never get a default server.
 
 ## License
 
