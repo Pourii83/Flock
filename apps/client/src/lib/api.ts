@@ -211,6 +211,8 @@ export const api = {
   /** Creates the link when there is none; `reset` (owner) replaces it and so revokes the old one. */
   createGroupInvite: (id: string, reset = false) => request<{ code: string | null }>('POST', `/conversations/${id}/invite`, reset ? { reset: true } : {}),
   revokeGroupInvite: (id: string) => request<{ code: string | null }>('DELETE', `/conversations/${id}/invite`),
+  /** A short-lived signed link for streaming a file (`url` is the attachment's /api/files/<id> URL). */
+  fileLink: (url: string) => request<{ url: string }>('POST', `${url.replace(/^\/api/, '')}/link`),
   inviteInfo: (code: string) => request<InviteInfo>('GET', `/invite/${encodeURIComponent(code)}`),
   joinInvite: (code: string) => request<Conversation>('POST', `/invite/${encodeURIComponent(code)}/join`),
   addMembers: (id: string, userIds: string[]) => request<Conversation>('POST', `/conversations/${id}/members`, { userIds }),

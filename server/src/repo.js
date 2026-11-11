@@ -431,6 +431,15 @@ export const getAttachment = (messageId, userId) =>
       )
     : null;
 
+/** Same as getAttachment but without a user check; only for links that were signed after one. */
+export const getAttachmentById = (messageId) =>
+  isUuid(messageId)
+    ? one(
+        'SELECT attachment_name, attachment_mime, attachment_size, attachment_path, attachment_expires_at FROM messages WHERE id = $1 AND attachment_name IS NOT NULL',
+        [messageId],
+      )
+    : null;
+
 /** Detaches expired files atomically; the caller removes the returned paths from disk. */
 export async function detachExpiredFiles(at = now()) {
   const rows = await query(

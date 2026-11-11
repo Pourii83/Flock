@@ -9,6 +9,23 @@ if (!process.env.JWT_SECRET) {
 
 export const hashPassword = (pw) => bcrypt.hash(pw, 10);
 export const checkPassword = (pw, hash) => bcrypt.compare(pw, hash);
+/**
+ * Short-lived signed file links: a <video> element can't send an Authorization header, so the app asks
+ * for one of these (after the normal membership check) and the browser then streams with Range requests.
+ */
+const fileSig = (messageId, exp) => crypto.createHmac('sha256', SECRET).update(`file:${messageId}:${exp}`).digest('base64url');
+export function signFileLink(messageId, ttlSeconds = 600) {
+  const exp = Math.floor(Date.now() / 1000) + ttlSeconds;
+  return { exp, sig: fileSig(messageId, exp) };
+}
+export function verifyFileLink(messageId, exp, sig) {
+  const expNum = Number(exp);
+  if (!Number.isFinite(expNum) || expNum < Date.now() / 1000 || typeof sig !== 'string') return false;
+  const want = Buffer.from(fileSig(messageId, expNum));
+  const got = Buffer.from(sig);
+  return want.length === got.length && crypto.timingSafeEqual(want, got);
+}
+
 export const signToken = (userId) => jwt.sign({ sub: userId }, SECRET, { expiresIn: '30d' });
 
 /** Signed-in users only; guest tokens are refused everywhere except meeting-room signaling. */

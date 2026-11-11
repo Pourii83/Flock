@@ -1,15 +1,16 @@
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 
-import { getAuthHeaders } from '@/lib/api';
+import { api } from '@/lib/api';
 import { getApiUrl } from '@/lib/config';
 import { t } from '@/lib/i18n';
 import { colors } from '@/theme';
 import { T } from './ui';
 
 /**
- * Plays an attachment video in the media viewer (web/Electron).
- * The file endpoint needs the Authorization header, so the video is fetched as a blob first.
+ * Plays an attachment video in the media viewer (web/Electron). The file endpoint needs the
+ * Authorization header, which a <video> can't send, so it plays from a short-lived signed link and
+ * streams (seeking works, and nothing is downloaded up front).
  */
 export function MediaVideo({ url, fit }: { url: string; fit: (w: number, h: number) => { width: number; height: number } }) {
   const [src, setSrc] = useState<string | null>(null);
@@ -17,20 +18,13 @@ export function MediaVideo({ url, fit }: { url: string; fit: (w: number, h: numb
   const [size, setSize] = useState<{ width: number; height: number } | null>(null);
 
   useEffect(() => {
-    let objectUrl: string | null = null;
     let cancelled = false;
-    fetch(`${getApiUrl()}${url}`, { headers: getAuthHeaders() })
-      .then(async (response) => {
-        if (!response.ok) throw new Error(response.status === 410 ? t('File expired') : t('Could not download file'));
-        const blob = await response.blob();
-        if (cancelled) return;
-        objectUrl = URL.createObjectURL(blob);
-        setSrc(objectUrl);
-      })
+    api
+      .fileLink(url)
+      .then(({ url: signed }) => !cancelled && setSrc(`${getApiUrl()}${signed}`))
       .catch((e) => !cancelled && setError(e instanceof Error ? e.message : t('Could not download file')));
     return () => {
       cancelled = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [url]);
 

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import crypto from 'node:crypto';
-import { checkPassword, hashPassword, requireAuth, signGuestToken, signToken, verifyGuestToken, verifyToken } from './auth.js';
+import { checkPassword, hashPassword, requireAuth, signFileLink, signGuestToken, signToken, verifyFileLink, verifyGuestToken, verifyToken } from './auth.js';
 import { deleteAvatar, saveAvatar } from './avatars.js';
 import { copyStoredFile, deleteStoredFile, receiveFile, safeMimeType, storedFilePath } from './files.js';
 import { getSettings, MAIN_REPO_URL, updateSettings } from './settings.js';
@@ -101,6 +101,30 @@ export function createRouter(realtime) {
     // TURN_RELAY_ONLY=1 sends all call media through the relay (hides users' IPs, steadier calls).
     const relayOnly = process.env.TURN_RELAY_ONLY === '1' && iceServers.length > 1;
     res.json({ iceServers, ...(relayOnly ? { iceTransportPolicy: 'relay' } : {}) });
+  });
+
+  /** Streams a stored attachment (Range requests work). */
+  async function sendAttachment(res, attachment) {
+    if (!attachment) return res.status(404).json({ error: 'File not found' });
+    if (!attachment.attachment_path || attachment.attachment_expires_at <= Date.now()) {
+      if (attachment.attachment_path) await deleteStoredFile(attachment.attachment_path);
+      return res.status(410).json({ error: 'File expired' });
+    }
+    const file = storedFilePath(attachment.attachment_path);
+    if (!file) return res.status(404).json({ error: 'File not found' });
+    res.setHeader('Content-Type', attachment.attachment_mime || 'application/octet-stream');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    // Uploaded HTML/SVG must never run as the app's origin, even when opened directly.
+    res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
+    res.setHeader('Cache-Control', 'private, max-age=300');
+    res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(attachment.attachment_name)}`);
+    res.sendFile(file);
+  }
+
+  // Signed link (see POST /files/:messageId/link): lets a <video> stream with Range requests.
+  r.get('/f/:messageId', async (req, res) => {
+    if (!verifyFileLink(req.params.messageId, req.query.e, req.query.s)) return res.status(403).json({ error: 'This link has expired' });
+    await sendAttachment(res, await repo.getAttachmentById(req.params.messageId));
   });
 
   r.use(requireAuth);
@@ -516,22 +540,15 @@ export function createRouter(realtime) {
   });
 
   r.get('/files/:messageId', async (req, res) => {
+    await sendAttachment(res, await repo.getAttachment(req.params.messageId, req.userId));
+  });
+
+  // A short-lived signed link to a file I can see, for streaming it in a <video>.
+  r.post('/files/:messageId/link', async (req, res) => {
     const attachment = await repo.getAttachment(req.params.messageId, req.userId);
     if (!attachment) return res.status(404).json({ error: 'File not found' });
-    if (!attachment.attachment_path || attachment.attachment_expires_at <= Date.now()) {
-      if (attachment.attachment_path) await deleteStoredFile(attachment.attachment_path);
-      return res.status(410).json({ error: 'File expired' });
-    }
-    const file = storedFilePath(attachment.attachment_path);
-    if (!file) return res.status(404).json({ error: 'File not found' });
-    res.setHeader('Content-Type', attachment.attachment_mime || 'application/octet-stream');
-    res.setHeader('Content-Length', String(attachment.attachment_size));
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    // Uploaded HTML/SVG must never run as the app's origin, even when opened directly.
-    res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
-    res.setHeader('Cache-Control', 'private, max-age=300');
-    res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(attachment.attachment_name)}`);
-    res.sendFile(file);
+    const { exp, sig } = signFileLink(req.params.messageId);
+    res.json({ url: `/api/f/${req.params.messageId}?e=${exp}&s=${sig}` });
   });
 
   r.post('/conversations/:id/read', member, async (req, res) => {
