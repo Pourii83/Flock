@@ -8,30 +8,37 @@ const t = (en, fa) => ({ label: en, translations: { fa } });
 
 // Screenshots load from Cloudflare R2 (flock.iranset.online). data-fallback lists the next sources,
 // space-separated: Arvan Object Storage, then the docs site's own copy. An image moves to the next
-// source when it errors or hasn't finished loading within 4 s of starting on its current one.
+// source when it errors, or when it hasn't fully arrived 4 s after it appeared / switched source.
+// The clock starts per image as soon as it is in the DOM (polled from <head>), not at
+// DOMContentLoaded, which on slow networks can itself come much later.
 const imageFallback = `(() => {
   const WAIT = 4000;
   const loaded = (img) => img.complete && img.naturalWidth > 0;
-  const watch = (img) => {
-    clearTimeout(img._fallbackTimer);
-    img._fallbackTimer = setTimeout(() => { if (!loaded(img)) next(img); }, WAIT);
-  };
   const next = (img) => {
     const rest = (img.dataset.fallback || '').split(' ').filter(Boolean);
     if (!rest.length) return;
     img.dataset.fallback = rest.slice(1).join(' ');
+    img._since = performance.now();
     img.src = rest[0];
-    watch(img);
   };
   document.addEventListener('error', (e) => {
     const t = e.target;
     if (t instanceof HTMLImageElement && t.dataset.fallback) next(t);
   }, true);
-  const start = () => {
-    for (const img of document.querySelectorAll('img[data-fallback]')) if (!loaded(img)) watch(img);
+  const tick = () => {
+    const now = performance.now();
+    let pending = false;
+    for (const img of document.querySelectorAll('img[data-fallback]')) {
+      if (loaded(img) || !img.dataset.fallback) continue;
+      pending = true;
+      if (img._since === undefined) img._since = now;
+      else if (now - img._since >= WAIT) next(img);
+    }
+    return pending;
   };
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
-  else start();
+  const timer = setInterval(() => {
+    if (!tick() && document.readyState === 'complete') clearInterval(timer);
+  }, 250);
 })();`;
 
 export default defineConfig({
