@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flock — chats and calls on your own server</title>
+<meta name="description" content="Flock is a self-hosted messenger with chats, secret chats, voice and video calls, screen sharing and meeting links. Try the live demo.">
+<meta name="theme-color" content="#0B0E14">
+<link rel="icon" href="/favicon.png">
+<link rel="apple-touch-icon" href="/img/apple-touch-icon.png">
+<meta property="og:title" content="Flock — chats and calls on your own server">
+<meta property="og:description" content="A self-hosted messenger with chats, calls, screen sharing and meeting links. Try the live demo.">
+<meta property="og:image" content="https://flock.beer/img/og.png">
+<meta property="og:url" content="https://flock.beer/">
+<meta name="twitter:card" content="summary">
+<link rel="preload" href="/fonts/Vazirmatn-400.ttf" as="font" type="font/ttf" crossorigin>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+
+<header class="nav">
+  <div class="wrap nav-inner">
+    <a class="brand" href="#top" aria-label="Flock">
+      <img src="/img/flock-mark.png" alt="" width="36" height="36">
+      <span data-i18n="brand">Flock</span>
+    </a>
+    <nav class="links" aria-label="Sections">
+      <a href="#features" data-i18n="nav.features">Features</a>
+      <a href="#demo" data-i18n="nav.demo">Demo</a>
+      <a href="https://docs.flock.beer" data-i18n="nav.docs">Docs</a>
+      <a href="https://github.com/Pourii83/Flock" rel="noopener">GitHub</a>
+    </nav>
+    <button class="lang" id="lang" type="button" aria-label="Switch language">فارسی</button>
+  </div>
+</header>
+
+<main id="top">
+
+  <section class="hero wrap">
+    <div class="hero-copy">
+      <span class="eyebrow"><span class="dot"></span><span data-i18n="hero.eyebrow">Flock messenger</span></span>
+      <h1>
+        <span data-i18n="hero.title1">Stay together,</span>
+        <span class="accent" data-i18n="hero.title2">wherever you are.</span>
+      </h1>
+      <p class="lead" data-i18n="hero.lead">Chats, voice and video calls, screen sharing and meeting links, on a server you run yourself. One app for Android, Windows and the web.</p>
+      <div class="cta">
+        <a class="btn primary" href="https://app.flock.beer" data-i18n="hero.demo">Try the live demo</a>
+        <a class="btn ghost" href="https://docs.flock.beer" data-i18n="hero.docs">Read the docs</a>
+      </div>
+      <p class="fine" data-i18n="hero.fine">No install needed for the demo. Its data is wiped every day.</p>
+    </div>
+
+    <div class="mock" aria-hidden="true">
+      <div class="mock-bar">
+        <span class="mock-avatar a1">S</span>
+        <div><b data-i18n="mock.group">Weekend trip</b><small data-i18n="mock.members">4 members · 2 online</small></div>
+        <span class="mock-call">▶ <span data-i18n="mock.call">Call</span></span>
+      </div>
+      <div class="mock-body">
+        <div class="msg in"><span class="who">Sara</span><span data-i18n="mock.m1">Who's still up for Saturday?</span></div>
+        <div class="msg out"><span data-i18n="mock.m2">Me! Sharing the route now 🗺️</span></div>
+        <div class="msg in"><span class="who">Ali</span><span data-i18n="mock.m3">Jump on a quick call?</span></div>
+        <div class="huddle">
+          <span class="pulse"></span>
+          <span data-i18n="mock.huddle">Video call · 3 people</span>
+          <span class="join" data-i18n="mock.join">Join</span>
+        </div>
+      </div>
+      <div class="mock-input"><span data-i18n="mock.input">Message…</span><span class="send">➤</span></div>
+    </div>
+  </section>
+
+  <section class="features wrap" id="features">
+    <h2 data-i18n="features.title">Everything a small group needs</h2>
+    <p class="section-lead" data-i18n="features.lead">Built for friends, families and teams who want their conversations on their own terms.</p>
+    <div class="grid">
+      <article class="card">
+        <span class="icon">💬</span>
+        <h3 data-i18n="f1.t">Chats and groups</h3>
+        <p data-i18n="f1.d">Real-time messages, replies, reactions, files, read receipts. Groups with owners and admins.</p>
+      </article>
+      <article class="card">
+        <span class="icon">🔒</span>
+        <h3 data-i18n="f2.t">Secret chats</h3>
+        <p data-i18n="f2.d">Optional end-to-end encryption. The server only ever sees ciphertext.</p>
+      </article>
+      <article class="card">
+        <span class="icon">🎥</span>
+        <h3 data-i18n="f3.t">Voice and video calls</h3>
+        <p data-i18n="f3.d">One-to-one or in groups, with screen sharing, noise cancellation and an in-call chat.</p>
+      </article>
+      <article class="card">
+        <span class="icon">🔗</span>
+        <h3 data-i18n="f4.t">Meeting links</h3>
+        <p data-i18n="f4.d">Share a link and anyone can join from a browser, even without an account.</p>
+      </article>
+      <article class="card">
+        <span class="icon">🖥️</span>
+        <h3 data-i18n="f5.t">Your own server</h3>
+        <p data-i18n="f5.d">Install with Docker or one script. Your messages and files stay where you put them.</p>
+      </article>
+      <article class="card">
+        <span class="icon">📱</span>
+        <h3 data-i18n="f6.t">Every device</h3>
+        <p data-i18n="f6.d">Android, Windows and an installable web app share one live inbox. English and Persian.</p>
+      </article>
+    </div>
+  </section>
+
+  <section class="demo wrap" id="demo">
+    <div class="demo-card">
+      <div class="demo-main">
+        <span class="tag" data-i18n="demo.tag">Live demo</span>
+        <h2 data-i18n="demo.title">Try Flock in your browser</h2>
+        <p data-i18n="demo.lead">Create an account on the demo server, invite a friend and send a few messages. It runs the latest release.</p>
+        <a class="btn primary" href="https://app.flock.beer" data-i18n="demo.open">Open the demo</a>
+      </div>
+      <ul class="notes">
+        <li class="warn">
+          <b data-i18n="demo.reset.t">Everything resets daily</b>
+          <span data-i18n="demo.reset.d">All accounts, messages and files on the demo are deleted every day at 04:30 UTC (08:00 Tehran). Don't keep anything there.</span>
+        </li>
+        <li>
+          <b data-i18n="demo.apps.t">Using the Android or Windows app?</b>
+          <span data-i18n="demo.apps.d">Download it from the releases page and enter this server address on the sign-in screen:</span>
+          <button class="copy" type="button" data-copy="https://api.flock.beer"><code>https://api.flock.beer</code><span class="copy-label" data-i18n="copy">Copy</span></button>
+        </li>
+        <li>
+          <b data-i18n="demo.calls.t">Calls on the demo</b>
+          <span data-i18n="demo.calls.d">The demo has no relay server, so calls may not connect on some mobile or office networks. Your own server can add one.</span>
+        </li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="docs wrap" id="docs">
+    <div>
+      <h2 data-i18n="docs.title">Run it yourself</h2>
+      <p data-i18n="docs.lead">The documentation covers installing the server, connecting the apps, calls across networks and admin settings.</p>
+    </div>
+    <div class="docs-actions">
+      <a class="btn primary" href="https://docs.flock.beer" data-i18n="docs.open">Go to the docs</a>
+      <a class="btn ghost" href="https://github.com/Pourii83/Flock/releases/latest" rel="noopener" data-i18n="docs.download">Download the apps</a>
+    </div>
+  </section>
+
+</main>
+
+<footer class="foot">
+  <div class="wrap foot-inner">
+    <span class="brand small"><img src="/img/flock-mark.png" alt="" width="24" height="24"><span data-i18n="brand">Flock</span></span>
+    <span class="muted" data-i18n="foot.license">Source-available under the Flock license.</span>
+    <span class="foot-links">
+      <a href="https://docs.flock.beer" data-i18n="nav.docs">Docs</a>
+      <a href="https://github.com/Pourii83/Flock" rel="noopener">GitHub</a>
+    </span>
+  </div>
+</footer>
+
+<script src="/main.js" defer></script>
+</body>
+</html>
