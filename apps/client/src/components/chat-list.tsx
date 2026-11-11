@@ -213,7 +213,7 @@ export function ChatList({
   const header = (
     <View style={{ gap: 14, paddingBottom: 12 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-        <T variant="headline" style={{ fontSize: desktop ? 26 : 30, lineHeight: desktop ? undefined : 38 }}>
+        <T variant="headline" style={{ fontSize: desktop ? 26 : 30, lineHeight: desktop ? undefined : 42, letterSpacing: 0, paddingHorizontal: 4 }}>
           {t('Chats')}
         </T>
         {!desktop && unreadCount > 0 && (

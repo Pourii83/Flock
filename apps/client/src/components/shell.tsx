@@ -96,7 +96,8 @@ export function MobileHeader({ onSearch }: { onSearch?: () => void }) {
 export function PageTitle({ title, pill, pillColor, action }: { title: string; pill?: string; pillColor?: string; action?: ReactNode }) {
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-      <T variant="headline" style={{ fontSize: 30, lineHeight: 38 }}>
+      {/* Padding + no negative tracking: Persian glyphs overhang their box and were clipped at the edge. */}
+      <T variant="headline" style={{ fontSize: 30, lineHeight: 42, letterSpacing: 0, paddingHorizontal: 8, paddingVertical: 2 }}>
         {title}
       </T>
       {pill && (
