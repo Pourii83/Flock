@@ -15,10 +15,15 @@
   --sl-color-gray-6: #161d2a;
   --sl-color-black: #0b0e14;
 }
-/* Wider text column: commands and option tables need the room, and on wide screens the
-   "On this page" column otherwise takes all the leftover width. */
+/* Wide screens: Starlight gives "On this page" half of all spare width, which leaves a big empty
+   column. Keep it at the sidebar's width and let the text column take the rest (up to 72rem). */
 @media (min-width: 72rem) {
-  :root { --sl-content-width: 62rem; }
+  :root { --sl-content-width: 72rem; }
+  .right-sidebar-container { width: var(--sl-sidebar-width); }
+  [data-has-sidebar][data-has-toc] .main-pane {
+    width: calc(100% - var(--sl-sidebar-width));
+    --sl-content-margin-inline: auto;
+  }
 }
 :root[data-theme='light'] {
   --sl-color-accent-low: #ffe7c2;
