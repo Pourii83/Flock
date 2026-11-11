@@ -8,6 +8,7 @@ import { useIsWide } from '@/hooks/use-layout';
 import { api } from '@/lib/api';
 import { meetingLink } from '@/lib/config';
 import { timer } from '@/lib/format';
+import { setImmersive } from '@/lib/immersive';
 import { canSwitchCamera } from '@/lib/native-media';
 import { getNoisePreference, strongNoiseSupported } from '@/lib/noise';
 import { setCallChatSounds, setReactionSounds, useCallSoundSettings } from '@/lib/call-sounds';
@@ -521,6 +522,11 @@ function ActiveCall() {
   const hasVideo = (r: CallRemote) => r.video && !!r.stream?.getVideoTracks().length;
   const single = !call.isGroup && call.remotes.length <= 1 ? call.remotes[0] : undefined;
   const anyVideo = call.remotes.some(hasVideo) || !call.cameraOff || call.sharingScreen;
+  // Video calls use the whole phone screen: status bar and navigation buttons hide (swipe from an edge to see them).
+  useEffect(() => {
+    setImmersive(anyVideo);
+    return () => setImmersive(false);
+  }, [anyVideo]);
   const anyScreen = call.remotes.some((r) => r.screen) || call.sharingScreen;
   const camOn = !call.cameraOff && !!call.localStream?.getVideoTracks().length;
 
@@ -1029,13 +1035,14 @@ function SelfView({
         styles.pip,
         {
           position: 'absolute',
-          left: 0,
-          top: 0,
           width: w,
           height: h,
           borderColor: speaking ? colors.amber : colors.hairline,
           borderWidth: 2,
-          transform: pos.getTranslateTransform(),
+          // The native video is a SurfaceView, and on some phones (seen on a Samsung) it stays blank inside
+          // a parent that is moved with a transform, which is what dragging introduced. So on phones the
+          // preview moves with left/top (a real layout position); the web keeps the transform.
+          ...(Platform.OS === 'web' ? { left: 0, top: 0, transform: pos.getTranslateTransform() } : { left: pos.x, top: pos.y }),
         },
         Platform.OS === 'web' ? ({ cursor: 'grab', userSelect: 'none', touchAction: 'none', boxShadow: '0 10px 30px rgba(0,0,0,0.45)' } as object) : null,
       ]}>
