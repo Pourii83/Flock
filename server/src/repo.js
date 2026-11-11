@@ -214,7 +214,11 @@ async function loadConversations(meId, onlyId) {
           : c.type === 'direct'
           ? others[0]?.display_name ?? 'Unknown'
           : c.name || others.map((o) => o.display_name).join(', '),
-      members: members.map((m) => ({ ...publicUser(m), role: m.member_role })),
+      // Channel subscribers only see the channel's owner and admins (and themselves), never each other.
+      members: members
+        .filter((m) => c.type !== 'channel' || c.my_role !== 'member' || m.member_role !== 'member' || m.id === meId)
+        .map((m) => ({ ...publicUser(m), role: m.member_role })),
+      memberCount: members.length,
       description: c.description ?? '',
       // Secret chats: the two device keys messages are encrypted between (recipient set once accepted).
       secret: c.secret

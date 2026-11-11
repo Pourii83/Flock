@@ -108,7 +108,8 @@ export function ConversationInfo({ conversationId, onClose }: { conversationId: 
           {!isChannel && <Action icon="phone" label={t('Call')} onPress={() => startCall(conversation, false)} />}
         </View>
 
-        {isGroup && <Members conversation={conversation} meId={user?.id} />}
+        {/* Channel subscribers don't get a members list: they only see the owner and admins. */}
+        {isGroup && !(isChannel && (conversation.myRole ?? 'member') === 'member') && <Members conversation={conversation} meId={user?.id} />}
 
         <View style={{ flexDirection: 'row', gap: 10, padding: 16, borderRadius: radius.lg, backgroundColor: colors.surface }}>
           <Icon name="shield" size={18} color={colors.teal} />
@@ -215,7 +216,9 @@ function GroupHeader({ conversation }: { conversation: Conversation }) {
             </T>
           )}
           <T variant="body" color={colors.textMuted}>
-            {t('{n} members', { n: num(conversation.members.length) })}
+            {conversation.type === 'channel'
+              ? t('{n} subscribers', { n: num(conversation.memberCount ?? conversation.members.length) })
+              : t('{n} members', { n: num(conversation.memberCount ?? conversation.members.length) })}
           </T>
           {canEdit && (
             <Button
@@ -537,7 +540,7 @@ function LeaveGroup({ conversation, meId }: { conversation: Conversation; meId?:
       conversation.myRole === 'owner'
         ? t('You are the owner. An admin (or the longest-standing member) will become the new owner.')
         : t('You will stop receiving messages from this group.');
-    if (!(await confirm(t('Leave group'), message, t('Leave'), t('Cancel')))) return;
+    if (!(await confirm(conversation.type === 'channel' ? t('Leave channel') : t('Leave group'), message, t('Leave'), t('Cancel')))) return;
     setBusy(true);
     try {
       await api.removeMember(conversation.id, meId);
@@ -547,5 +550,5 @@ function LeaveGroup({ conversation, meId }: { conversation: Conversation; meId?:
       setBusy(false);
     }
   };
-  return <Button title={t('Leave group')} icon="log-out" variant="danger" onPress={leave} loading={busy} />;
+  return <Button title={conversation.type === 'channel' ? t('Leave channel') : t('Leave group')} icon="log-out" variant="danger" onPress={leave} loading={busy} />;
 }

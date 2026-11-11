@@ -671,7 +671,11 @@ function useStatusLine(conversation: Conversation) {
   }
   const online = others.filter((o) => o.online).length;
   return {
-    text: t('{n} members', { n: num(conversation.members.length) }) + (online ? ` · ${t('{n} online', { n: num(online) })}` : ''),
+    text:
+      (conversation.type === 'channel'
+        ? t('{n} subscribers', { n: num(conversation.memberCount ?? conversation.members.length) })
+        : t('{n} members', { n: num(conversation.memberCount ?? conversation.members.length) })) +
+      (online ? ` · ${t('{n} online', { n: num(online) })}` : ''),
     color: colors.textMuted,
     dot: online > 0,
   };

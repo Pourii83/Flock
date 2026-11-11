@@ -416,6 +416,7 @@ const fa: Record<string, string> = {
   // ----- channels -----
   'Custom color': 'رنگ دلخواه',
   Channels: 'کانال‌ها',
+  'Leave channel': 'ترک کانال',
   'Invite link': 'لینک دعوت',
   'The current link stops working right away. People already in the {kind} stay.': 'لینک فعلی همین حالا از کار می‌افتد. کسانی که قبلاً عضو شده‌اند می‌مانند.',
   'The current link stops working right away and a new one is made.': 'لینک فعلی همین حالا از کار می‌افتد و یک لینک جدید ساخته می‌شود.',

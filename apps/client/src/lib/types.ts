@@ -98,6 +98,8 @@ export type Conversation = {
   /** Group photo (server-relative), or null. */
   avatarUrl: string | null;
   myRole: GroupRole | null;
+  /** Everyone in the group or channel (the members list can be shorter: channel subscribers don't see each other). */
+  memberCount?: number;
   lastMessage: Message | null;
   unreadCount: number;
   pinned: boolean;
