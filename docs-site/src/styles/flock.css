@@ -1,0 +1,32 @@
+/* Flock colors from the app's Stitch design tokens (apps/client/src/theme.ts). */
+@font-face { font-family: Vazirmatn; src: url(/fonts/Vazirmatn-400.ttf) format('truetype'); font-weight: 400; font-display: swap; }
+@font-face { font-family: Vazirmatn; src: url(/fonts/Vazirmatn-700.ttf) format('truetype'); font-weight: 700; font-display: swap; }
+
+:root {
+  --sl-color-accent-low: #3d2600;
+  --sl-color-accent: #ffb84d;
+  --sl-color-accent-high: #ffdcb0;
+  --sl-color-white: #f8fafc;
+  --sl-color-gray-1: #e2e8f0;
+  --sl-color-gray-2: #cbd5e1;
+  --sl-color-gray-3: #94a3b8;
+  --sl-color-gray-4: #64748b;
+  --sl-color-gray-5: #232b3b;
+  --sl-color-gray-6: #161d2a;
+  --sl-color-black: #0b0e14;
+}
+:root[data-theme='light'] {
+  --sl-color-accent-low: #ffe7c2;
+  --sl-color-accent: #b26b00;
+  --sl-color-accent-high: #5c3800;
+}
+:root[lang='fa'] {
+  --sl-font: Vazirmatn, Tahoma, system-ui, sans-serif;
+}
+/* Commands, paths and tables of options stay left-to-right inside Persian pages. */
+:root[dir='rtl'] .sl-markdown-content pre,
+:root[dir='rtl'] .sl-markdown-content code {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+.sl-markdown-content img { border-radius: 12px; }
