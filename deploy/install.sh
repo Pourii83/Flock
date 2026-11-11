@@ -669,22 +669,16 @@ cp "$SRC/VERSION" "$SRC/uninstall.sh" "$PREFIX/" 2>/dev/null || true
 # The release changelog, when the package ships one (the app shows it after an update).
 if [ -f "$SRC/RELEASE_NOTES.md" ]; then cp "$SRC/RELEASE_NOTES.md" "$PREFIX/RELEASE_NOTES.md"; fi
 if [ -f "$SRC/RELEASE_NOTES.fa.md" ]; then cp "$SRC/RELEASE_NOTES.fa.md" "$PREFIX/RELEASE_NOTES.fa.md"; fi
-# Admin self-update helper: the unprivileged flock service user may run only this script as root.
-# It starts a transient systemd unit that downloads the GitHub release and re-runs this installer.
-if [ -f "$SRC/self-update.sh" ] && [ -f "$SRC/self-update-worker.sh" ]; then
-  cp "$SRC/self-update.sh" "$SRC/self-update-worker.sh" "$PREFIX/"
-  chmod 755 "$PREFIX/self-update.sh" "$PREFIX/self-update-worker.sh"
-  if id flock >/dev/null 2>&1 && [ -d /etc/sudoers.d ]; then
-    if printf 'flock ALL=(root) NOPASSWD: %s/self-update.sh *\n' "$PREFIX" > /etc/sudoers.d/flock-self-update \
-      && chmod 440 /etc/sudoers.d/flock-self-update \
-      && visudo -cf /etc/sudoers.d/flock-self-update >/dev/null 2>&1; then
-      ok "Admin self-update helper installed"
-    else
-      rm -f /etc/sudoers.d/flock-self-update
-      warn "Could not install the self-update sudo rule; the admin update button will be unavailable"
-    fi
-  fi
+# Admin self-update worker: run as root by flock-self-update.service when the Flock server (which is
+# unprivileged and hardened with NoNewPrivileges, so it cannot use sudo) drops a request file.
+if [ -f "$SRC/self-update-worker.sh" ]; then
+  # Replace by rename, not in place: the running worker (this very update) keeps reading its old inode.
+  cp "$SRC/self-update-worker.sh" "$PREFIX/self-update-worker.sh.new"
+  chmod 755 "$PREFIX/self-update-worker.sh.new"
+  mv -f "$PREFIX/self-update-worker.sh.new" "$PREFIX/self-update-worker.sh"
 fi
+# Older releases used a sudoers rule for this; it is no longer needed.
+rm -f /etc/sudoers.d/flock-self-update "$PREFIX/self-update.sh"
 chown -R root:root "$PREFIX"
 chmod -R a+rX "$PREFIX"
 chmod 755 "$PREFIX/node/bin/node" "$PREFIX/uninstall.sh" 2>/dev/null || true
@@ -889,7 +883,13 @@ fi
 
 if command -v systemctl >/dev/null && [ -d /run/systemd/system ]; then
   cp "$SRC/flock.service" /etc/systemd/system/$SERVICE.service
+  if [ -f "$SRC/flock-self-update.path" ] && [ -f "$SRC/flock-self-update.service" ]; then
+    cp "$SRC/flock-self-update.path" "$SRC/flock-self-update.service" /etc/systemd/system/
+    UPDATE_PATH=1
+  fi
   systemctl daemon-reload
+  # Watching for the admin "Update server" request; enabling is idempotent and safe mid-update.
+  [ "${UPDATE_PATH:-0}" = 1 ] && systemctl enable --now flock-self-update.path >/dev/null 2>&1 || true
   systemctl enable $SERVICE >/dev/null 2>&1
   if [ "$START" -eq 1 ]; then
     systemctl restart $SERVICE

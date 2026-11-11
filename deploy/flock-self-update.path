@@ -1,0 +1,10 @@
+[Unit]
+Description=Flock admin self-update request
+
+[Path]
+# The Flock server (unprivileged, NoNewPrivileges) creates this file; systemd runs the root worker.
+PathExists=/var/lib/flock/self-update-request
+Unit=flock-self-update.service
+
+[Install]
+WantedBy=multi-user.target

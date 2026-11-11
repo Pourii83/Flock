@@ -121,6 +121,16 @@ export async function migrate() {
     CREATE UNIQUE INDEX IF NOT EXISTS conversations_saved_owner ON conversations (created_by) WHERE saved;
     -- Display name of the original sender, set on messages copied into Saved Messages or forwarded.
     ALTER TABLE messages ADD COLUMN IF NOT EXISTS forwarded_from TEXT;
+    -- Channels (Telegram-style broadcast): like groups, but only admins and the owner post.
+    DO $$ BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'conversations_type_check' AND pg_get_constraintdef(oid) LIKE '%channel%'
+      ) THEN
+        ALTER TABLE conversations DROP CONSTRAINT IF EXISTS conversations_type_check;
+        ALTER TABLE conversations ADD CONSTRAINT conversations_type_check CHECK (type IN ('direct', 'group', 'channel'));
+      END IF;
+    END $$;
     -- Editing: when the sender last changed the text (NULL = never edited).
     ALTER TABLE messages ADD COLUMN IF NOT EXISTS edited_at BIGINT;
     -- Pinning: when the message was pinned in its conversation (NULL = not pinned).
@@ -140,7 +150,7 @@ export async function migrate() {
     FROM (
       SELECT DISTINCT ON (c.id) c.id AS conversation_id, mm.user_id
       FROM conversations c JOIN members mm ON mm.conversation_id = c.id
-      WHERE c.type = 'group' AND NOT EXISTS (SELECT 1 FROM members o WHERE o.conversation_id = c.id AND o.role = 'owner')
+      WHERE c.type IN ('group', 'channel') AND NOT EXISTS (SELECT 1 FROM members o WHERE o.conversation_id = c.id AND o.role = 'owner')
       ORDER BY c.id, (mm.user_id = c.created_by) DESC, mm.joined_at
     ) pick
     WHERE m.conversation_id = pick.conversation_id AND m.user_id = pick.user_id;

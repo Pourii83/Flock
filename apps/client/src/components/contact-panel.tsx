@@ -56,12 +56,13 @@ export function ConversationInfo({ conversationId, onClose }: { conversationId: 
   const { startCall } = useCalls();
   if (!conversation) return null;
   const peer = conversation.type === 'direct' ? conversation.members.find((m) => m.id !== user?.id) : undefined;
-  const isGroup = conversation.type === 'group';
+  const isChannel = conversation.type === 'channel';
+  const isGroup = conversation.type === 'group' || isChannel;
 
   return (
     <>
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, height: 72 }}>
-        <T variant="headlineSm">{peer ? t('Contact Info') : t('Group Info')}</T>
+        <T variant="headlineSm">{peer ? t('Contact Info') : isChannel ? t('Channel Info') : t('Group Info')}</T>
         <IconButton name="x" label={t('Close panel')} onPress={onClose} />
       </View>
       <ScrollView contentContainerStyle={{ padding: 20, paddingTop: 4, gap: 24 }}>
@@ -102,7 +103,7 @@ export function ConversationInfo({ conversationId, onClose }: { conversationId: 
             active={conversation.pinned}
             onPress={() => chatStore.setPinned(conversation.id, !conversation.pinned)}
           />
-          <Action icon="phone" label={t('Call')} onPress={() => startCall(conversation, false)} />
+          {!isChannel && <Action icon="phone" label={t('Call')} onPress={() => startCall(conversation, false)} />}
         </View>
 
         {isGroup && <Members conversation={conversation} meId={user?.id} />}
@@ -115,7 +116,7 @@ export function ConversationInfo({ conversationId, onClose }: { conversationId: 
             </T>
             <T variant="bodySm" color={colors.textMuted}>
               {t('Only members of this {kind} can read these messages. Calls are encrypted peer-to-peer with WebRTC.', {
-                kind: isGroup ? t('group') : t('chat'),
+                kind: isChannel ? t('channel') : isGroup ? t('group') : t('chat'),
               })}
             </T>
           </View>

@@ -2,13 +2,15 @@
 // commits). The admin panel compares the latest release tag with the installed numeric release and
 // can start a self-update; the actual download/install runs in a detached systemd unit so restarting
 // the Flock service never kills the updater.
-import { execFile } from 'node:child_process';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 
 import { installedVersion } from './version.js';
 
 const REPO = process.env.FLOCK_REPO || 'Pourii83/Flock';
 const CACHE_MS = 10 * 60 * 1000;
-const SELF_UPDATE_SCRIPT = '/opt/flock/self-update.sh';
+// Must match PathExists= in deploy/flock-self-update.path (StateDirectory=flock → /var/lib/flock).
+const REQUEST_FILE = path.join(process.env.FLOCK_STATE_DIR || '/var/lib/flock', 'self-update-request');
 
 /** @typedef {{ tag: string, name: string, notes: string, url: string, publishedAt: string | null }} Release */
 /** @type {{ at: number, release: Release | null }} */
@@ -83,15 +85,17 @@ export async function startSelfUpdate(tag) {
   if (!release?.tag || release.tag !== clean) return { ok: false, error: 'That release is not the latest on GitHub' };
   const current = await installedVersion();
   if (!isNewerRelease(clean, current)) return { ok: false, error: 'The server is already up to date' };
-  return new Promise((resolve) => {
-    // sudo is allowed only for this helper (see deploy/install.sh); it launches the updater in a
-    // transient unit outside the Flock service cgroup.
-    execFile('sudo', ['-n', SELF_UPDATE_SCRIPT, clean], { timeout: 20000 }, (error, _stdout, stderr) => {
-      if (error) {
-        resolve({ ok: false, error: String(stderr || error.message).trim().slice(0, 500) || 'Could not start the update' });
-        return;
-      }
-      resolve({ ok: true, started: true });
-    });
-  });
+  // The service is unprivileged (NoNewPrivileges, so no sudo): it only drops a request file. A
+  // root-owned systemd path unit (flock-self-update.path) notices it and runs the worker, in its own
+  // cgroup so restarting Flock can't kill it. 'wx' refuses to overwrite a request still pending.
+  try {
+    await fs.writeFile(REQUEST_FILE, `${clean}\n`, { flag: 'wx', mode: 0o644 });
+    return { ok: true, started: true };
+  } catch (error) {
+    if (error?.code === 'EEXIST') return { ok: false, error: 'An update is already in progress' };
+    if (error?.code === 'ENOENT' || error?.code === 'EACCES' || error?.code === 'EROFS') {
+      return { ok: false, error: 'Self-update is not available on this install' };
+    }
+    return { ok: false, error: 'Could not start the update' };
+  }
 }

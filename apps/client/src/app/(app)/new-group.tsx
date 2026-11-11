@@ -1,9 +1,9 @@
 import { Image } from 'expo-image';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
 
-import { Avatar } from '@/components/avatar';
+import { Avatar, MegaphoneIcon } from '@/components/avatar';
 import { MemberPicker } from '@/components/member-picker';
 import { ModalFrame } from '@/components/modal-frame';
 import { Button, Field, Icon, T } from '@/components/ui';
@@ -15,9 +15,11 @@ import type { User } from '@/lib/types';
 import { chatStore } from '@/state/chat-store';
 import { colors } from '@/theme';
 
-/** New group in two clear steps: ① choose members ② name, photo and description. */
+/** New group or channel in two clear steps: ① choose members ② name, photo and description. */
 export default function NewGroupScreen() {
   const wide = useIsWide();
+  const { kind } = useLocalSearchParams<{ kind?: string }>();
+  const channel = kind === 'channel';
   const [step, setStep] = useState<1 | 2>(1);
   const [members, setMembers] = useState<User[]>([]);
   const [name, setName] = useState('');
@@ -36,7 +38,7 @@ export default function NewGroupScreen() {
   };
 
   const create = async () => {
-    if (!name.trim()) return setError(t('Give the group a name'));
+    if (!name.trim()) return setError(channel ? t('Give the channel a name') : t('Give the group a name'));
     setBusy(true);
     setError(null);
     try {
@@ -44,6 +46,7 @@ export default function NewGroupScreen() {
         members.map((m) => m.id),
         name.trim(),
         description.trim(),
+        channel,
       );
       if (photo) c = await api.setGroupAvatar(c.id, photo).catch(() => c);
       chatStore.upsertConversation(c);
@@ -58,12 +61,21 @@ export default function NewGroupScreen() {
 
   if (step === 1) {
     return (
-      <ModalFrame title={t('New group')} subtitle={t('Step 1 of 2 · Add members')} onClose={close}>
+      <ModalFrame
+        title={channel ? t('New channel') : t('New group')}
+        subtitle={channel ? t('Step 1 of 2 · Add subscribers') : t('Step 1 of 2 · Add members')}
+        onClose={close}>
         <MemberPicker selected={members} onChange={setMembers} />
         <Button
-          title={members.length ? t('Next · {n} selected', { n: num(members.length) }) : t('Select at least one person')}
+          title={
+            members.length
+              ? t('Next · {n} selected', { n: num(members.length) })
+              : channel
+                ? t('Skip · add subscribers later')
+                : t('Select at least one person')
+          }
           iconRight="arrow-right"
-          disabled={!members.length}
+          disabled={!channel && !members.length}
           onPress={() => setStep(2)}
         />
       </ModalFrame>
@@ -71,7 +83,11 @@ export default function NewGroupScreen() {
   }
 
   return (
-    <ModalFrame title={t('New group')} subtitle={t('Step 2 of 2 · Group details')} onClose={close} onBack={() => setStep(1)}>
+    <ModalFrame
+      title={channel ? t('New channel') : t('New group')}
+      subtitle={channel ? t('Step 2 of 2 · Channel details') : t('Step 2 of 2 · Group details')}
+      onClose={close}
+      onBack={() => setStep(1)}>
       <ScrollView contentContainerStyle={{ gap: 18, paddingBottom: 8 }} keyboardShouldPersistTaps="handled">
         <View style={{ alignItems: 'center', gap: 8 }}>
           <Pressable onPress={choosePhoto} accessibilityRole="button" accessibilityLabel={t('Group photo')}>
@@ -79,7 +95,7 @@ export default function NewGroupScreen() {
               <Image source={{ uri: `data:image/jpeg;base64,${photo}` }} style={{ width: 96, height: 96, borderRadius: 48 }} />
             ) : (
               <View style={{ width: 96, height: 96, borderRadius: 48, backgroundColor: colors.surfaceHigh, alignItems: 'center', justifyContent: 'center' }}>
-                <Icon name="users" size={34} color={colors.amberText} />
+                {channel ? <MegaphoneIcon size={34} color={colors.amberText} /> : <Icon name="users" size={34} color={colors.amberText} />}
               </View>
             )}
             <View
@@ -104,18 +120,26 @@ export default function NewGroupScreen() {
           </T>
         </View>
 
-        <Field label={t('Group name')} icon="users" placeholder={t('e.g. Design team')} value={name} onChangeText={setName} maxLength={80} autoFocus />
+        <Field
+          label={channel ? t('Channel name') : t('Group name')}
+          icon={channel ? 'volume-2' : 'users'}
+          placeholder={channel ? t('e.g. Product news') : t('e.g. Design team')}
+          value={name}
+          onChangeText={setName}
+          maxLength={80}
+          autoFocus
+        />
         <Field
           label={t('Description (optional)')}
           icon="align-left"
-          placeholder={t('What is this group about?')}
+          placeholder={channel ? t('What is this channel about?') : t('What is this group about?')}
           value={description}
           onChangeText={setDescription}
           maxLength={500}
         />
 
         <View style={{ gap: 8 }}>
-          <T variant="labelLg">{t('{n} members', { n: num(members.length + 1) })}</T>
+          <T variant="labelLg">{channel ? t('{n} subscribers', { n: num(members.length + 1) }) : t('{n} members', { n: num(members.length + 1) })}</T>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
             {members.map((m) => (
               <View key={m.id} style={{ alignItems: 'center', gap: 4, width: 64 }}>
@@ -127,7 +151,7 @@ export default function NewGroupScreen() {
             ))}
           </View>
           <T variant="bodySm" color={colors.textDim}>
-            {t('You will be the group owner and can make others admins.')}
+            {channel ? t('You will be the channel owner. Only you and the admins you pick can post.') : t('You will be the group owner and can make others admins.')}
           </T>
         </View>
 
@@ -137,7 +161,7 @@ export default function NewGroupScreen() {
           </T>
         )}
       </ScrollView>
-      <Button title={t('Create group')} icon="check" onPress={create} loading={busy} disabled={!name.trim()} />
+      <Button title={channel ? t('Create channel') : t('Create group')} icon="check" onPress={create} loading={busy} disabled={!name.trim()} />
     </ModalFrame>
   );
 }

@@ -88,7 +88,7 @@ export type GroupRole = 'owner' | 'admin' | 'member';
 
 export type Conversation = {
   id: string;
-  type: 'direct' | 'group';
+  type: 'direct' | 'group' | 'channel';
   /** My personal "Saved Messages" chat (type is 'direct' with me as the only member). */
   isSaved?: boolean;
   name: string;

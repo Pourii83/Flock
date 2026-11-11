@@ -17,6 +17,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { clock, dayDivider, dayAndTime, lastSeenLabel, sameDay } from '@/lib/format';
 import { attachmentSource, openAttachment } from '@/lib/attachments';
+import { VideoThumb } from './video-thumb';
 import { api } from '@/lib/api';
 import { callLine, parseCallLog } from '@/lib/call-log';
 import { confirm } from '@/lib/confirm';
@@ -28,7 +29,7 @@ import { useAuth } from '@/state/auth';
 import { useCalls } from '@/state/calls';
 import { chatStore, useChat, useConversation, useMessages, usePinned, useTyping } from '@/state/chat-store';
 import { colors, fonts, radius } from '@/theme';
-import { Avatar, ConversationAvatar } from './avatar';
+import { Avatar, ConversationAvatar, MegaphoneIcon } from './avatar';
 import { EmojiPicker } from './emoji-picker';
 import { LinkedText } from './linked-text';
 import { MediaViewer } from './media-viewer';
@@ -84,6 +85,9 @@ export function ChatThread({
   const hasMore = useChat((s) => !!s.hasMore[conversationId]);
   const pinned = usePinned(conversationId);
   const { user } = useAuth();
+  // Channels are broadcast-only: only the owner and admins get a composer.
+  const myRole = conversation?.members.find((m) => m.id === user?.id)?.role;
+  const canPost = conversation?.type !== 'channel' || myRole === 'owner' || myRole === 'admin';
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [editing, setEditing] = useState<Message | null>(null);
   const [menu, setMenu] = useState<{ message: Message; point: { x: number; y: number } } | null>(null);
@@ -322,14 +326,18 @@ export function ChatThread({
         />
       )}
       <TypingIndicator conversation={conversation} />
-      <Composer
-        conversation={conversation}
-        desktop={desktop}
-        replyTo={replyTo}
-        onClearReply={() => setReplyTo(null)}
-        editing={editing}
-        onCancelEdit={() => setEditing(null)}
-      />
+      {canPost ? (
+        <Composer
+          conversation={conversation}
+          desktop={desktop}
+          replyTo={replyTo}
+          onClearReply={() => setReplyTo(null)}
+          editing={editing}
+          onCancelEdit={() => setEditing(null)}
+        />
+      ) : (
+        <ReadOnlyBar />
+      )}
       {menu && (
         <MessageMenu
           message={menu.message}
@@ -358,6 +366,30 @@ export function ChatThread({
   );
 }
 
+/** Where the composer would be in a channel you only read. */
+function ReadOnlyBar() {
+  const insets = useSafeAreaInsets();
+  return (
+    <View
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 8,
+        paddingTop: 14,
+        paddingBottom: 14 + insets.bottom,
+        backgroundColor: colors.surface,
+        borderTopWidth: 1,
+        borderTopColor: colors.surfaceHigh,
+      }}>
+      <MegaphoneIcon size={16} color={colors.textMuted} />
+      <T variant="body" color={colors.textMuted}>
+        {t('Only admins can post in this channel')}
+      </T>
+    </View>
+  );
+}
+
 /** Telegram-style selection bar: replaces the thread header while messages are selected on mobile. */
 function SelectionBar({
   count,
@@ -380,6 +412,8 @@ function SelectionBar({
   onPin: () => void;
   onDelete: () => void;
 }) {
+  // Sits below the status bar / notch like the thread header it replaces, and a bit taller to tap.
+  const insets = useSafeAreaInsets();
   return (
     <View
       style={{
@@ -387,7 +421,8 @@ function SelectionBar({
         alignItems: 'center',
         gap: 2,
         paddingHorizontal: 6,
-        paddingVertical: 6,
+        paddingTop: insets.top + 12,
+        paddingBottom: 12,
         backgroundColor: colors.surface,
         borderBottomWidth: 1,
         borderBottomColor: colors.surfaceHigh,
@@ -664,7 +699,7 @@ function ThreadHeader({
   const insets = useSafeAreaInsets();
   const status = useStatusLine(conversation);
   const peer = conversation.members.find((m) => m.id !== user?.id);
-  const pill = conversation.isSaved ? undefined : conversation.type === 'group' ? t('GROUP') : peer?.title?.toUpperCase();
+  const pill = conversation.isSaved ? undefined : conversation.type === 'group' ? t('GROUP') : conversation.type === 'channel' ? t('CHANNEL') : peer?.title?.toUpperCase();
   const title = conversation.isSaved ? t('Saved Messages') : conversation.name;
 
   return (
@@ -683,7 +718,7 @@ function ThreadHeader({
       {onBack && <IconButton name="arrow-left" label={t('Back')} onPress={onBack} iconSize={24} />}
       <Pressable
         onPress={conversation.isSaved ? undefined : onToggleDetails ?? (() => router.push(`/info/${conversation.id}`))}
-        accessibilityLabel={conversation.type === 'group' ? t('Group Info') : t('Contact Info')}
+        accessibilityLabel={conversation.type === 'group' ? t('Group Info') : conversation.type === 'channel' ? t('Channel Info') : t('Contact Info')}
         style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1, minWidth: 0 }}>
         <ConversationAvatar conversation={conversation} meId={user?.id} size={desktop ? 48 : 44} />
         <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
@@ -721,7 +756,7 @@ function ThreadHeader({
         </Tooltip>
       )}
       {/* One call button: it starts a voice call; the camera is switched on from inside the call. */}
-      {!conversation.isSaved && (
+      {!conversation.isSaved && conversation.type !== 'channel' && (
         <Tooltip label={t('Call')}>
           <IconButton name="phone" label={t('Call')} onPress={() => startCall(conversation, false)} iconSize={20} />
         </Tooltip>
@@ -956,7 +991,7 @@ function Bubble({
   const { user } = useAuth();
   const meId = user?.id;
   const sender = conversation.members.find((u) => u.id === m.senderId);
-  const showSender = !mine && first && (conversation.type === 'group' || desktop);
+  const showSender = !mine && first && conversation.type !== 'channel' && (conversation.type === 'group' || desktop);
   const bubbleBg = mine ? colors.amberSoft : colors.bubble;
   const fg = mine ? colors.onAmber : colors.text;
   const r = 20;
@@ -1156,8 +1191,10 @@ function AttachmentCard({ message, mine }: { message: Message; mine: boolean }) 
   const video = attachment.mimeType.startsWith('video/');
   // Photos and videos open in the viewer; the download icon still saves the file.
   const media = image || video;
-  // A file message's body is the caption the sender typed.
-  const caption = (message.body ?? '').trim();
+  // A file message's body is the caption the sender typed; with no caption the server stores the
+  // file name, which the card already shows, so it isn't repeated underneath.
+  const rawCaption = (message.body ?? '').trim();
+  const caption = rawCaption === attachment.name.trim() ? '' : rawCaption;
   const download = async () => {
     if (!attachment.url) return;
     setOpening(true);
@@ -1185,7 +1222,8 @@ function AttachmentCard({ message, mine }: { message: Message; mine: boolean }) 
             {image ? (
               <Image source={attachmentSource(attachment.url)} style={{ width: '100%', aspectRatio: 4 / 3, backgroundColor: colors.surface }} contentFit="cover" />
             ) : (
-              <View style={{ width: '100%', aspectRatio: 16 / 9, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface }}>
+              <View style={{ width: '100%', aspectRatio: 16 / 9, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface, overflow: 'hidden' }}>
+                <VideoThumb url={attachment.url} size={attachment.size} />
                 <View style={{ width: 54, height: 54, borderRadius: 27, backgroundColor: colors.glass, alignItems: 'center', justifyContent: 'center' }}>
                   <Icon name="play" size={22} color={colors.text} />
                 </View>

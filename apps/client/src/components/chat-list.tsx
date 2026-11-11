@@ -31,7 +31,7 @@ function useFilteredConversations(query: string, filter: Filter) {
     const q = query.trim().toLowerCase();
     return conversations.filter((c) => {
       if (filter === 'unread' && c.unreadCount === 0) return false;
-      if (filter === 'groups' && c.type !== 'group') return false;
+      if (filter === 'groups' && c.type === 'direct') return false;
       if (!q) return true;
       return (
         (isSavedConversation(c) ? t('Saved Messages') : c.name).toLowerCase().includes(q) ||
@@ -174,7 +174,7 @@ export function ChatList({
   const all = useChat((s) => s.conversations);
   const list = useFilteredConversations(query, filter);
   const unreadCount = all.filter((c) => c.unreadCount > 0).length;
-  const groupCount = all.filter((c) => c.type === 'group').length;
+  const groupCount = all.filter((c) => c.type !== 'direct').length;
   const desktop = variant === 'desktop';
 
   const closeSearch = useCallback(() => {
@@ -195,6 +195,7 @@ export function ChatList({
   const newChatItems: ContextMenuItem[] = [
     { icon: 'message-square', label: t('New chat'), onPress: onNewChat },
     { icon: 'users', label: t('New group'), onPress: () => router.push('/new-group') },
+    { icon: 'volume-2', label: t('New channel'), onPress: () => router.push({ pathname: '/new-group', params: { kind: 'channel' } }) },
   ];
 
   const header = (

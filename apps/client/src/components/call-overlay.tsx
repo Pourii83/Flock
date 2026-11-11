@@ -497,6 +497,8 @@ function ActiveCall() {
   const [outX, outRef, measureOut] = useAnchor();
   const [reactX, reactRef, measureReact] = useAnchor();
   const [camX, camRef, measureCam] = useAnchor();
+  const [micX, micRef, measureMic] = useAnchor();
+  const [qualX, qualRef, measureQual] = useAnchor();
   const openAt = (measure: ReturnType<typeof useAnchor>[2], p: Exclude<Panel, null>) => {
     if (panel === p) return setPanel(null);
     measure(() => setPanel(p));
@@ -784,7 +786,9 @@ function ActiveCall() {
           )}
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: wide ? 14 : 8, maxWidth: '100%' }}>
             <View style={[styles.glass, { flexDirection: 'row', alignItems: 'center', gap: wide ? 8 : 5, padding: wide ? 8 : 5, flexShrink: 1 }]}>
-              <MicButton muted={call.micMuted} speaking={!!call.localSpeaking} panelOpen={panel === 'mic'} onToggle={toggleMic} onOpenPanel={() => toggle('mic')} size={dockSize} />
+              <View ref={micRef} collapsable={false}>
+                <MicButton muted={call.micMuted} speaking={!!call.localSpeaking} panelOpen={panel === 'mic'} onToggle={toggleMic} onOpenPanel={() => openAt(measureMic, 'mic')} size={dockSize} />
+              </View>
               <View ref={outRef} collapsable={false}>
                 <OutputButton muted={call.speakerMuted} panelOpen={panel === 'audio'} onToggleMute={toggleSpeakerMute} onOpenPanel={() => openAt(measureOut, 'audio')} size={dockSize} />
               </View>
@@ -812,7 +816,9 @@ function ActiveCall() {
                   {camOn && (
                     <DockButton icon={selfHidden ? 'eye' : 'eye-off'} active={selfHidden} onPress={() => setSelfHidden((h) => !h)} label={selfHidden ? t('Show my video') : t('Hide my video')} size={dockSize} />
                   )}
-                  <DockButton icon="sliders" active={panel === 'quality'} onPress={() => toggle('quality')} label={t('Call quality')} size={dockSize} />
+                  <View ref={qualRef} collapsable={false}>
+                    <DockButton icon="sliders" active={panel === 'quality'} onPress={() => openAt(measureQual, 'quality')} label={t('Call quality')} size={dockSize} />
+                  </View>
                   {canInvite && <DockButton icon="user-plus" active={panel === 'invite'} onPress={() => toggle('invite')} label={t('Invite to call')} size={dockSize} />}
                   {!!call.room && <DockButton icon={linkCopied ? 'check' : 'link'} active={linkCopied} onPress={() => void copyMeetingLink()} label={t('Copy meeting link')} size={dockSize} />}
                 </>
@@ -866,9 +872,9 @@ function ActiveCall() {
       )}
 
       {panel === 'chat' && <CallChatPanel onClose={() => setPanel(null)} />}
-      {panel === 'quality' && <CallQualityPanel onClose={() => setPanel(null)} />}
+      {panel === 'quality' && <CallQualityPanel onClose={() => setPanel(null)} bottom={dockHeight + insets.bottom} anchorX={wide ? qualX : null} stageWidth={stage.width} />}
       {panel === 'invite' && <CallInvitePanel onClose={() => setPanel(null)} />}
-      {panel === 'audio' && <AudioDevicePanel onClose={() => setPanel(null)} bottom={dockHeight + insets.bottom} anchorX={wide ? outX : null} stageWidth={stage.width} />}
+      {panel === 'audio' && <AudioDevicePanel onClose={() => setPanel(null)} bottom={dockHeight + insets.bottom} anchorX={outX} stageWidth={stage.width} />}
       {panel === 'cameras' && <CameraPanel onClose={() => setPanel(null)} bottom={dockHeight + insets.bottom} anchorX={camX} stageWidth={stage.width} />}
       {panel === 'reactions' && (
         <ReactionsPopover
@@ -885,7 +891,7 @@ function ActiveCall() {
           stageWidth={stage.width}
         />
       )}
-      {panel === 'mic' && <MicPanel onClose={() => setPanel(null)} bottom={dockHeight + insets.bottom} />}
+      {panel === 'mic' && <MicPanel onClose={() => setPanel(null)} bottom={dockHeight + insets.bottom} anchorX={micX} stageWidth={stage.width} />}
       {panel === 'more' && <MoreSheet items={moreItems} onClose={() => setPanel(null)} bottom={dockHeight + insets.bottom} />}
     </View>
   );
@@ -1364,7 +1370,7 @@ function MediaHelpNote() {
 }
 
 /** Microphone popover: noise cancellation, live input levels and the input device. */
-function MicPanel({ onClose, bottom }: { onClose: () => void; bottom: number }) {
+function MicPanel({ onClose, bottom, anchorX, stageWidth }: { onClose: () => void; bottom: number; anchorX?: number | null; stageWidth?: number }) {
   const { call, setNoiseMode, refreshAudioDevices, selectAudioInput } = useCalls();
   useEffect(() => {
     void refreshAudioDevices();
@@ -1379,7 +1385,7 @@ function MicPanel({ onClose, bottom }: { onClose: () => void; bottom: number }) 
     setNoiseMode(preferred !== 'off' ? preferred : strong ? 'strong' : 'standard');
   };
   return (
-    <Popover title={t('Microphone')} onClose={onClose} bottom={bottom}>
+    <Popover title={t('Microphone')} onClose={onClose} bottom={bottom} anchorX={anchorX} stageWidth={stageWidth}>
       <Tooltip label={t('Noise cancellation')} style={{ alignSelf: 'stretch' }}>
         <ToggleRow label={t('Noise cancellation')} description={t('Filters out keyboard, fan and background noise.')} value={on} onChange={(next) => void toggleNoise(next)} />
       </Tooltip>
@@ -1783,15 +1789,14 @@ function ChoiceRow<T extends string | number>({ values, value, label, display, o
   );
 }
 
-function CallQualityPanel({ onClose }: { onClose: () => void }) {
+function CallQualityPanel({ onClose, bottom, anchorX, stageWidth }: { onClose: () => void; bottom: number; anchorX?: number | null; stageWidth?: number }) {
   const { call, setVoiceBitrate, setStreamQuality, setStreamFps } = useCalls();
   const sound = useCallSoundSettings();
   const qualities: readonly StreamQuality[] = ['2k', '1080p', '720p', '480p'];
   const rates: readonly VoiceBitrate[] = [160, 320];
   const fps: readonly StreamFps[] = [60, 30, 15];
   return (
-    <PanelShell title={t('Call quality')} onClose={onClose}>
-      <ScrollView style={{ flexGrow: 0 }} contentContainerStyle={{ gap: 20 }}>
+    <Popover title={t('Call quality')} onClose={onClose} bottom={bottom} anchorX={anchorX} stageWidth={stageWidth}>
       <View style={{ gap: 6 }}>
         <ChoiceRow values={rates} value={call.voiceBitrate} label={t('Voice quality')} display={(v) => `${v} Kbps`} onChange={(v) => void setVoiceBitrate(v)} />
         <T variant="bodySm" color={colors.textMuted}>{t('Applies to everyone in this call.')}</T>
@@ -1832,8 +1837,7 @@ function CallQualityPanel({ onClose }: { onClose: () => void }) {
           />
         </Tooltip>
       </View>
-      </ScrollView>
-    </PanelShell>
+    </Popover>
   );
 }
 

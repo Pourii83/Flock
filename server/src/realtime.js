@@ -220,6 +220,7 @@ export function createRealtime(httpServer, corsOrigin) {
         }
         const conversation = await repo.getConversation(conversationId, me);
         if (conversation.isSaved) throw new Error('You can’t call yourself');
+        if (conversation.type === 'channel') throw new Error('Channels don’t have calls');
         const call = await repo.createCall(conversationId, me, video);
         const caller = repo.publicUser(await repo.getUserRow(me));
         const others = conversation.members.map((m) => m.id).filter((id) => id !== me);

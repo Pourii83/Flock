@@ -50,10 +50,10 @@ rm -rf "$STAGE/node-v$NODE_VERSION-linux-$ARCH" "$STAGE/$NODE_TGZ"
 chmod +x "$STAGE/node/bin/node"
 
 echo "==> Adding installer"
-cp "$ROOT/deploy/install.sh" "$ROOT/deploy/uninstall.sh" "$ROOT/deploy/self-update.sh" "$ROOT/deploy/self-update-worker.sh" "$ROOT/deploy/flock.service" "$ROOT/deploy/flock.env.example" "$STAGE/"
+cp "$ROOT/deploy/install.sh" "$ROOT/deploy/uninstall.sh" "$ROOT/deploy/self-update-worker.sh" "$ROOT/deploy/flock-self-update.path" "$ROOT/deploy/flock-self-update.service" "$ROOT/deploy/flock.service" "$ROOT/deploy/flock.env.example" "$STAGE/"
 cp "$ROOT/deploy/INSTALL.md" "$STAGE/INSTALL.md"
 cp "$ROOT/LICENSE" "$STAGE/LICENSE"
-chmod +x "$STAGE/install.sh" "$STAGE/uninstall.sh" "$STAGE/self-update.sh" "$STAGE/self-update-worker.sh"
+chmod +x "$STAGE/install.sh" "$STAGE/uninstall.sh" "$STAGE/self-update-worker.sh"
 printf '%s\n' "$VERSION" > "$STAGE/VERSION"
 printf 'node=%s\narch=linux-%s\n' "$NODE_VERSION" "$ARCH" >> "$STAGE/VERSION"
 

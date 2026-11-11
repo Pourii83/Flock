@@ -1,0 +1,10 @@
+[Unit]
+Description=Flock server self-update (from the latest GitHub release)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Runs as root, in its own cgroup: restarting flock.service during the install cannot kill it.
+ExecStart=/opt/flock/self-update-worker.sh
+TimeoutStartSec=30min

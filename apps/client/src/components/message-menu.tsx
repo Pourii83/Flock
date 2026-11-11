@@ -282,7 +282,7 @@ function ForwardRow({
           {conversation.name}
         </T>
         <T variant="bodySm" color={colors.textMuted}>
-          {conversation.isSaved ? t('Notes and messages saved for yourself') : conversation.type === 'group' ? t('Group') : t('Direct message')}
+          {conversation.isSaved ? t('Notes and messages saved for yourself') : conversation.type === 'group' ? t('Group') : conversation.type === 'channel' ? t('Channel') : t('Direct message')}
         </T>
       </View>
       {busy ? <ActivityIndicator color={colors.amberText} /> : <Icon name="chevron-right" size={16} color={colors.textMuted} />}

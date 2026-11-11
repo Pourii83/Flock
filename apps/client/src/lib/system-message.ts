@@ -15,6 +15,8 @@ export function systemText(body: string): string {
   switch (p.e) {
     case 'created':
       return t('{actor} created the group "{name}"', { actor, name: p.name ?? '' });
+    case 'created-channel':
+      return t('{actor} created the channel "{name}"', { actor, name: p.name ?? '' });
     case 'added':
       return t('{actor} added {names}', { actor, names });
     case 'removed':

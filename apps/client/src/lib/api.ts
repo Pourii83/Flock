@@ -23,7 +23,13 @@ export const setUnauthorizedHandler = (fn: (() => void) | null) => {
   onUnauthorized = fn;
 };
 
-export const getAuthHeaders = (): Record<string, string> => (authToken ? { Authorization: `Bearer ${authToken}` } : {});
+/** A meeting guest's pass: lets a guest fetch the ICE/TURN servers (the only REST call they make). */
+let guestPass: string | null = null;
+export const setGuestPass = (token: string | null) => {
+  guestPass = token;
+};
+
+export const getAuthHeaders =(): Record<string, string> => (authToken ? { Authorization: `Bearer ${authToken}` } : {});
 
 async function readResponse<T>(res: Response): Promise<T> {
   const data = await res.json().catch(() => ({}));
@@ -35,14 +41,14 @@ async function readResponse<T>(res: Response): Promise<T> {
   return data as T;
 }
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+async function request<T>(method: string, path: string, body?: unknown, tokenOverride?: string | null): Promise<T> {
   let res: Response;
   try {
     res = await fetch(`${getApiUrl()}/api${path}`, {
       method,
       headers: {
         'Content-Type': 'application/json',
-        ...getAuthHeaders(),
+        ...(tokenOverride ? { Authorization: `Bearer ${tokenOverride}` } : getAuthHeaders()),
       },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
@@ -192,8 +198,8 @@ export const api = {
   registerDevice: (publicKey: string) => request<{ id: string }>('POST', '/devices', { publicKey }),
   createSecretConversation: (userId: string, deviceId: string) => request<Conversation>('POST', '/conversations/secret', { userId, deviceId }),
   acceptSecret: (id: string, deviceId: string) => request<Conversation>('POST', `/conversations/${id}/secret/accept`, { deviceId }),
-  createGroup: (userIds: string[], name: string, description: string) =>
-    request<Conversation>('POST', '/conversations', { userIds, name, description }),
+  createGroup: (userIds: string[], name: string, description: string, channel = false) =>
+    request<Conversation>('POST', '/conversations', { userIds, name, description, ...(channel ? { channel: true } : {}) }),
   updateGroupInfo: (id: string, patch: { name?: string; description?: string }) =>
     request<Conversation>('PATCH', `/conversations/${id}/info`, patch),
   setGroupAvatar: (id: string, base64: string) => request<Conversation>('PUT', `/conversations/${id}/avatar`, { data: base64 }),
@@ -243,5 +249,5 @@ export const api = {
   savedMessages: () => request<Conversation>('GET', '/conversations/saved'),
   markRead: (id: string) => request<{ readAt: number }>('POST', `/conversations/${id}/read`),
   calls: () => request<CallLog[]>('GET', '/calls'),
-  ice: () => request<{ iceServers: RTCIceServer[]; iceTransportPolicy?: RTCIceTransportPolicy }>('GET', '/ice'),
+  ice: () => request<{ iceServers: RTCIceServer[]; iceTransportPolicy?: RTCIceTransportPolicy }>('GET', '/ice', undefined, authToken ? null : guestPass),
 };

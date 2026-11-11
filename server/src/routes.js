@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import crypto from 'node:crypto';
-import { checkPassword, hashPassword, requireAuth, signGuestToken, signToken } from './auth.js';
+import { checkPassword, hashPassword, requireAuth, signGuestToken, signToken, verifyGuestToken, verifyToken } from './auth.js';
 import { deleteAvatar, saveAvatar } from './avatars.js';
 import { copyStoredFile, deleteStoredFile, receiveFile, safeMimeType, storedFilePath } from './files.js';
 import { getSettings, updateSettings } from './settings.js';
@@ -77,6 +77,30 @@ export function createRouter(realtime) {
     const seconds = room.expiresAt ? (room.expiresAt - Date.now()) / 1000 : 24 * 3600;
     const token = signGuestToken({ guestId, name, roomId: room.id }, seconds);
     res.json({ token, user: repo.guestUser(guestId, name) });
+  });
+
+  // ICE servers for WebRTC: open to signed-in users and to meeting guests (they need the TURN relay
+  // too, otherwise two guests behind NAT or a relay-only setup can never connect). TURN credentials
+  // are short-lived (TURN REST API, coturn "use-auth-secret"), so the shared secret never reaches clients.
+  r.get('/ice', (req, res) => {
+    const bearer = (req.headers.authorization || '').replace(/^Bearer /, '');
+    const identity = verifyToken(bearer) ?? verifyGuestToken(bearer)?.guestId;
+    if (!identity) return res.status(401).json({ error: 'Not signed in' });
+    const iceServers = [{ urls: process.env.STUN_URLS?.split(',') ?? ['stun:stun.l.google.com:19302'] }];
+    // TURN_EXTRA_URLS: other relays sharing the secret (e.g. eturnal on another server), tried first.
+    const turnUrls = [process.env.TURN_EXTRA_URLS, process.env.TURN_URLS]
+      .flatMap((v) => v?.split(',') ?? [])
+      .map((u) => u.trim())
+      .filter(Boolean);
+    if (turnUrls.length && process.env.TURN_SECRET) {
+      const ttl = 12 * 3600;
+      const username = `${Math.floor(Date.now() / 1000) + ttl}:${identity}`;
+      const credential = crypto.createHmac('sha1', process.env.TURN_SECRET).update(username).digest('base64');
+      iceServers.push({ urls: turnUrls, username, credential });
+    }
+    // TURN_RELAY_ONLY=1 sends all call media through the relay (hides users' IPs, steadier calls).
+    const relayOnly = process.env.TURN_RELAY_ONLY === '1' && iceServers.length > 1;
+    res.json({ iceServers, ...(relayOnly ? { iceTransportPolicy: 'relay' } : {}) });
   });
 
   r.use(requireAuth);
@@ -201,13 +225,14 @@ export function createRouter(realtime) {
   r.get('/conversations', async (req, res) => res.json(await repo.listConversations(req.userId)));
 
   r.post('/conversations', async (req, res) => {
-    const { userIds = [], name, description } = req.body || {};
+    const { userIds = [], name, description, channel } = req.body || {};
     try {
       const groupName = typeof name === 'string' ? name.trim().slice(0, 80) : undefined;
-      const { id, created } = await repo.createConversation(req.userId, userIds, groupName, typeof description === 'string' ? description.trim() : '');
+      const kind = channel === true ? 'channel' : 'group';
+      const { id, created } = await repo.createConversation(req.userId, userIds, groupName, typeof description === 'string' ? description.trim() : '', kind);
       if (created) {
         await realtime.notifyConversation(id);
-        if (groupName) await systemMessage(id, req.userId, { e: 'created', name: groupName });
+        if (groupName) await systemMessage(id, req.userId, { e: kind === 'channel' ? 'created-channel' : 'created', name: groupName });
       }
       res.status(created ? 201 : 200).json(await repo.getConversation(id, req.userId));
     } catch (e) {
@@ -320,6 +345,7 @@ export function createRouter(realtime) {
     if (!(await repo.isMember(targetId, req.userId))) return res.status(404).json({ error: 'Conversation not found' });
     const [srcConv, targetConv] = await Promise.all([repo.getConversationRow(src.conversation_id), repo.getConversationRow(targetId)]);
     if (!targetConv) return res.status(404).json({ error: 'Conversation not found' });
+    if (await postingBlocked(targetId, req.userId)) return res.status(403).json({ error: CHANNEL_READ_ONLY });
     if (srcConv?.secret || targetConv.secret) return res.status(400).json({ error: 'Forwarding is not available in secret chats' });
     let attachment = null;
     if (src.attachment_name) {
@@ -349,6 +375,7 @@ export function createRouter(realtime) {
     const message = await visibleMessage(req, res);
     if (!message) return;
     if (message.kind !== 'text' && message.kind !== 'file') return res.status(400).json({ error: 'You can’t pin this message' });
+    if (await postingBlocked(message.conversation_id, req.userId)) return res.status(403).json({ error: 'Only channel admins can pin messages' });
     const on = typeof req.body?.on === 'boolean' ? req.body.on : undefined;
     const result = await repo.setPinned(message.id, on);
     if (!result) return res.status(404).json({ error: 'Message not found' });
@@ -435,7 +462,17 @@ export function createRouter(realtime) {
     return { body };
   }
 
+  /** Channels are broadcast-only: just the owner and admins may post, pin or forward into them. */
+  async function postingBlocked(conversationId, userId) {
+    const conv = await repo.getConversationRow(conversationId);
+    if (conv?.type !== 'channel') return false;
+    const role = await repo.getRole(conversationId, userId);
+    return !role || repo.ROLE_RANK[role] < repo.ROLE_RANK.admin;
+  }
+  const CHANNEL_READ_ONLY = 'Only channel admins can post here';
+
   r.post('/conversations/:id/messages', member, async (req, res) => {
+    if (await postingBlocked(req.params.id, req.userId)) return res.status(403).json({ error: CHANNEL_READ_ONLY });
     const { body, error } = await messageText(req.params.id, req.body?.body);
     if (error) return res.status(error.status).json({ error: error.message });
     const message = await repo.addMessage(req.params.id, req.userId, { body, replyToId: req.body?.replyToId });
@@ -444,6 +481,10 @@ export function createRouter(realtime) {
   });
 
   r.post('/conversations/:id/files', member, receiveFile, async (req, res) => {
+    if (await postingBlocked(req.params.id, req.userId)) {
+      if (req.file) await deleteStoredFile(req.file.filename);
+      return res.status(403).json({ error: CHANNEL_READ_ONLY });
+    }
     if ((await repo.getSecretState(req.params.id))?.secret) {
       if (req.file) await deleteStoredFile(req.file.filename);
       return res.status(400).json({ error: 'Files are not available in secret chats yet' });
@@ -516,7 +557,7 @@ export function createRouter(realtime) {
     const conv = await repo.getConversationRow(req.params.id);
     const role = conv && (await repo.getRole(conv.id, req.userId));
     if (!conv || !role) return res.status(404).json({ error: 'Conversation not found' });
-    if (conv.type !== 'group') return res.status(400).json({ error: 'Only groups have members to manage' });
+    if (conv.type !== 'group' && conv.type !== 'channel') return res.status(400).json({ error: 'Only groups have members to manage' });
     if (repo.ROLE_RANK[role] < repo.ROLE_RANK[minRole]) return res.status(403).json({ error: 'Only group admins can do that' });
     req.group = conv;
     req.role = role;
@@ -611,27 +652,6 @@ export function createRouter(realtime) {
   });
 
   // ---------- calls ----------
-
-  // ICE servers for WebRTC. TURN credentials are short-lived (TURN REST API, coturn
-  // "use-auth-secret"), so the shared secret never reaches clients.
-  r.get('/ice', (req, res) => {
-    const iceServers = [{ urls: process.env.STUN_URLS?.split(',') ?? ['stun:stun.l.google.com:19302'] }];
-    // TURN_EXTRA_URLS: other relays sharing the secret (e.g. eturnal on another server), tried first.
-    const turnUrls = [process.env.TURN_EXTRA_URLS, process.env.TURN_URLS]
-      .flatMap((v) => v?.split(',') ?? [])
-      .map((u) => u.trim())
-      .filter(Boolean);
-    if (turnUrls.length && process.env.TURN_SECRET) {
-      const ttl = 12 * 3600;
-      const username = `${Math.floor(Date.now() / 1000) + ttl}:${req.userId}`;
-      const credential = crypto.createHmac('sha1', process.env.TURN_SECRET).update(username).digest('base64');
-      iceServers.push({ urls: turnUrls, username, credential });
-    }
-    // TURN_RELAY_ONLY=1 sends all call media through the relay (hides users' IPs, steadier calls).
-    const relayOnly = process.env.TURN_RELAY_ONLY === '1' && iceServers.length > 1;
-    res.json({ iceServers, ...(relayOnly ? { iceTransportPolicy: 'relay' } : {}) });
-  });
-
 
   r.get('/calls', async (req, res) => res.json(await repo.listCalls(req.userId)));
   r.get('/calls/active', async (req, res) => res.json(await realtime.activeCalls(req.userId)));

@@ -92,13 +92,15 @@ export const isMember = async (conversationId, userId) =>
   isUuid(conversationId) &&
   !!(await one('SELECT 1 FROM members WHERE conversation_id = $1 AND user_id = $2', [conversationId, userId]));
 
-export async function createConversation(meId, userIds, name, description = '') {
+export async function createConversation(meId, userIds, name, description = '', kind = 'group') {
   const candidates = [...new Set(userIds)].filter((id) => id !== meId && isUuid(id));
   const others = candidates.length
     ? (await query('SELECT id FROM users WHERE id = ANY($1::uuid[])', [candidates])).map((r) => r.id)
     : [];
-  if (others.length === 0) throw new Error('Pick at least one person');
-  const type = others.length === 1 && !name ? 'direct' : 'group';
+  // A channel can start with just its owner; subscribers are added later.
+  if (others.length === 0 && kind !== 'channel') throw new Error('Pick at least one person');
+  if (kind === 'channel' && !name) throw new Error('Give the channel a name');
+  const type = kind === 'channel' ? 'channel' : others.length === 1 && !name ? 'direct' : 'group';
   if (type === 'direct') {
     const existing = await one(
       `SELECT c.id FROM conversations c
@@ -114,12 +116,12 @@ export async function createConversation(meId, userIds, name, description = '') 
   await tx(async (client) => {
     await client.query(
       'INSERT INTO conversations (id, type, name, description, created_by, created_at) VALUES ($1, $2, $3, $4, $5, $6)',
-      [id, type, type === 'group' ? name || null : null, type === 'group' ? description.slice(0, 500) : '', meId, t],
+      [id, type, type !== 'direct' ? name || null : null, type !== 'direct' ? description.slice(0, 500) : '', meId, t],
     );
     for (const uid of [meId, ...others]) {
       await client.query(
         'INSERT INTO members (conversation_id, user_id, joined_at, last_read_at, role) VALUES ($1, $2, $3, $3, $4)',
-        [id, uid, t, type === 'group' && uid === meId ? 'owner' : 'member'],
+        [id, uid, t, type !== 'direct' && uid === meId ? 'owner' : 'member'],
       );
     }
   });
@@ -266,7 +268,7 @@ export async function listMessages(conversationId, { before, limit = 50 } = {}) 
     `${MESSAGE_SELECT}
      WHERE m.conversation_id = $1 AND m.created_at < $2
      ORDER BY m.created_at DESC LIMIT $3`,
-    [conversationId, before ? Number(before) : Number.MAX_SAFE_INTEGER, Math.min(Number(limit) || 50, 200)],
+    [conversationId, Number(before) > 0 ? Number(before) : Number.MAX_SAFE_INTEGER, Math.min(Number(limit) || 50, 200)],
   );
   return withReactions(rows.reverse().map(serializeMessage));
 }
@@ -302,12 +304,13 @@ export async function setPinned(messageId, on) {
 export async function searchMessages(conversationId, { q, before, limit = 50 } = {}) {
   const term = String(q || '').trim().slice(0, 200);
   if (!term) return [];
+  const beforeMs = Number(before);
   const rows = await query(
     `${MESSAGE_SELECT}
      WHERE m.conversation_id = $1 AND m.created_at < $2 AND m.kind IN ('text', 'file')
        AND (m.body ILIKE $3 OR m.attachment_name ILIKE $3)
      ORDER BY m.created_at DESC LIMIT $4`,
-    [conversationId, before ? Number(before) : Number.MAX_SAFE_INTEGER, `%${likeEscape(term)}%`, Math.min(Number(limit) || 50, 50)],
+    [conversationId, Number.isFinite(beforeMs) && beforeMs > 0 ? beforeMs : Number.MAX_SAFE_INTEGER, `%${likeEscape(term)}%`, Math.min(Number(limit) || 50, 50)],
   );
   return withReactions(rows.map(serializeMessage));
 }

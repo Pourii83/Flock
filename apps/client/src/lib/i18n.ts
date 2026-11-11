@@ -413,6 +413,28 @@ const fa: Record<string, string> = {
   Version: 'نسخه',
   'Sign out': 'خروج از حساب',
 
+  // ----- channels -----
+  'New channel': 'کانال جدید',
+  'Channel name': 'نام کانال',
+  'Channel Info': 'اطلاعات کانال',
+  Channel: 'کانال',
+  channel: 'کانال',
+  CHANNEL: 'کانال',
+  'Create channel': 'ساخت کانال',
+  'Give the channel a name': 'برای کانال یک نام بگذارید',
+  'e.g. Product news': 'مثلاً اخبار محصول',
+  'What is this channel about?': 'این کانال درباره‌ی چیست؟',
+  'Step 1 of 2 · Add subscribers': 'مرحله ۱ از ۲ · افزودن مشترکین',
+  'Step 2 of 2 · Channel details': 'مرحله ۲ از ۲ · جزئیات کانال',
+  'Skip · add subscribers later': 'رد شدن · بعداً مشترک اضافه می‌کنم',
+  '{n} subscribers': '{n} مشترک',
+  'You will be the channel owner. Only you and the admins you pick can post.': 'شما مالک کانال خواهید بود. فقط شما و ادمین‌هایی که انتخاب می‌کنید می‌توانید پیام بگذارید.',
+  'Only channel admins can post here': 'فقط ادمین‌های کانال می‌توانند اینجا پیام بگذارند',
+  'Only channel admins can pin messages': 'فقط ادمین‌های کانال می‌توانند پیام را پین کنند',
+  'Channels don’t have calls': 'کانال تماس ندارد',
+  'Only admins can post in this channel': 'فقط ادمین‌ها می‌توانند در این کانال پیام بگذارند',
+  '{actor} created the channel "{name}"': '{actor} کانال «{name}» را ساخت',
+
   // ----- groups -----
   'New group': 'گروه جدید',
   'Chat and call with several people': 'گفتگو و تماس با چند نفر',

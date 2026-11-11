@@ -7,11 +7,11 @@ set -euo pipefail
 
 if command -v systemctl >/dev/null && [ -d /run/systemd/system ]; then
   systemctl disable --now flock >/dev/null 2>&1 || true
-  rm -f /etc/systemd/system/flock.service
+  systemctl disable --now flock-self-update.path >/dev/null 2>&1 || true
+  rm -f /etc/systemd/system/flock.service /etc/systemd/system/flock-self-update.path /etc/systemd/system/flock-self-update.service
   systemctl daemon-reload
 fi
-# The admin self-update helper (installed by install.sh) and its sudo rule.
-rm -f /etc/sudoers.d/flock-self-update
+rm -f /etc/sudoers.d/flock-self-update # left by older releases
 rm -rf /opt/flock
 
 if [ "${1:-}" = "--purge" ]; then

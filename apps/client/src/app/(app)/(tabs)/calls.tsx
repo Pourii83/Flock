@@ -14,6 +14,7 @@ import { dayAndTime, duration } from '@/lib/format';
 import { meetingLink } from '@/lib/config';
 import type { CallLog, Room } from '@/lib/types';
 import { useCalls } from '@/state/calls';
+import { getItem, setItem } from '@/lib/storage';
 import { chatStore, useChat } from '@/state/chat-store';
 import { colors, radius } from '@/theme';
 import { t } from '@/lib/i18n';
@@ -73,7 +74,15 @@ function Segmented({ value, onChange, total, missed }: { value: 'all' | 'missed'
   );
   return (
     <View style={{ flexDirection: 'row', backgroundColor: colors.surface, borderRadius: radius.lg, padding: 5 }}>
-      {seg('all', t('All Calls'), <T variant="labelLg" color={colors.textMuted}>{total}</T>)}
+      {seg(
+        'all',
+        t('All Calls'),
+        total > 0 && (
+          <T variant="labelLg" color={colors.textMuted}>
+            {total}
+          </T>
+        ),
+      )}
       {seg(
         'missed',
         t('Missed'),
@@ -344,11 +353,42 @@ function CallRow({ log }: { log: CallLog }) {
   );
 }
 
+const SEEN_ALL_KEY = 'flock.calls.seenAll';
+const SEEN_MISSED_KEY = 'flock.calls.seenMissed';
+
 function CallsList() {
   const { calls, refreshing, refresh } = useCallLog();
   const [filter, setFilter] = useState<'all' | 'missed'>('all');
   const missed = calls?.filter((c) => c.missed) ?? [];
   const data = filter === 'missed' ? missed : (calls ?? []);
+
+  // Each tab's badge counts only calls newer than the last time that tab was looked at.
+  const [seen, setSeen] = useState<{ all: number; missed: number } | null>(null);
+  const [focused, setFocused] = useState(true);
+  useFocusEffect(
+    useCallback(() => {
+      setFocused(true);
+      return () => setFocused(false);
+    }, []),
+  );
+  useEffect(() => {
+    let alive = true;
+    Promise.all([getItem(SEEN_ALL_KEY), getItem(SEEN_MISSED_KEY)]).then(([a, m]) => {
+      if (alive) setSeen({ all: Number(a) || 0, missed: Number(m) || 0 });
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+  useEffect(() => {
+    if (!seen || !focused || calls === null) return;
+    const newest = data.reduce((max, c) => Math.max(max, c.startedAt), 0);
+    if (newest <= seen[filter]) return;
+    setSeen({ ...seen, [filter]: newest });
+    void setItem(filter === 'all' ? SEEN_ALL_KEY : SEEN_MISSED_KEY, String(newest));
+  }, [seen, focused, calls, data, filter]);
+  const unseenAll = seen ? (calls ?? []).filter((c) => c.startedAt > seen.all).length : 0;
+  const unseenMissed = seen ? missed.filter((c) => c.startedAt > seen.missed).length : 0;
 
   return (
     <FlatList
@@ -358,7 +398,7 @@ function CallsList() {
       contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: 120 }}
       ListHeaderComponent={
         <View style={{ gap: 18, marginBottom: 6 }}>
-          <Segmented value={filter} onChange={setFilter} total={calls?.length ?? 0} missed={missed.length} />
+          <Segmented value={filter} onChange={setFilter} total={unseenAll} missed={unseenMissed} />
           <MeetingsCard />
           <SectionLabel right={<T variant="label" color={colors.textMuted}>{Intl.DateTimeFormat().resolvedOptions().timeZone}</T>}>
             {t('Recent activity')}

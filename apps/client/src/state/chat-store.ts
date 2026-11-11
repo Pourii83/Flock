@@ -2,7 +2,7 @@ import { useSyncExternalStore } from 'react';
 import { io, type Socket } from 'socket.io-client';
 import type { DocumentPickerAsset } from 'expo-document-picker';
 
-import { api } from '@/lib/api';
+import { api, setGuestPass } from '@/lib/api';
 import { getApiUrl } from '@/lib/config';
 import { decryptText, encryptText, forgetLoadedDevice, loadDevice, onDeviceChange, secretStatus } from '@/lib/e2e';
 import { callPreview, parseCallLog } from '@/lib/call-log';
@@ -118,6 +118,7 @@ class ChatStore {
   startGuest(token: string, me: User) {
     this.stop();
     this.me = me;
+    setGuestPass(token);
     const socket = io(getApiUrl(), { auth: { token }, transports: ['websocket', 'polling'] });
     this.socket = socket;
     this.set({ guest: me });
@@ -178,6 +179,7 @@ class ChatStore {
     this.socket?.disconnect();
     this.socket = null;
     this.me = null;
+    setGuestPass(null);
     this.typingTimers.forEach(clearTimeout);
     this.typingTimers.clear();
     this.state = initialState();
@@ -349,7 +351,8 @@ class ChatStore {
     }));
     const conversation = this.state.conversations.find((c) => c.id === m.conversationId);
     if (conversation?.lastMessage?.id === m.id) this.patchConversation(m.conversationId, () => ({ lastMessage: m }));
-    if (pinnedAt) this.setPinnedLocal(m.conversationId, m);
+    // Only refresh the banner when it already shows this message; an edit must not replace a newer pin.
+    if (pinnedAt && this.state.pinned[m.conversationId]?.id === m.id) this.setPinnedLocal(m.conversationId, m);
   }
 
   /** `message:deleted` arrives as an id, or as { messageId, conversationId }. */
@@ -361,6 +364,8 @@ class ChatStore {
     };
     const messageId = data.messageId ?? data.id;
     if (!messageId) return;
+    // Was it the pinned message on the banner? Then the next pin (if any) takes its place.
+    const bannerConversation = Object.keys(this.state.pinned).find((id) => this.state.pinned[id]?.id === messageId);
     this.set((s) => {
       const messages = { ...s.messages };
       const ids = data.conversationId ? [data.conversationId] : Object.keys(messages);
@@ -377,6 +382,7 @@ class ChatStore {
       if (pinnedId && pinned[pinnedId]?.id === messageId) pinned[pinnedId] = null;
       return { messages, pinned };
     });
+    if (bannerConversation) void this.loadPinned(bannerConversation, true);
     // Keep the chat list preview in sync when the last message disappeared.
     for (const c of this.state.conversations) {
       if (c.lastMessage?.id !== messageId) continue;
