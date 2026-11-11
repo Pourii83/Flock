@@ -5,16 +5,19 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
+import { getSettings } from './settings.js';
 import { installedVersion } from './version.js';
 
-const REPO = process.env.FLOCK_REPO || 'Pourii83/Flock';
+const DEFAULT_REPO = process.env.FLOCK_REPO || 'Pourii83/Flock';
+/** owner/name to check and download from: the admin's mirror when set, else the main repository. */
+const repoSlug = () => getSettings().mirrorUrl?.replace('https://github.com/', '') || DEFAULT_REPO;
 const CACHE_MS = 10 * 60 * 1000;
 // Must match PathExists= in deploy/flock-self-update.path (StateDirectory=flock → /var/lib/flock).
 const REQUEST_FILE = path.join(process.env.FLOCK_STATE_DIR || '/var/lib/flock', 'self-update-request');
 
 /** @typedef {{ tag: string, name: string, notes: string, url: string, publishedAt: string | null }} Release */
 /** @type {{ at: number, release: Release | null }} */
-let cache = { at: 0, release: null };
+let cache = { at: 0, release: null, repo: '' };
 
 /** Numeric segments: "v1.9.1" -> [1,9,1], "v1.9.0-8-gabc" -> [1,9,0]. */
 function segments(version) {
@@ -38,9 +41,12 @@ export function isNewerRelease(candidate, base) {
 
 /** @returns {Promise<Release | null>} Latest GitHub release (cached; null when unreachable). */
 export async function latestRelease(force = false) {
+  const repo = repoSlug();
+  // A changed mirror must not be answered from the old repository's cache.
+  if (cache.repo !== repo) cache = { at: 0, release: null, repo };
   if (!force && cache.release && Date.now() - cache.at < CACHE_MS) return cache.release;
   try {
-    const res = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`, {
+    const res = await fetch(`https://api.github.com/repos/${repo}/releases/latest`, {
       headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'flock-server' },
       signal: AbortSignal.timeout(10000),
     });
@@ -53,7 +59,7 @@ export async function latestRelease(force = false) {
       url: String(data.html_url ?? ''),
       publishedAt: data.published_at ?? null,
     };
-    cache = { at: Date.now(), release };
+    cache = { at: Date.now(), release, repo };
     return release;
   } catch {
     return cache.release;
@@ -89,7 +95,8 @@ export async function startSelfUpdate(tag) {
   // root-owned systemd path unit (flock-self-update.path) notices it and runs the worker, in its own
   // cgroup so restarting Flock can't kill it. 'wx' refuses to overwrite a request still pending.
   try {
-    await fs.writeFile(REQUEST_FILE, `${clean}\n`, { flag: 'wx', mode: 0o644 });
+    // Line 1: the tag. Line 2: the repository (owner/name) it was found in, so the worker downloads from the same mirror.
+    await fs.writeFile(REQUEST_FILE, `${clean}\n${repoSlug()}\n`, { flag: 'wx', mode: 0o644 });
     return { ok: true, started: true };
   } catch (error) {
     if (error?.code === 'EEXIST') return { ok: false, error: 'An update is already in progress' };

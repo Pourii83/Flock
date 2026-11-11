@@ -19,8 +19,8 @@ const listeners = new Set<() => void>();
 
 export const getBranding = () => branding;
 export const getAppName = () => branding.appName;
-/** The repository URL, or '' when an admin hid repo links. */
-export const getRepoUrl = () => (branding.showRepoLinks ? branding.repoUrl : '');
+/** The project's own repository: always shown, whatever an admin sets (their mirror only drives updates). */
+export const getRepoUrl = () => DEFAULT_REPO;
 export const getBrandVersion = () => branding.version;
 
 export function setBranding(patch: Partial<Branding>) {
@@ -29,9 +29,9 @@ export function setBranding(patch: Partial<Branding>) {
     ...branding,
     ...patch,
     appName: appName || DEFAULT.appName,
-    repoUrl: (patch.repoUrl ?? branding.repoUrl).trim() || DEFAULT.repoUrl,
-    // Never accept a repo URL when links were hidden.
-    showRepoLinks: typeof patch.showRepoLinks === 'boolean' ? patch.showRepoLinks : branding.showRepoLinks,
+    // The link is fixed; a server (older or customised) cannot change or hide it.
+    repoUrl: DEFAULT_REPO,
+    showRepoLinks: true,
   };
   listeners.forEach((fn) => fn());
 }

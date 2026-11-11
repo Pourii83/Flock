@@ -176,7 +176,7 @@ function SettingsForm() {
   const [upload, setUpload] = useState('');
   const [retention, setRetention] = useState('');
   const [appName, setAppName] = useState('');
-  const [repoUrl, setRepoUrl] = useState('');
+  const [mirrorUrl, setMirrorUrl] = useState('');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null);
 
@@ -188,7 +188,7 @@ function SettingsForm() {
         setUpload(String(s.maxUploadMb));
         setRetention(String(s.fileRetentionDays));
         setAppName(s.appName);
-        setRepoUrl(s.repoUrl);
+        setMirrorUrl(s.mirrorUrl ?? '');
       },
       (e) => setMessage({ text: e instanceof Error ? e.message : String(e), ok: false }),
     );
@@ -198,10 +198,10 @@ function SettingsForm() {
   const uploadMb = Number(upload);
   const retentionDays = Number(retention);
   const name = appName.trim();
-  const repo = repoUrl.trim();
+  const mirror = mirrorUrl.trim();
   const nameValid = name.length >= 1 && name.length <= 40;
-  // Empty means "no project link"; otherwise it must be an http(s) URL.
-  const repoValid = !repo || /^https?:\/\/[^\s]+$/i.test(repo);
+  // Empty means "update from the main repository"; otherwise a GitHub repository URL.
+  const mirrorValid = !mirror || /^https:\/\/github\.com\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+\/?$/i.test(mirror);
   const valid =
     Number.isInteger(uploadMb) &&
     uploadMb >= 1 &&
@@ -210,15 +210,14 @@ function SettingsForm() {
     retentionDays >= 1 &&
     retentionDays <= 365 &&
     nameValid &&
-    repoValid;
+    mirrorValid;
   const dirty =
     draft.allowRegistration !== saved.allowRegistration ||
     draft.allowGuestMeetings !== saved.allowGuestMeetings ||
-    draft.showRepoLinks !== saved.showRepoLinks ||
     uploadMb !== saved.maxUploadMb ||
     retentionDays !== saved.fileRetentionDays ||
     name !== saved.appName ||
-    repo !== saved.repoUrl;
+    mirror !== (saved.mirrorUrl ?? '');
 
   const save = async () => {
     setBusy(true);
@@ -229,12 +228,12 @@ function SettingsForm() {
         maxUploadMb: uploadMb,
         fileRetentionDays: retentionDays,
         appName: name,
-        repoUrl: repo,
+        mirrorUrl: mirror,
       });
       setSaved(next);
       setDraft(next);
       setAppName(next.appName);
-      setRepoUrl(next.repoUrl);
+      setMirrorUrl(next.mirrorUrl ?? '');
       setMessage({ text: t('Settings saved — they apply right away'), ok: true });
       // The brand store feeds the app name/link everywhere: refresh it after a save.
       api.branding().then(setBranding, () => {});
@@ -262,22 +261,19 @@ function SettingsForm() {
           {t('Every "Flock" in the app becomes this name, for everyone on this server.')}
         </T>
         <Field
-          label={t('Repository link')}
+          label={t('Update mirror')}
           icon="github"
-          value={repoUrl}
-          onChangeText={setRepoUrl}
+          value={mirrorUrl}
+          onChangeText={setMirrorUrl}
           placeholder={DEFAULT_REPO}
           autoCapitalize="none"
           autoCorrect={false}
           maxLength={200}
-          error={repoValid ? null : t('Must start with http:// or https://')}
+          error={mirrorValid ? null : t('Use a GitHub repository link like https://github.com/owner/name')}
         />
-        <Toggle
-          label={t('Show repository links')}
-          hint={t('Shows the project link in Settings, the app info dialog and the update box.')}
-          value={draft.showRepoLinks}
-          onChange={(v) => setDraft({ ...draft, showRepoLinks: v })}
-        />
+        <T variant="bodySm" color={colors.textMuted}>
+          {t('Only sets where this server looks for updates (a mirror of the project). Leave empty to use the main repository, which the apps always link to.')}
+        </T>
         <Toggle
           label={t('Open sign-up')}
           hint={t('Anyone who can reach this server can create an account. Turn off to keep the server to existing accounts.')}

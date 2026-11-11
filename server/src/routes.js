@@ -3,7 +3,7 @@ import crypto from 'node:crypto';
 import { checkPassword, hashPassword, requireAuth, signGuestToken, signToken, verifyGuestToken, verifyToken } from './auth.js';
 import { deleteAvatar, saveAvatar } from './avatars.js';
 import { copyStoredFile, deleteStoredFile, receiveFile, safeMimeType, storedFilePath } from './files.js';
-import { getSettings, updateSettings } from './settings.js';
+import { getSettings, MAIN_REPO_URL, updateSettings } from './settings.js';
 import { serverUsage } from './usage.js';
 import { installedVersion, releaseNotes, releaseNotesFa } from './version.js';
 import { serverUpdateInfo, startSelfUpdate } from './releases.js';
@@ -23,7 +23,7 @@ export function createRouter(realtime) {
   // Public branding: the admin's app name, project link and the installed version.
   r.get('/branding', async (_req, res) => {
     const s = getSettings();
-    res.json({ appName: s.appName, repoUrl: s.repoUrl, showRepoLinks: s.showRepoLinks, version: await installedVersion() });
+    res.json({ appName: s.appName, repoUrl: MAIN_REPO_URL, showRepoLinks: true, version: await installedVersion() });
   });
 
   // Public update info: the installed version and the changelog packaged with it.

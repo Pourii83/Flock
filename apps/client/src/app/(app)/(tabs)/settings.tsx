@@ -1,6 +1,6 @@
 import Constants from 'expo-constants';
 import { router } from 'expo-router';
-import { useState } from 'react';
+import { useRef, useState, type ComponentRef } from 'react';
 import { Platform, Pressable, ScrollView, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -18,6 +18,7 @@ import { useBranding } from '@/lib/brand';
 import { checkServer, isInstalledApp, useServerUrl } from '@/lib/config';
 import { useAuth } from '@/state/auth';
 import { useChat } from '@/state/chat-store';
+import { markRemount, rememberSettingsScroll, settingsScrollToRestore } from '@/lib/settings-scroll';
 import { colors, fonts, radius, DEFAULT_ACCENT, setAccent, useAccent } from '@/theme';
 import { t } from '@/lib/i18n';
 
@@ -146,10 +147,13 @@ function AccentPicker() {
   // Free color: dragging only edits the field; Apply commits (applying remounts the app, so not per drag).
   const [pickerOpen, setPickerOpen] = useState(false);
   const apply = () => {
-    if (valid) void setAccent(trimmed);
+    if (!valid) return;
+    markRemount();
+    void setAccent(trimmed);
   };
   const pick = (next: string) => {
     setHex(next.toUpperCase());
+    markRemount();
     void setAccent(next);
   };
 
@@ -181,7 +185,7 @@ function AccentPicker() {
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
         <View
           style={{
-            width: 124,
+            width: 156,
             flexDirection: 'row',
             alignItems: 'center',
             gap: 10,
@@ -233,6 +237,8 @@ function AccentPicker() {
 }
 
 function SettingsBody() {
+  const scrollRef = useRef<ComponentRef<typeof ScrollView>>(null);
+  const restored = useRef(false);
   const { user, logout } = useAuth();
   const serverUrl = useServerUrl();
   const connected = useChat((s) => s.connected);
@@ -240,7 +246,18 @@ function SettingsBody() {
   const [about, setAbout] = useState(false);
 
   return (
-    <ScrollView contentContainerStyle={{ padding: 20, gap: 20, paddingBottom: 24, maxWidth: 720, width: '100%', alignSelf: 'center' }}>
+    <ScrollView
+      ref={scrollRef}
+      scrollEventThrottle={32}
+      onScroll={(event) => rememberSettingsScroll(event.nativeEvent.contentOffset.y)}
+      onContentSizeChange={() => {
+        // Right after a repaint-remount, return to where the page was.
+        if (restored.current) return;
+        restored.current = true;
+        const y = settingsScrollToRestore();
+        if (y > 0) scrollRef.current?.scrollTo({ y, animated: false });
+      }}
+      contentContainerStyle={{ padding: 20, gap: 20, paddingBottom: 24, maxWidth: 720, width: '100%', alignSelf: 'center' }}>
       <Pressable
         onPress={() => router.navigate('/profile')}
         accessibilityRole="button"

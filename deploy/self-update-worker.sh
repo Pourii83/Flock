@@ -12,7 +12,8 @@ LOG=/var/log/flock-self-update.log
 exec >>"$LOG" 2>&1
 
 [ -f "$REQUEST" ] && [ ! -L "$REQUEST" ] || { echo "[$(date -Is)] no update request"; rm -f "$REQUEST"; exit 0; }
-TAG="$(head -c 32 "$REQUEST" | head -1 | tr -d '[:space:]')"
+TAG="$(head -c 200 "$REQUEST" | sed -n 1p | tr -d '[:space:]')"
+REQUESTED_REPO="$(head -c 200 "$REQUEST" | sed -n 2p | tr -d '[:space:]')"
 rm -f "$REQUEST" # consume first: a failed update must not retrigger in a loop
 
 echo "[$(date -Is)] self-update to $TAG requested"
@@ -25,7 +26,9 @@ if [ -n "$CURRENT" ] && [ "$(printf '%s\n%s\n' "${TAG#v}" "$CURRENT" | sort -V |
   exit 0
 fi
 
-REPO="${FLOCK_REPO:-}"
+# The repository comes with the request (the admin's mirror, or the main one); it is validated here.
+REPO="$REQUESTED_REPO"
+[ -n "$REPO" ] || REPO="${FLOCK_REPO:-}"
 [ -n "$REPO" ] || REPO="$(grep -E '^FLOCK_REPO=' /etc/flock/flock.env 2>/dev/null | tail -1 | cut -d= -f2- | tr -d "\"' " || true)"
 [[ "$REPO" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]] || REPO=Pourii83/Flock
 BASE="https://github.com/$REPO/releases/download/$TAG"

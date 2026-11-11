@@ -123,9 +123,8 @@ export type AppSettings = {
   fileRetentionDays: number;
   /** The app's name, shown everywhere instead of "Flock" (1–40 characters). */
   appName: string;
-  /** The project link, or '' when repo links are hidden. */
-  repoUrl: string;
-  showRepoLinks: boolean;
+  /** GitHub repository (https://github.com/owner/name) this server updates from; '' = the main one. */
+  mirrorUrl: string;
 };
 
 /** Public branding every client can read without signing in. */

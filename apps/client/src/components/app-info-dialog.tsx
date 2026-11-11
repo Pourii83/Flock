@@ -1,6 +1,6 @@
 import { Linking, Modal, Pressable, View } from 'react-native';
 
-import { useBranding } from '@/lib/brand';
+import { getRepoUrl, useBranding } from '@/lib/brand';
 import { t } from '@/lib/i18n';
 import { CLIENT_VERSION } from '@/lib/update';
 import { colors, radius } from '@/theme';
@@ -15,7 +15,7 @@ import { Button, Icon, T } from './ui';
 export function AppInfoDialog({ visible, onClose }: { visible: boolean; onClose: () => void }) {
   const brand = useBranding();
   if (!visible) return null;
-  const repo = brand.showRepoLinks ? brand.repoUrl : '';
+  const repo = getRepoUrl();
   return (
     <Modal transparent animationType="fade" visible onRequestClose={onClose}>
       <Pressable onPress={onClose} accessibilityLabel={t('Close')} style={{ flex: 1, backgroundColor: colors.scrim, alignItems: 'center', justifyContent: 'center', padding: 24 }}>

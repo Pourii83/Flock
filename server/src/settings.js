@@ -7,7 +7,8 @@ const envInt = (name, fallback) => {
   return Number.isFinite(n) ? n : fallback;
 };
 
-const DEFAULT_REPO_URL = 'https://github.com/Pourii83/Flock';
+/** The project's own repository: always what the apps link to (not configurable). */
+export const MAIN_REPO_URL = 'https://github.com/Pourii83/Flock';
 
 /** App name shown everywhere instead of "Flock": 1–40 characters. */
 const cleanAppName = (value) => {
@@ -16,18 +17,16 @@ const cleanAppName = (value) => {
   return name.length >= 1 && name.length <= 40 ? name : undefined;
 };
 
-/** The project link: an http(s) URL, or '' to hide it everywhere. */
-const cleanRepoUrl = (value) => {
+/**
+ * The update mirror: a GitHub repository (https://github.com/owner/name) the server checks for
+ * releases and downloads updates from instead of the main repository. '' means use the main one.
+ */
+export const cleanMirrorUrl = (value) => {
   if (typeof value !== 'string') return undefined;
-  const raw = value.trim();
+  const raw = value.trim().replace(/\/+$/, '').replace(/\.git$/, '');
   if (!raw) return '';
-  if (raw.length > 200) return undefined;
-  try {
-    const url = new URL(raw);
-    return (url.protocol === 'http:' || url.protocol === 'https:') && url.hostname ? raw : undefined;
-  } catch {
-    return undefined;
-  }
+  const match = /^https:\/\/github\.com\/([A-Za-z0-9._-]+)\/([A-Za-z0-9._-]+)$/.exec(raw);
+  return match ? `https://github.com/${match[1]}/${match[2]}` : undefined;
 };
 
 /** name -> [default, validate(value) => cleaned value or undefined] */
@@ -36,10 +35,10 @@ const FIELDS = {
   allowGuestMeetings: [true, (v) => (typeof v === 'boolean' ? v : undefined)],
   maxUploadMb: [envInt('MAX_UPLOAD_MB', 100), (v) => (Number.isInteger(v) && v >= 1 && v <= 4096 ? v : undefined)],
   fileRetentionDays: [envInt('FILE_RETENTION_DAYS', 7), (v) => (Number.isInteger(v) && v >= 1 && v <= 365 ? v : undefined)],
-  // Branding: the app's name and the project link, shown (or hidden) around the clients.
+  // Branding: the app's name. The project link is fixed (MAIN_REPO_URL).
   appName: [cleanAppName(process.env.APP_NAME) ?? 'Flock', cleanAppName],
-  repoUrl: [cleanRepoUrl(process.env.REPO_URL) ?? DEFAULT_REPO_URL, cleanRepoUrl],
-  showRepoLinks: [process.env.SHOW_REPO_LINKS !== '0', (v) => (typeof v === 'boolean' ? v : undefined)],
+  // Where this server looks for updates; '' = the main repository.
+  mirrorUrl: [cleanMirrorUrl(process.env.MIRROR_URL) ?? '', cleanMirrorUrl],
 };
 
 let current = Object.fromEntries(Object.entries(FIELDS).map(([k, [d]]) => [k, d]));

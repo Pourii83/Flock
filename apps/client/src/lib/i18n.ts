@@ -416,6 +416,10 @@ const fa: Record<string, string> = {
   // ----- channels -----
   'Custom color': 'رنگ دلخواه',
   Channels: 'کانال‌ها',
+  'Update mirror': 'میرور آپدیت',
+  'Use a GitHub repository link like https://github.com/owner/name': 'یک لینک مخزن گیت‌هاب مثل https://github.com/owner/name وارد کنید',
+  'Only sets where this server looks for updates (a mirror of the project). Leave empty to use the main repository, which the apps always link to.': 'فقط مشخص می‌کند این سرور آپدیت‌ها را از کجا بگیرد (میرور پروژه). خالی بگذارید تا از مخزن اصلی استفاده شود؛ لینک داخل اپ همیشه مخزن اصلی است.',
+  'Invalid value for mirrorUrl': 'نشانی میرور معتبر نیست',
   'New channel': 'کانال جدید',
   'Channel name': 'نام کانال',
   'Channel Info': 'اطلاعات کانال',

@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { Pressable, View, useWindowDimensions } from 'react-native';
 
 import { t } from '@/lib/i18n';
+import { markRemount } from '@/lib/settings-scroll';
 import { colors, getThemePreference, radius, setThemePreference, type ThemePreference } from '@/theme';
 import { Icon, T, type IconName } from './ui';
 
@@ -30,6 +31,7 @@ export function ThemePicker() {
             accessibilityState={{ selected: active }}
             onPress={() => {
               setValue(o.value);
+              markRemount();
               void setThemePreference(o.value);
               // The app root remounts to repaint; come back to Settings afterwards.
               setTimeout(() => router.navigate('/settings'), 0);

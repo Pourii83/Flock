@@ -162,9 +162,13 @@ function MeetingsCard() {
     if (problem) setError(problem);
   };
 
-  const wide = useIsWide();
+  // Decided by the card's own width (the desktop list column can be narrow too), not the window's.
+  const [cardWidth, setCardWidth] = useState(0);
+  const roomy = cardWidth >= 420;
   return (
-    <View style={{ gap: 12, padding: 16, borderRadius: radius.lg, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.surfaceHigh }}>
+    <View
+      onLayout={(event) => setCardWidth(event.nativeEvent.layout.width)}
+      style={{ gap: 12, padding: 16, borderRadius: radius.lg, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.surfaceHigh }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
         <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: colors.amberTint, alignItems: 'center', justifyContent: 'center' }}>
           <Icon name="link" size={20} color={colors.amberText} />
@@ -178,9 +182,9 @@ function MeetingsCard() {
           </T>
         </View>
         {/* Beside the text on wide screens; on phones it drops below so the description gets the full width. */}
-        {!creating && wide && <Button title={t('New link')} icon="plus" size="sm" onPress={() => setCreating(true)} />}
+        {!creating && roomy && <Button title={t('New link')} icon="plus" size="sm" onPress={() => setCreating(true)} />}
       </View>
-      {!creating && !wide && <Button title={t('New link')} icon="plus" size="sm" onPress={() => setCreating(true)} />}
+      {!creating && !roomy && <Button title={t('New link')} icon="plus" size="sm" onPress={() => setCreating(true)} />}
 
       {creating && (
         <View style={{ gap: 12, padding: 12, borderRadius: radius.lg, backgroundColor: colors.surfaceHigh }}>

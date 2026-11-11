@@ -1,6 +1,7 @@
 import { Pressable, View } from 'react-native';
 
 import { LANGUAGES, setLang, useLang } from '@/lib/i18n';
+import { markRemount } from '@/lib/settings-scroll';
 import { colors, radius } from '@/theme';
 import { Icon, T } from './ui';
 
@@ -33,7 +34,10 @@ export function LanguagePicker({ compact }: { compact?: boolean }) {
             key={l.code}
             accessibilityRole="radio"
             accessibilityState={{ selected: active }}
-            onPress={() => setLang(l.code)}
+            onPress={() => {
+              markRemount();
+              setLang(l.code);
+            }}
             style={({ hovered }: any) => ({
               flex: compact ? undefined : 1,
               alignItems: 'center',
