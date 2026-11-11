@@ -161,6 +161,7 @@ function MeetingsCard() {
     if (problem) setError(problem);
   };
 
+  const wide = useIsWide();
   return (
     <View style={{ gap: 12, padding: 16, borderRadius: radius.lg, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.surfaceHigh }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
@@ -175,8 +176,10 @@ function MeetingsCard() {
             {t('Anyone with the link can join, even without an account.')}
           </T>
         </View>
-        {!creating && <Button title={t('New link')} icon="plus" size="sm" onPress={() => setCreating(true)} />}
+        {/* Beside the text on wide screens; on phones it drops below so the description gets the full width. */}
+        {!creating && wide && <Button title={t('New link')} icon="plus" size="sm" onPress={() => setCreating(true)} />}
       </View>
+      {!creating && !wide && <Button title={t('New link')} icon="plus" size="sm" onPress={() => setCreating(true)} />}
 
       {creating && (
         <View style={{ gap: 12, padding: 12, borderRadius: radius.lg, backgroundColor: colors.surfaceHigh }}>
