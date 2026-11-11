@@ -6,10 +6,12 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AppInfoDialog } from '@/components/app-info-dialog';
 import { Avatar } from '@/components/avatar';
+import { ColorPicker } from '@/components/color-picker';
 import { LanguagePicker } from '@/components/language-picker';
 import { NoisePicker } from '@/components/noise-picker';
 import { ThemePicker } from '@/components/theme-picker';
 import { DesktopTopBar, MobileHeader, PageTitle } from '@/components/shell';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Button, Card, Icon, SectionLabel, T, noOutline, type IconName } from '@/components/ui';
 import { useIsWide } from '@/hooks/use-layout';
 import { ServerField, useServerField } from '@/components/server-field';
@@ -142,6 +144,8 @@ function AccentPicker() {
   const [hex, setHex] = useState(current);
   const trimmed = hex.trim().toUpperCase();
   const valid = HEX_RE.test(trimmed);
+  // Free color: dragging only edits the field; Apply commits (applying remounts the app, so not per drag).
+  const [pickerOpen, setPickerOpen] = useState(false);
   const apply = () => {
     if (valid) void setAccent(trimmed);
   };
@@ -178,7 +182,7 @@ function AccentPicker() {
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
         <View
           style={{
-            flex: 1,
+            width: 124,
             flexDirection: 'row',
             alignItems: 'center',
             gap: 10,
@@ -189,7 +193,6 @@ function AccentPicker() {
             backgroundColor: colors.canvas,
             paddingHorizontal: 14,
           }}>
-          <View style={{ width: 20, height: 20, borderRadius: 10, backgroundColor: valid ? trimmed : colors.surfaceHigh, borderWidth: 1, borderColor: colors.surfaceHigh }} />
           <TextInput
             value={hex}
             onChangeText={setHex}
@@ -202,8 +205,32 @@ function AccentPicker() {
             style={[{ flex: 1, minWidth: 0, color: colors.text, fontFamily: fonts.medium, fontSize: 16, height: '100%' }, noOutline]}
           />
         </View>
-        <Button title={t('Apply')} size="sm" onPress={apply} disabled={!valid || trimmed === current} />
+        <Pressable
+          onPress={() => setPickerOpen((open) => !open)}
+          accessibilityRole="button"
+          accessibilityLabel={t('Custom color')}
+          accessibilityState={{ expanded: pickerOpen }}
+          style={{
+            width: 46,
+            height: 46,
+            borderRadius: 23,
+            padding: 3,
+            borderWidth: 2,
+            borderColor: pickerOpen ? colors.text : colors.surfaceHigh,
+          }}>
+          <LinearGradient
+            colors={['#FF0000', '#FFFF00', '#00FF00', '#00FFFF', '#0000FF', '#FF00FF', '#FF0000']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={{ flex: 1, borderRadius: 20, alignItems: 'center', justifyContent: 'center' }}>
+            <View style={{ width: 20, height: 20, borderRadius: 10, backgroundColor: valid ? trimmed : colors.surfaceHigh, borderWidth: 2, borderColor: '#FFFFFF' }} />
+          </LinearGradient>
+        </Pressable>
+        <View style={{ flex: 1, alignItems: 'flex-end' }}>
+          <Button title={t('Apply')} size="sm" onPress={apply} disabled={!valid || trimmed === current} />
+        </View>
       </View>
+      {pickerOpen && <ColorPicker value={valid ? trimmed : current} onChange={setHex} />}
       {!valid && (
         <T variant="bodySm" color={colors.danger}>
           {t('Use a hex color like #FFB84D')}

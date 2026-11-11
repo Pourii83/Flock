@@ -1,4 +1,5 @@
 import { router, useLocalSearchParams } from 'expo-router';
+import { SidebarPane } from '@/components/sidebar-pane';
 import { useEffect, useState } from 'react';
 import { View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -44,9 +45,9 @@ export default function ChatsScreen() {
     <View style={{ flex: 1, backgroundColor: colors.canvas }}>
       <DesktopTopBar />
       <View style={{ flex: 1, flexDirection: 'row' }}>
-        <View style={{ width: 380, backgroundColor: colors.rail, borderRightWidth: 1, borderRightColor: colors.surfaceHigh }}>
+        <SidebarPane>
           <ChatList variant="desktop" selectedId={selected} onOpen={(c) => router.setParams({ c: c.id })} onNewChat={newChat} />
-        </View>
+        </SidebarPane>
         {selected ? (
           <>
             <View style={{ flex: 1 }}>

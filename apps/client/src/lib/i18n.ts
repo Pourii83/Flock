@@ -414,6 +414,7 @@ const fa: Record<string, string> = {
   'Sign out': 'خروج از حساب',
 
   // ----- channels -----
+  'Custom color': 'رنگ دلخواه',
   'New channel': 'کانال جدید',
   'Channel name': 'نام کانال',
   'Channel Info': 'اطلاعات کانال',

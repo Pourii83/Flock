@@ -1,4 +1,5 @@
 import * as Clipboard from 'expo-clipboard';
+import { SidebarPane } from '@/components/sidebar-pane';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, RefreshControl, View } from 'react-native';
@@ -460,12 +461,12 @@ export default function CallsScreen() {
     <View style={{ flex: 1, backgroundColor: colors.canvas }}>
       <DesktopTopBar />
       <View style={{ flex: 1, flexDirection: 'row' }}>
-        <View style={{ width: 440, backgroundColor: colors.rail, borderRightWidth: 1, borderRightColor: colors.surfaceHigh }}>
+        <SidebarPane>
           <View style={{ paddingHorizontal: 20, paddingTop: 20 }}>
             <PageTitle title={t('Calls')} pill={connected ? t('Synced') : t('Offline')} pillColor={connected ? colors.teal : colors.amber} />
           </View>
           <CallsList />
-        </View>
+        </SidebarPane>
         <EmptyStage
           title={t('Huddle up in one tap')}
           body={t('Start a crisp voice or video call from any conversation. Calls connect peer-to-peer over WebRTC.')}

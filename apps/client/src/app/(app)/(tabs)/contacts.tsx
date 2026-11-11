@@ -1,4 +1,5 @@
 import { router, useFocusEffect } from 'expo-router';
+import { SidebarPane } from '@/components/sidebar-pane';
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -152,12 +153,12 @@ export default function ContactsScreen() {
     <View style={{ flex: 1, backgroundColor: colors.canvas }}>
       <DesktopTopBar />
       <View style={{ flex: 1, flexDirection: 'row' }}>
-        <View style={{ width: 480, backgroundColor: colors.rail, borderRightWidth: 1, borderRightColor: colors.surfaceHigh }}>
+        <SidebarPane>
           <View style={{ paddingHorizontal: 20, paddingTop: 20 }}>
             <PageTitle title={t('Contacts')} />
           </View>
           <PeopleList wide />
-        </View>
+        </SidebarPane>
         <EmptyStage
           title={t('Your flock, all in one place')}
           body={t('People you chat or call with show up here. Message them, or jump straight into a voice or video call.')}
