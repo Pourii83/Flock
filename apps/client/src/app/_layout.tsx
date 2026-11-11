@@ -65,10 +65,14 @@ function RootStack() {
   // A re-keyed navigator starts on its initial route; return to the screen the user was on.
   // Runs once per mount only: later navigations must not be hijacked by the captured route.
   const restored = useRef(false);
+  // While the fresh navigator is still on its initial route it stays invisible, so changing the
+  // accent/theme never flashes Chats before returning to the screen the user was on.
+  const [shown, setShown] = useState(!restoreTo.current || restoreTo.current === '/');
   useEffect(() => {
     if (!ready || !fontsLoaded || restored.current) return;
     restored.current = true;
     if (!restoreTo.current || restoreTo.current === '/') return;
+    let reveal: ReturnType<typeof setTimeout> | undefined;
     // Give the fresh navigator a tick to finish mounting, then go back to the captured route.
     const timer = setTimeout(() => {
       try {
@@ -76,25 +80,31 @@ function RootStack() {
       } catch {
         // The navigator can briefly be unavailable while it mounts; the user stays on the root.
       }
+      reveal = setTimeout(() => setShown(true), 40);
     }, 60);
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      clearTimeout(reveal);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount/reset only
   }, [ready, fontsLoaded]);
 
   if (!ready || !fontsLoaded) return null;
 
   return (
-    <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.canvas } }}>
-      <Stack.Protected guard={!!user}>
-        <Stack.Screen name="(app)" />
-      </Stack.Protected>
-      <Stack.Protected guard={!user}>
-        <Stack.Screen name="login" />
-        <Stack.Screen name="register" />
-      </Stack.Protected>
-      {/* Meeting links open with or without an account. */}
-      <Stack.Screen name="meet/[code]" />
-    </Stack>
+    <View style={{ flex: 1, opacity: shown ? 1 : 0 }}>
+      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.canvas } }}>
+        <Stack.Protected guard={!!user}>
+          <Stack.Screen name="(app)" />
+        </Stack.Protected>
+        <Stack.Protected guard={!user}>
+          <Stack.Screen name="login" />
+          <Stack.Screen name="register" />
+        </Stack.Protected>
+        {/* Meeting links open with or without an account. */}
+        <Stack.Screen name="meet/[code]" />
+      </Stack>
+    </View>
   );
 }
 

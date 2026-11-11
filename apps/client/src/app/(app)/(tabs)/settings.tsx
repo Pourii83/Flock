@@ -221,7 +221,7 @@ function SettingsBody() {
   const [about, setAbout] = useState(false);
 
   return (
-    <ScrollView contentContainerStyle={{ padding: 20, gap: 20, paddingBottom: 120, maxWidth: 720, width: '100%', alignSelf: 'center' }}>
+    <ScrollView contentContainerStyle={{ padding: 20, gap: 20, paddingBottom: 24, maxWidth: 720, width: '100%', alignSelf: 'center' }}>
       <Pressable
         onPress={() => router.navigate('/profile')}
         accessibilityRole="button"

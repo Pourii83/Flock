@@ -395,7 +395,7 @@ function CallsList() {
       data={data}
       keyExtractor={(c) => c.id}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={colors.amber} />}
-      contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: 120 }}
+      contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: 24 }}
       ListHeaderComponent={
         <View style={{ gap: 18, marginBottom: 6 }}>
           <Segmented value={filter} onChange={setFilter} total={unseenAll} missed={unseenMissed} />

@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentRef } from 'react';
 import { ActivityIndicator, FlatList, Platform, Pressable, View } from 'react-native';
 
 import { ContextMenu, type ContextMenuItem } from '@/components/context-menu';
@@ -12,7 +12,7 @@ import { chatStore, useChat } from '@/state/chat-store';
 import { colors, fonts, radius } from '@/theme';
 import { ConversationAvatar, isSavedConversation } from './avatar';
 import { Button, Chip, Icon, IconButton, PushPin, SearchBar, T, Tooltip, UnreadBadge } from './ui';
-import { t, num } from '@/lib/i18n';
+import { t, num, isRTL } from '@/lib/i18n';
 
 type Filter = 'all' | 'unread' | 'groups';
 
@@ -170,6 +170,18 @@ export function ChatList({
   const [searchOpen, setSearchOpen] = useState(false);
   const [filter, setFilter] = useState<Filter>('all');
   const [newMenu, setNewMenu] = useState<{ x: number; y: number } | null>(null);
+  const plusRef = useRef<ComponentRef<typeof View>>(null);
+  // The "+" menu opens right under its button (not at the pointer), lining up with the button's
+  // outer edge: right edge in English, left edge in Persian where the header is mirrored.
+  const openNewMenu = (event: unknown) => {
+    const MENU_WIDTH = 190;
+    const node = plusRef.current;
+    if (!node?.measureInWindow) return setNewMenu(pressPoint(event));
+    node.measureInWindow((x, y, w, h) => {
+      if (!Number.isFinite(x) || !(w > 0)) return setNewMenu(pressPoint(event));
+      setNewMenu({ x: isRTL() ? x : x + w - MENU_WIDTH, y: y + h + 6 });
+    });
+  };
   const loaded = useChat((s) => s.loaded);
   const all = useChat((s) => s.conversations);
   const list = useFilteredConversations(query, filter);
@@ -225,9 +237,10 @@ export function ChatList({
         </Tooltip>
         <Tooltip label={t('New chat')} side="bottom" style={{ alignSelf: 'center' }}>
           <Pressable
+            ref={plusRef}
             accessibilityRole="button"
             accessibilityLabel={t('New chat')}
-            onPress={(event) => setNewMenu(pressPoint(event))}
+            onPress={openNewMenu}
             style={({ pressed }: any) => ({
               width: 38,
               height: 38,
@@ -270,7 +283,7 @@ export function ChatList({
         data={list}
         keyExtractor={(c) => c.id}
         ListHeaderComponent={header}
-        contentContainerStyle={{ padding: desktop ? 16 : 16, paddingTop: desktop ? 20 : 8, gap: desktop ? 2 : 8, paddingBottom: desktop ? 16 : 120 }}
+        contentContainerStyle={{ padding: desktop ? 16 : 16, paddingTop: desktop ? 20 : 8, gap: desktop ? 2 : 8, paddingBottom: 24 }}
         renderItem={({ item }) => (
           <ChatRow c={item} card={!desktop} selected={item.id === selectedId} onPress={() => onOpen(item)} />
         )}

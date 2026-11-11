@@ -140,7 +140,7 @@ function ProfileBody() {
   };
 
   return (
-    <ScrollView contentContainerStyle={{ padding: 20, gap: 20, paddingBottom: 120, maxWidth: 720, width: '100%', alignSelf: 'center' }}>
+    <ScrollView contentContainerStyle={{ padding: 20, gap: 20, paddingBottom: 24, maxWidth: 720, width: '100%', alignSelf: 'center' }}>
       <Card style={{ alignItems: 'center', gap: 6, paddingVertical: 28, borderRadius: radius.xl }}>
         <ProfilePhoto online={connected} />
         <T variant="headline" style={{ marginTop: 10, fontSize: 26 }}>

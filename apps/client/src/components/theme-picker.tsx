@@ -34,6 +34,9 @@ export function ThemePicker() {
             }}
             style={({ hovered }: any) => ({
               flex: 1,
+              flexBasis: 0,
+              minWidth: 0,
+              paddingHorizontal: 6,
               flexDirection: 'row',
               alignItems: 'center',
               justifyContent: 'center',
@@ -43,7 +46,7 @@ export function ThemePicker() {
               backgroundColor: active ? colors.amber : hovered ? colors.surfaceHigh : 'transparent',
             })}>
             <Icon name={o.icon} size={16} color={active ? colors.onAmber : colors.textMuted} />
-            <T variant="labelLg" color={active ? colors.onAmber : colors.text}>
+            <T variant="labelLg" color={active ? colors.onAmber : colors.text} numberOfLines={2} style={{ flexShrink: 1, textAlign: 'center', fontSize: 14, lineHeight: 19 }}>
               {t(o.label)}
             </T>
           </Pressable>

@@ -33,13 +33,18 @@ export function NoisePicker() {
                 setNoisePreference(o.mode);
               }}
               style={({ hovered }: any) => ({
+                // Equal thirds whatever the label length: the active one must not grow.
                 flex: 1,
+                flexBasis: 0,
+                minWidth: 0,
                 alignItems: 'center',
+                justifyContent: 'center',
                 paddingVertical: 10,
+                paddingHorizontal: 6,
                 borderRadius: radius.pill,
                 backgroundColor: active ? colors.amber : hovered ? colors.surfaceHigh : 'transparent',
               })}>
-              <T variant="labelLg" color={active ? colors.onAmber : colors.text}>
+              <T variant="labelLg" color={active ? colors.onAmber : colors.text} numberOfLines={2} style={{ textAlign: 'center', fontSize: 14, lineHeight: 19 }}>
                 {t(o.label)}
               </T>
             </Pressable>
