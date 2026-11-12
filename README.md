@@ -21,13 +21,15 @@
 
 ## Key Features
 
-| | |
-|---|---|
-| **Talk** | Direct messages, groups and channels, with replies, reactions, files up to 100 MB and read receipts. Invite links let anyone join a group or channel in one tap, and the owner can revoke them. |
-| **Keep it private** | Secret chats are end-to-end encrypted; the server only ever stores ciphertext. Everything else stays on a server you run. |
-| **Call** | Voice and video calls, one-to-one or in groups, with full-screen video, screen sharing and noise cancellation. Meeting links let guests join from a browser without an account. |
-| **Run it your way** | Admin settings for sign-up, guest access, upload limits and file retention, right inside the app. Light and dark themes with any accent color. |
-| **Everywhere** | One app for the web (installable PWA), Android and Windows, in English and Persian (right to left). |
+- 💬 **Chats**: direct messages, groups and channels, with replies, reactions, files up to 100 MB and read receipts
+- 🔗 **Invite links**: anyone can join a group or channel with one tap; the owner can revoke the link
+- 🔒 **Secret chats**: optional end-to-end encryption; the server only stores ciphertext
+- 📞 **Voice & video calls**: one-to-one or in groups, full-screen video, screen sharing and noise cancellation
+- 🎟️ **Meeting links**: guests join a call from their browser, no account needed
+- 🛡️ **Admin settings**: sign-up, guest access, upload limits and file retention, right inside the app
+- 🎨 **Themes**: light and dark, with any accent color
+- 📱 **Every device**: installable web app (PWA), Android and Windows
+- 🌍 **i18n**: English and Persian (right to left)
 
 ## Quick Start
 
