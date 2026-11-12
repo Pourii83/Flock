@@ -21,7 +21,3 @@ CLAUDE.md
 
 # Vercel build output (scripts/build-pwa.sh)
 .vercel/
-
-# Docs site
-docs-site/.astro/
-docs-site/public/screenshots/
