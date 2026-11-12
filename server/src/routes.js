@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import crypto from 'node:crypto';
+import { loginFailsPerIp, loginFailsPerUser, registerPerIp, rejectIfBlocked } from './ratelimit.js';
 import { checkPassword, hashPassword, requireAuth, signFileLink, signGuestToken, signToken, verifyFileLink, verifyGuestToken, verifyToken } from './auth.js';
 import { deleteAvatar, saveAvatar } from './avatars.js';
 import { copyStoredFile, deleteStoredFile, receiveFile, safeMimeType, storedFilePath } from './files.js';
@@ -33,6 +34,8 @@ export function createRouter(realtime) {
 
   r.post('/auth/register', async (req, res) => {
     if (!getSettings().allowRegistration) return res.status(403).json({ error: 'Sign-up is closed on this server' });
+    if (rejectIfBlocked(res, registerPerIp.blockedFor(req.ip))) return;
+    registerPerIp.hit(req.ip);
     const { username = '', displayName = '', password = '' } = req.body || {};
     const name = String(displayName).trim();
     if (!USERNAME_RE.test(username))
@@ -49,9 +52,17 @@ export function createRouter(realtime) {
 
   r.post('/auth/login', async (req, res) => {
     const { username = '', password = '' } = req.body || {};
+    const account = String(username).trim().toLowerCase();
+    // Blocked before checking the password, so a locked-out guesser learns nothing.
+    const wait = Math.max(loginFailsPerUser.blockedFor(account), loginFailsPerIp.blockedFor(req.ip));
+    if (rejectIfBlocked(res, wait)) return;
     const user = await repo.getUserByUsername(String(username));
-    if (!user || !(await checkPassword(String(password), user.password_hash)))
+    if (!user || !(await checkPassword(String(password), user.password_hash))) {
+      loginFailsPerUser.hit(account);
+      loginFailsPerIp.hit(req.ip);
       return res.status(401).json({ error: 'Wrong username or password' });
+    }
+    loginFailsPerUser.reset(account);
     res.json({ token: signToken(user.id), user: repo.selfUser(user) });
   });
 

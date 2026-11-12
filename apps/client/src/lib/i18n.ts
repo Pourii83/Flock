@@ -80,6 +80,7 @@ const fa: Record<string, string> = {
 
   // ----- server errors -----
   'Wrong username or password': 'نام کاربری یا رمز عبور اشتباه است',
+  'Too many attempts. Please wait a few minutes and try again.': 'تلاش‌ها بیش از حد شد. چند دقیقه صبر کنید و دوباره امتحان کنید.',
   'That username is taken': 'این نام کاربری قبلاً گرفته شده',
   'Username must be 3–24 letters, numbers, _ or .': 'نام کاربری باید ۳ تا ۲۴ حرف انگلیسی، عدد، _ یا . باشد',
   'Not signed in': 'وارد حساب نشده‌اید',

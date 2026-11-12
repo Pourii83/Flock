@@ -24,6 +24,10 @@ await loadSettings();
 
 const app = express();
 app.disable('x-powered-by');
+// Behind Nginx/Caddy the visitor's address comes from X-Forwarded-For. Trust it only from local or
+// private-network proxies by default; set TRUST_PROXY (an Express "trust proxy" value) for other setups.
+const trustProxy = process.env.TRUST_PROXY?.trim();
+app.set('trust proxy', !trustProxy ? 'loopback, linklocal, uniquelocal' : /^\d+$/.test(trustProxy) ? Number(trustProxy) : trustProxy === 'false' ? false : trustProxy);
 app.use(cors({ origin: CORS_ORIGIN }));
 // Avatars arrive as base64 JSON; everything else stays small.
 app.use('/api/me/avatar', express.json({ limit: '7mb' }));
