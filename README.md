@@ -84,7 +84,7 @@ Full documentation lives at [docs.flock.beer](https://docs.flock.beer):
 
 If Flock is useful to you, you can support its development:
 
-### USDT (BEP-20, BNB Smart Chain)
+### BNB and USDT (BEP-20, BNB Smart Chain)
 
 ```
 0x33F5E7CEd703f514D08361732aECed623e9DceE0

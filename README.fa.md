@@ -84,7 +84,7 @@ sudo flockctl
 
 اگر فلاک به کارتان آمده، می‌توانید از توسعه‌اش حمایت کنید:
 
-### USDT (BEP-20، شبکه‌ی BNB Smart Chain)
+### BNB و USDT (BEP-20، شبکه‌ی BNB Smart Chain)
 
 ```
 0x33F5E7CEd703f514D08361732aECed623e9DceE0
