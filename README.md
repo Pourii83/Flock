@@ -21,7 +21,7 @@
 
 ## Key Features
 
-- 💬 **Chats**: direct messages, groups and channels, with replies, reactions, files up to 100 MB and read receipts
+- 💬 **Chats**: direct messages, groups and channels, with replies, reactions, file sharing (the admin sets the size limit) and read receipts
 - 🔗 **Invite links**: anyone can join a group or channel with one tap; the owner can revoke the link
 - 🔒 **Secret chats**: optional end-to-end encryption; the server only stores ciphertext
 - 📞 **Voice & video calls**: one-to-one or in groups, full-screen video, screen sharing and noise cancellation
