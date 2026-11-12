@@ -15,10 +15,6 @@ ROOT = Path(__file__).resolve().parents[2]
 DOCS = ROOT / 'docs-site' / 'src' / 'content' / 'docs'
 PUBLIC = ROOT / 'docs-site' / 'public'
 REPO = 'https://github.com/Pourii83/Flock'
-# Screenshots are served from the flock-media R2 bucket (Cloudflare), not from the docs site.
-MEDIA = 'https://flock.iranset.online'
-# Second source when Cloudflare is blocked or slow: the flock-media bucket on Arvan Object Storage.
-MEDIA_IR = 'https://flock-media.s3.ir-central1.arvanstorage.ir'
 
 # Page for each ##/### section, in README order. None = dropped (the table of contents).
 SECTIONS = [
@@ -110,8 +106,8 @@ def build(lang: str):
                 return m.group(0)
             return f'{m.group(1)}({target})'
         text = re.sub(r'(\[[^\]]*\])\(#([^)]+)\)', anchor, text)
-        # Cloudflare first, then Arvan, then the docs site's own copy (fallback script in astro.config.mjs).
-        text = re.sub(r'src="docs/screenshots/([^"]+)"', lambda m: f'src="{MEDIA}/{m.group(1)}" data-fallback="{MEDIA_IR}/{m.group(1)} /screenshots/{m.group(1)}"', text)
+        # Screenshots are served by the docs site itself (copied into public/ below).
+        text = text.replace('docs/screenshots/', '/screenshots/')
         text = text.replace('apps/client/assets/images/icon.png', '/flock-icon.png')
         # Other relative links point at files in the repository.
         text = re.sub(r'\]\((?!https?:|/|#|mailto:)([^)]+)\)', lambda m: f']({REPO}/blob/main/{m.group(1)})', text)
@@ -157,7 +153,7 @@ def build(lang: str):
 
 if __name__ == '__main__':
     shutil.copy2(ROOT / 'apps' / 'client' / 'assets' / 'images' / 'icon.png', PUBLIC / 'flock-icon.png')
-    # Fallback copies of the screenshots, served by the docs site itself (not committed).
+    # Screenshots, served by the docs site itself (copied at build time, not committed).
     (PUBLIC / 'screenshots').mkdir(parents=True, exist_ok=True)
     for png in (ROOT / 'docs' / 'screenshots').glob('*.png'):
         shutil.copy2(png, PUBLIC / 'screenshots' / png.name)
