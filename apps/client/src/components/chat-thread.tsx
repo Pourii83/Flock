@@ -35,7 +35,7 @@ import { LinkedText } from './linked-text';
 import { MediaViewer } from './media-viewer';
 import { MessageMenu } from './message-menu';
 import { ForwardDialog } from './message-menu';
-import { Button, Icon, IconButton, PushPin, SearchBar, Tooltip, noOutline, persianFont, T, type IconName } from './ui';
+import { Button, contentDirection, Icon, IconButton, PushPin, SearchBar, Tooltip, noOutline, persianFont, T, type IconName } from './ui';
 import { t, num, isRTL } from '@/lib/i18n';
 
 type Row =
@@ -263,7 +263,7 @@ export function ChatThread({
       )}
       {loadError ? (
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 }}>
-          <T color={colors.textMuted}>{"Couldn't load messages."}</T>
+          <T color={colors.textMuted}>{t("Couldn't load messages.")}</T>
           <Button
             title={t('Retry')}
             size="sm"
@@ -1106,7 +1106,7 @@ function Bubble({
                 <T variant="label" color={mine ? '#8A5A00' : colors.amberText}>
                   {m.replyTo.senderName}
                 </T>
-                <T variant="body" color={mine ? colors.onAmber : colors.textMuted} numberOfLines={2} style={{ fontStyle: 'italic' }}>
+                <T variant="body" color={mine ? colors.onAmber : colors.textMuted} numberOfLines={2} {...({ dataSet: contentDirection(m.replyTo.body).dataSet } as object)} style={[{ fontStyle: 'italic' }, contentDirection(m.replyTo.body).style]}>
                   {m.replyTo.body}
                 </T>
               </View>

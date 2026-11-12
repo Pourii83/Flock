@@ -1,6 +1,6 @@
 import { Linking, Platform, Text, type TextProps } from 'react-native';
 
-import { T } from './ui';
+import { contentDirection, T } from './ui';
 
 type TypeVariant = NonNullable<Parameters<typeof T>[0]['variant']>;
 
@@ -33,9 +33,10 @@ export function LinkedText({
     last = match.index + match[0].length;
   }
   if (last < children.length) parts.push({ text: children.slice(last), url: false });
+  const direction = contentDirection(children);
 
   return (
-    <T variant={variant} color={color} style={[wrapAnywhere, style]} {...rest}>
+    <T variant={variant} color={color} {...({ dataSet: direction.dataSet } as object)} style={[wrapAnywhere, direction.style, style]} {...rest}>
       {parts.map((part, i) =>
         part.url ? (
           <Text

@@ -43,6 +43,37 @@ export function T({
 const PERSIAN = /[؀-ۿݐ-ݿࢠ-ࣿﭐ-﷿ﹰ-﻿]/;
 export const hasPersian = (text: string | null | undefined): boolean => !!text && PERSIAN.test(text);
 
+// The first letter that has a direction decides a paragraph's direction (what dir="auto" does).
+const STRONG = /[A-Za-zÀ-ɏͰ-ϿЀ-ӿ]|[֐-ࣿיִ-﷿ﹰ-﻿]/;
+const RTL_LETTER = /[֐-ࣿיִ-﷿ﹰ-﻿]/;
+
+/** true for right-to-left text, false for left-to-right, null when it has no letters (emoji, numbers). */
+export function textIsRTL(text: string | null | undefined): boolean | null {
+  const m = text ? STRONG.exec(text) : null;
+  return m ? RTL_LETTER.test(m[0]) : null;
+}
+
+/**
+ * Props that align user-written text by its own language, not the app's: Persian wraps flush right
+ * and English flush left whatever the UI language is. Web marks the element for the
+ * `[data-bidi='plain']` rule in public/index.html (`unicode-bidi: plaintext` + `text-align: start`),
+ * so mixed messages line up paragraph by paragraph; react-native-web would turn a `start` style into
+ * `right` in a right-to-left UI. Android treats textAlign as relative to the layout direction (in a
+ * right-to-left UI 'left' is the start, the right edge), so the value is picked against the UI direction.
+ */
+export function contentDirection(text: string | null | undefined): { style?: TextStyle; dataSet?: Record<string, string> } {
+  if (Platform.OS === 'web') return { dataSet: { bidi: 'plain' } };
+  const rtl = textIsRTL(text);
+  if (rtl === null) return {};
+  const sameAsUi = rtl === isRTL();
+  return {
+    style: {
+      writingDirection: rtl ? 'rtl' : 'ltr',
+      textAlign: Platform.OS === 'android' ? (sameAsUi ? 'left' : 'right') : rtl ? 'right' : 'left',
+    },
+  };
+}
+
 const plainText = (node: ReactNode): string => {
   if (typeof node === 'string') return node;
   if (typeof node === 'number') return String(node);
@@ -226,7 +257,13 @@ export function Button({
 
 export const Field = forwardRef<
   TextInputInstance,
-  TextInputProps & { label?: string; icon?: IconName; error?: string | null; right?: ReactNode }
+  TextInputProps & {
+    label?: string;
+    /** A Feather icon name, or a function that draws a custom icon in the given color. */
+    icon?: IconName | ((color: string) => ReactNode);
+    error?: string | null;
+    right?: ReactNode;
+  }
 >(function Field({ label, icon, error, right, style, onFocus, onBlur, ...rest }, ref) {
   const [focused, setFocused] = useState(false);
   return (
@@ -248,7 +285,7 @@ export const Field = forwardRef<
           height: 56,
           gap: 12,
         }}>
-        {icon && <Icon name={icon} size={18} color={focused ? colors.amberText : colors.textMuted} />}
+        {typeof icon === 'function' ? icon(focused ? colors.amberText : colors.textMuted) : icon && <Icon name={icon} size={18} color={focused ? colors.amberText : colors.textMuted} />}
         <TextInput
           ref={ref}
           placeholderTextColor={colors.textDim}

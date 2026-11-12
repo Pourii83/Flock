@@ -7,6 +7,9 @@ import type { User } from '@/lib/types';
 import { chatStore } from './chat-store';
 
 const TOKEN_KEY = 'flock.token';
+/** The signed-in profile, so the app can open without a connection instead of asking to sign in again. */
+const USER_KEY = 'flock.user';
+const RETRY_MS = 15000;
 
 type AuthState = {
   ready: boolean;
@@ -32,6 +35,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const applySession = useCallback(async (nextToken: string | null, nextUser: User | null) => {
     setAuthToken(nextToken);
     await setItem(TOKEN_KEY, nextToken);
+    await setItem(USER_KEY, nextToken && nextUser ? JSON.stringify(nextUser) : null);
     setToken(nextToken);
     setUser(nextUser);
     if (nextToken && nextUser) chatStore.start(nextToken, nextUser);
@@ -42,6 +46,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     setUnauthorizedHandler(() => void logout());
+    let cancelled = false;
+    let retry: ReturnType<typeof setTimeout> | undefined;
     (async () => {
       await loadServerUrl();
       const saved = await getItem(TOKEN_KEY);
@@ -52,12 +58,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } catch (e: any) {
           // Keep the session when the server is merely unreachable; drop it when rejected.
           if (e?.status === 401) await applySession(null, null);
-          else setToken(saved);
+          else {
+            const cached = parseUser(await getItem(USER_KEY));
+            if (cached) {
+              // Offline: open the app as the last known user; the chat socket reconnects by itself
+              // and the profile is refreshed once the server answers.
+              await applySession(saved, cached);
+              const refresh = async () => {
+                if (cancelled) return;
+                try {
+                  const fresh = await api.me();
+                  if (cancelled) return;
+                  setUser(fresh);
+                  chatStore.updateUser(fresh);
+                  await setItem(USER_KEY, JSON.stringify(fresh));
+                } catch (err: any) {
+                  if (err?.status === 401) await applySession(null, null);
+                  else if (!cancelled) retry = setTimeout(refresh, RETRY_MS);
+                }
+              };
+              retry = setTimeout(refresh, RETRY_MS);
+            } else setToken(saved);
+          }
         }
       }
       setReady(true);
     })();
-    return () => setUnauthorizedHandler(null);
+    return () => {
+      cancelled = true;
+      clearTimeout(retry);
+      setUnauthorizedHandler(null);
+    };
   }, [applySession, logout]);
 
   const value = useMemo<AuthState>(
@@ -78,11 +109,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const next = await api.updateMe(patch);
         setUser(next);
         chatStore.updateUser(next);
+        await setItem(USER_KEY, JSON.stringify(next));
       },
       setAvatar: async (base64) => {
         const next = base64 ? await api.setAvatar(base64) : await api.removeAvatar();
         setUser(next);
         chatStore.updateUser(next);
+        await setItem(USER_KEY, JSON.stringify(next));
       },
       changeServer: async (url) => {
         await applySession(null, null);
@@ -93,6 +126,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
+
+function parseUser(raw: string | null): User | null {
+  if (!raw) return null;
+  try {
+    const user = JSON.parse(raw);
+    return user && typeof user.id === 'string' ? (user as User) : null;
+  } catch {
+    return null;
+  }
 }
 
 export function useAuth() {

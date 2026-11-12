@@ -218,7 +218,8 @@ function AccentPicker() {
             width: 46,
             height: 46,
             borderRadius: 23,
-            padding: 3,
+            alignItems: 'center',
+            justifyContent: 'center',
             borderWidth: 2,
             borderColor: pickerOpen ? colors.text : colors.surfaceHigh,
           }}>

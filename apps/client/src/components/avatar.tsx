@@ -107,13 +107,16 @@ const groupColor = (name: string) => {
   return GROUP_COLORS[hash % GROUP_COLORS.length]!;
 };
 
-/** A monochrome megaphone, the channel marker (Feather has none). */
+/** A monochrome hand-held megaphone (bell, mouthpiece and grip), the channel marker (Feather has none). */
 export function MegaphoneIcon({ size = 16, color = colors.text }: { size?: number; color?: string }) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
       <Path
-        d="M3 10v4a1 1 0 0 0 1 1h2l4.2 3.4c.6.5 1.8.1 1.8-.8V6.4c0-.9-1.2-1.3-1.8-.8L6 9H4a1 1 0 0 0-1 1zm12.5-2.2a1 1 0 0 0-.2 1.4 4 4 0 0 1 0 5.6 1 1 0 1 0 1.6 1.2 6 6 0 0 0 0-8 1 1 0 0 0-1.4-.2zm2.6-2.6a1 1 0 0 0-.1 1.4 8 8 0 0 1 0 10.8 1 1 0 1 0 1.5 1.3 10 10 0 0 0 0-13.4 1 1 0 0 0-1.4-.1z"
-        fill={color}
+        d="M3 9.5h3L17 4.5v14L6 13.5H3z M20 3.5v16 M8.5 14.4l1.1 5.6h2.4l-.8-4.5"
+        stroke={color}
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
       />
     </Svg>
   );

@@ -1,5 +1,6 @@
 // App-styled context menu used for message long-press/right-click and sidebar chat menus.
 // Positions itself at the press point, clamped to the window, and closes on a scrim press.
+import type { ReactNode } from 'react';
 import { Modal, Pressable, View, useWindowDimensions } from 'react-native';
 
 import { colors, radius } from '@/theme';
@@ -10,6 +11,8 @@ export type ContextMenuItem = {
   icon?: IconName;
   /** Use the pushpin glyph instead of a Feather icon. */
   pin?: boolean;
+  /** Draws a custom icon in the given color instead of a Feather icon. */
+  glyph?: (color: string) => ReactNode;
   label: string;
   danger?: boolean;
   disabled?: boolean;
@@ -90,7 +93,9 @@ export function ContextMenu({
                 backgroundColor: pressed ? colors.surfaceHighest : hovered ? colors.surfaceHigh : 'transparent',
                 opacity: item.disabled ? 0.4 : 1,
               })}>
-              {item.pin ? (
+              {item.glyph ? (
+                item.glyph(item.danger ? colors.danger : colors.textMuted)
+              ) : item.pin ? (
                 <PushPin size={16} color={item.danger ? colors.danger : colors.textMuted} />
               ) : item.icon ? (
                 <Icon name={item.icon} size={16} color={item.danger ? colors.danger : colors.textMuted} />
