@@ -2,9 +2,7 @@
 
 <div align="center">
 
-<img src="apps/client/assets/images/icon.png" alt="Flock" width="96" />
-
-# Flock
+# <picture><source media="(prefers-color-scheme: dark)" srcset="docs/brand/flock-mark-white.png"><img src="docs/brand/flock-mark-dark.png" alt="" height="36" align="top"></picture> Flock
 
 [![Version](https://img.shields.io/github/v/release/Pourii83/Flock?label=version&color=blue)](https://github.com/Pourii83/Flock/releases)
 [![Build](https://img.shields.io/github/actions/workflow/status/Pourii83/Flock/release.yml?label=build)](https://github.com/Pourii83/Flock/actions/workflows/release.yml)
