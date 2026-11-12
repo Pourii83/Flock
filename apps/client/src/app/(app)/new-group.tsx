@@ -122,7 +122,7 @@ export default function NewGroupScreen() {
 
         <Field
           label={channel ? t('Channel name') : t('Group name')}
-          icon={channel ? 'volume-2' : 'users'}
+          icon={channel ? (color) => <MegaphoneIcon size={18} color={color} /> : 'users'}
           placeholder={channel ? t('e.g. Product news') : t('e.g. Design team')}
           value={name}
           onChangeText={setName}

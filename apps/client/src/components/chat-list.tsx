@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentRef } from 'react';
-import { ActivityIndicator, FlatList, Platform, Pressable, View } from 'react-native';
+import { ActivityIndicator, FlatList, Platform, Pressable, ScrollView, View } from 'react-native';
 
 import { ContextMenu, type ContextMenuItem } from '@/components/context-menu';
 import { ChangelogModal, UpdateBanner } from '@/components/update-banner';
@@ -10,7 +10,7 @@ import type { Conversation } from '@/lib/types';
 import { useAuth } from '@/state/auth';
 import { chatStore, useChat } from '@/state/chat-store';
 import { colors, fonts, radius } from '@/theme';
-import { ConversationAvatar, isSavedConversation } from './avatar';
+import { ConversationAvatar, MegaphoneIcon, isSavedConversation } from './avatar';
 import { Button, Chip, Icon, IconButton, PushPin, SearchBar, T, Tooltip, UnreadBadge } from './ui';
 import { t, num, isRTL } from '@/lib/i18n';
 
@@ -209,7 +209,7 @@ export function ChatList({
   const newChatItems: ContextMenuItem[] = [
     { icon: 'message-square', label: t('New chat'), onPress: onNewChat },
     { icon: 'users', label: t('New group'), onPress: () => router.push('/new-group') },
-    { icon: 'volume-2', label: t('New channel'), onPress: () => router.push({ pathname: '/new-group', params: { kind: 'channel' } }) },
+    { glyph: (color) => <MegaphoneIcon size={16} color={color} />, label: t('New channel'), onPress: () => router.push({ pathname: '/new-group', params: { kind: 'channel' } }) },
   ];
 
   const header = (
@@ -271,12 +271,13 @@ export function ChatList({
         />
       )}
 
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+      {/* One row that scrolls sideways when the chips don't fit, instead of wrapping onto a second line. */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={{ gap: 8 }}>
         <Chip label={t('All')} count={all.length} active={filter === 'all'} onPress={() => setFilter('all')} />
         <Chip label={t('Unread')} dot={unreadCount > 0} active={filter === 'unread'} onPress={() => setFilter('unread')} />
         <Chip label={t('Groups')} count={groupCount} active={filter === 'groups'} onPress={() => setFilter('groups')} />
         <Chip label={t('Channels')} count={channelCount} active={filter === 'channels'} onPress={() => setFilter('channels')} />
-      </View>
+      </ScrollView>
     </View>
   );
 
