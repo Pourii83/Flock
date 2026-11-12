@@ -637,7 +637,8 @@ export function createRouter(realtime) {
     if (!conv) return res.status(404).json({ error: 'This invite link is not valid anymore' });
     const added = await repo.addMembers(conv.id, [req.userId]);
     if (added.length) {
-      await systemMessage(conv.id, req.userId, { e: 'joined-link' });
+      // Channels stay quiet about who joined; groups say it.
+      if (conv.type !== 'channel') await systemMessage(conv.id, req.userId, { e: 'joined-link' });
       await realtime.notifyConversation(conv.id);
     }
     res.json(await repo.getConversation(conv.id, req.userId));
