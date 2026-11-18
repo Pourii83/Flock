@@ -1,6 +1,6 @@
 import Constants from 'expo-constants';
 import { router } from 'expo-router';
-import { useRef, useState, type ComponentRef } from 'react';
+import { useLayoutEffect, useRef, useState, type ComponentRef } from 'react';
 import { Platform, Pressable, ScrollView, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -19,7 +19,7 @@ import { checkServer, isInstalledApp, useServerUrl } from '@/lib/config';
 import { notificationsSupported, requestNotificationPermission, setNotifySetting, useNotifySettings } from '@/lib/notifications';
 import { useAuth } from '@/state/auth';
 import { useChat } from '@/state/chat-store';
-import { markRemount, rememberSettingsScroll, settingsScrollToRestore } from '@/lib/settings-scroll';
+import { markRemount, rememberSettingsScroll, settingsScrollToRestore, settingsRestored } from '@/lib/settings-scroll';
 import { colors, fonts, radius, DEFAULT_ACCENT, setAccent, useAccent } from '@/theme';
 import { t } from '@/lib/i18n';
 
@@ -300,6 +300,36 @@ function NotificationSettings() {
 function SettingsBody() {
   const scrollRef = useRef<ComponentRef<typeof ScrollView>>(null);
   const restored = useRef(false);
+  const viewHeight = useRef(0);
+  // Web: put the page back at its old spot before the first paint, so it never shows the top first.
+  useLayoutEffect(() => {
+    const y = settingsScrollToRestore();
+    if (y <= 0 || Platform.OS !== 'web') return;
+    const node = (scrollRef.current as unknown as { getScrollableNode?: () => HTMLElement } | null)?.getScrollableNode?.();
+    if (!node) return;
+    node.scrollTop = y;
+    if (node.scrollTop >= y - 1) {
+      restored.current = true;
+      settingsRestored();
+      return;
+    }
+    // The screen can mount while still hidden (the app is on its way back to Settings), where a
+    // scroll doesn't stick: keep trying each frame for up to a second.
+    let frame = 0;
+    const started = Date.now();
+    const retry = () => {
+      if (restored.current) return;
+      node.scrollTop = y;
+      if (node.scrollTop >= y - 1 || Date.now() - started > 1000) {
+        restored.current = true;
+        settingsRestored();
+        return;
+      }
+      frame = requestAnimationFrame(retry);
+    };
+    frame = requestAnimationFrame(retry);
+    return () => cancelAnimationFrame(frame);
+  }, []);
   const { user, logout } = useAuth();
   const serverUrl = useServerUrl();
   const connected = useChat((s) => s.connected);
@@ -311,12 +341,22 @@ function SettingsBody() {
       ref={scrollRef}
       scrollEventThrottle={32}
       onScroll={(event) => rememberSettingsScroll(event.nativeEvent.contentOffset.y)}
-      onContentSizeChange={() => {
-        // Right after a repaint-remount, return to where the page was.
+      onContentSizeChange={(_w, height) => {
+        // Right after a repaint-remount, return to where the page was. The page grows as its
+        // sections render, so keep going until it is tall enough to reach the old spot.
         if (restored.current) return;
-        restored.current = true;
         const y = settingsScrollToRestore();
         if (y > 0) scrollRef.current?.scrollTo({ y, animated: false });
+        // Web: trust only where the page really is (an early, shorter layout clamps the scroll).
+        const node = Platform.OS === 'web' ? (scrollRef.current as unknown as { getScrollableNode?: () => HTMLElement } | null)?.getScrollableNode?.() : null;
+        const reached = node ? node.scrollTop >= y - 1 : viewHeight.current > 0 && height - viewHeight.current >= y;
+        if (y <= 0 || reached) {
+          restored.current = true;
+          settingsRestored();
+        }
+      }}
+      onLayout={(event) => {
+        viewHeight.current = event.nativeEvent.layout.height;
       }}
       contentContainerStyle={{ padding: 20, gap: 20, paddingBottom: 24, maxWidth: 720, width: '100%', alignSelf: 'center' }}>
       <Pressable

@@ -13,6 +13,7 @@ import { setBranding, useBranding } from '@/lib/brand';
 import { loadServerUrl } from '@/lib/config';
 import { loadLang, useLang } from '@/lib/i18n';
 import { loadNoisePreference } from '@/lib/noise';
+import { appRevealed } from '@/lib/settings-scroll';
 import { CallProvider } from '@/state/calls';
 import { AuthProvider, useAuth } from '@/state/auth';
 import { colors, loadTheme, useAccent, useThemeMode } from '@/theme';
@@ -71,7 +72,10 @@ function RootStack() {
   useEffect(() => {
     if (!ready || !fontsLoaded || restored.current) return;
     restored.current = true;
-    if (!restoreTo.current || restoreTo.current === '/') return;
+    if (!restoreTo.current || restoreTo.current === '/') {
+      appRevealed(false);
+      return;
+    }
     let reveal: ReturnType<typeof setTimeout> | undefined;
     // Give the fresh navigator a tick to finish mounting, then go back to the captured route.
     const timer = setTimeout(() => {
@@ -80,7 +84,10 @@ function RootStack() {
       } catch {
         // The navigator can briefly be unavailable while it mounts; the user stays on the root.
       }
-      reveal = setTimeout(() => setShown(true), 40);
+      reveal = setTimeout(() => {
+        setShown(true);
+        appRevealed(restoreTo.current === '/settings');
+      }, 40);
     }, 60);
     return () => {
       clearTimeout(timer);
