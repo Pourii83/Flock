@@ -10,6 +10,7 @@ import { meetingLink } from '@/lib/config';
 import { timer } from '@/lib/format';
 import { setImmersive } from '@/lib/immersive';
 import { canSwitchCamera } from '@/lib/native-media';
+import { enterPip, pipSupported, useAutoPip } from '@/lib/pip';
 import { getNoisePreference, strongNoiseSupported } from '@/lib/noise';
 import { setCallChatSounds, setReactionSounds, useCallSoundSettings } from '@/lib/call-sounds';
 import { REACTION_MS, STREAM_PRESETS, useCalls, type CallReaction, type CallRemote, type NetQuality, type StreamFps, type StreamQuality, type VoiceBitrate } from '@/state/calls';
@@ -593,12 +594,18 @@ function ActiveCall() {
     setLinkCopied(true);
     setTimeout(() => setLinkCopied(false), 2000);
   };
-  const canFlip = canSwitchCamera && !call.cameraOff;
+  // The other person's video floats in a small window when the user leaves the tab/app (web).
+  const pipStream = call.remotes.find((r) => (r.video || r.screen) && !!r.stream?.getVideoTracks().length)?.stream ?? null;
+  useAutoPip(pipStream, call.phase === 'active' && !!pipStream);
+  const canPip = pipSupported && !!pipStream;
+  // Front/back toggle: phones (native), and browsers that see more than one camera.
+  const canFlip = (canSwitchCamera || (Platform.OS === 'web' && call.videoDevices.length > 1)) && !call.cameraOff;
   // A chevron on the camera button lists the other cameras (web/desktop with more than one).
   const canSwitchCameras = Platform.OS === 'web' && call.videoDevices.length > 1;
   // Phones keep the essentials in the dock and the rest behind "More". Their buttons shrink a little
   // so six of them plus the hang-up button still fit on a small screen.
-  const dockSize = wide ? 54 : Math.max(36, Math.min(46, Math.floor((windowWidth - 125) / 6)));
+  // With the camera on, phones also get the front/back toggle right in the dock.
+  const dockSize = wide ? 54 : Math.max(34, Math.min(46, Math.floor((windowWidth - 125) / (canFlip ? 7 : 6))));
   const raisedCount = (call.raised ? 1 : 0) + call.raisedBy.length;
   const raisedText =
     raisedCount > 1
@@ -608,7 +615,7 @@ function ActiveCall() {
         : t('{name} raised a hand', { name: call.remotes.find((r) => call.raisedBy.includes(r.userId))?.user?.displayName ?? t('Someone') });
   // Phones keep the essentials in the dock and the rest behind "More".
   const moreItems: MenuItem[] = [
-    ...(canFlip ? [{ icon: 'refresh-ccw' as const, label: t('Switch camera'), onPress: flipCamera }] : []),
+    ...(canPip ? [{ icon: 'minimize-2' as const, label: t('Picture in picture'), onPress: () => void enterPip(pipStream) }] : []),
     { icon: 'monitor', label: call.sharingScreen ? t('Stop sharing') : t('Share screen'), active: call.sharingScreen, onPress: () => void toggleScreenShare() },
     { icon: 'smile', label: t('Reactions'), active: panel === 'reactions', onPress: () => setPanel('reactions') },
     ...(call.isGroup ? [{ hand: true, label: call.raised ? t('Lower hand') : t('Raise hand'), active: call.raised, onPress: toggleRaiseHand }] : []),
@@ -808,7 +815,7 @@ function ActiveCall() {
                   size={dockSize}
                 />
               </View>
-              {wide && canFlip && <DockButton icon="refresh-ccw" active={false} onPress={flipCamera} label={t('Switch camera')} size={dockSize} />}
+              {canFlip && <DockButton icon="refresh-ccw" active={false} onPress={flipCamera} label={t('Switch camera')} size={dockSize} />}
               {wide && (
                 <DockButton icon="monitor" active={call.sharingScreen} onPress={() => void toggleScreenShare()} label={call.sharingScreen ? t('Stop sharing') : t('Share screen')} size={dockSize} />
               )}
@@ -822,6 +829,7 @@ function ActiveCall() {
                   {camOn && (
                     <DockButton icon={selfHidden ? 'eye' : 'eye-off'} active={selfHidden} onPress={() => setSelfHidden((h) => !h)} label={selfHidden ? t('Show my video') : t('Hide my video')} size={dockSize} />
                   )}
+                  {canPip && <DockButton icon="minimize-2" active={false} onPress={() => void enterPip(pipStream)} label={t('Picture in picture')} size={dockSize} />}
                   <View ref={qualRef} collapsable={false}>
                     <DockButton icon="sliders" active={panel === 'quality'} onPress={() => openAt(measureQual, 'quality')} label={t('Call quality')} size={dockSize} />
                   </View>

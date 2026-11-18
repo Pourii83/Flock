@@ -4,6 +4,11 @@ import * as presence from './presence.js';
 import * as repo from './repo.js';
 
 const RING_TIMEOUT_MS = 35_000;
+/**
+ * A participant whose connection dropped (bad network, packet loss) stays in the call this long
+ * before it ends for them: the app tries to reconnect three times, five seconds apart.
+ */
+const RECONNECT_GRACE_MS = 15_000;
 
 export function createRealtime(httpServer, corsOrigin) {
   const io = new Server(httpServer, { cors: { origin: corsOrigin } });
@@ -361,10 +366,33 @@ export function createRealtime(httpServer, corsOrigin) {
       }),
     );
 
+    // Back after a dropped connection: the same call continues on this new connection.
+    socket.on(
+      'call:rejoin',
+      guard(async ({ callId }) => {
+        const c = live.get(callId);
+        if (!c || !c.participants.has(me)) throw new Error('call is no longer available');
+        clearTimeout(c.away?.get(me));
+        c.away?.delete(me);
+        c.participants.set(me, socket.id);
+        return { participants: [...c.participants.keys()].filter((id) => id !== me) };
+      }),
+    );
+
     socket.on('disconnect', () => {
-      // A participant's connection is gone (tab closed, network lost): take them out of their calls.
+      // A participant's connection is gone (tab closed, network lost): they get a short grace period
+      // to come back (call:rejoin) before they are taken out of their calls.
       for (const [callId, c] of live) {
-        if (c.participants.get(me) === socket.id) leaveCall(callId, me, socket.id).catch(console.error);
+        if (c.participants.get(me) !== socket.id) continue;
+        c.away ??= new Map();
+        clearTimeout(c.away.get(me));
+        c.away.set(
+          me,
+          setTimeout(() => {
+            c.away?.delete(me);
+            leaveCall(callId, me, socket.id).catch(console.error);
+          }, RECONNECT_GRACE_MS),
+        );
       }
       if (!guest && presence.disconnect(me)) {
         repo.touchLastSeen(me).catch(console.error);
@@ -421,6 +449,10 @@ export function createRealtime(httpServer, corsOrigin) {
     },
     async notifyRead(conversationId, userId, readAt) {
       await toMembers(conversationId, 'conversation:read', { conversationId, userId, readAt });
+    },
+    /** One of my per-user markers moved: my other devices follow. */
+    notifyMark(userId, key, value) {
+      io.to(userRoom(userId)).emit('mark', { key, value });
     },
     async notifyConversation(conversationId) {
       for (const uid of await repo.memberIds(conversationId)) {

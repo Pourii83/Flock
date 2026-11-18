@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -38,7 +38,10 @@ function expiryLabel(expiresAt: number | null) {
 /** Meeting link landing page: members join with their account, anyone else picks a name. */
 export default function MeetScreen() {
   const { code } = useLocalSearchParams<{ code: string }>();
-  const { user } = useAuth();
+  const { user, token } = useAuth();
+  // Signed in, but joining under another name without the account (e.g. to test a guest link).
+  const [asGuest, setAsGuest] = useState(false);
+  const guestMode = !user || asGuest;
   const { call, joinRoom } = useCalls();
   const [room, setRoom] = useState<PublicRoom | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -64,16 +67,24 @@ export default function MeetScreen() {
     };
   }, [code, reload, left]);
 
-  // Guests have no app behind the meeting: drop the guest connection when the page goes away.
+  // Guests have no app behind the meeting: drop the guest connection when the page goes away, and
+  // a signed-in user who joined as a guest gets their own account connection back.
+  const sessionRef = useRef({ user, token });
+  useEffect(() => {
+    sessionRef.current = { user, token };
+  }, [user, token]);
   useEffect(() => () => {
-    if (chatStore.state.guest) chatStore.stop();
+    if (!chatStore.state.guest) return;
+    chatStore.stop();
+    const { user: me, token: myToken } = sessionRef.current;
+    if (me && myToken) chatStore.start(myToken, me);
   }, []);
 
   const join = async () => {
     setBusy(true);
     setError(null);
     try {
-      if (!user) {
+      if (guestMode) {
         let token = guestToken;
         if (!token) {
           if (name.trim().length < 2) throw new Error(t('Enter your name to join'));
@@ -81,7 +92,7 @@ export default function MeetScreen() {
           token = res.token;
           setGuestToken(token);
           chatStore.startGuest(token, res.user);
-        } else if (!chatStore.socket) {
+        } else if (!chatStore.socket || !chatStore.state.guest) {
           chatStore.startGuest(token, chatStore.state.guest!);
         }
       }
@@ -157,7 +168,7 @@ export default function MeetScreen() {
                   {expiryLabel(room.expiresAt)}
                 </T>
               </View>
-              {!user && !guestToken && (
+              {guestMode && !guestToken && (
                 <Field
                   label={t('Your name')}
                   icon="user"
@@ -176,7 +187,7 @@ export default function MeetScreen() {
                 </T>
               )}
               <Button
-                title={user ? t('Join as {name}', { name: user.displayName }) : t('Join meeting')}
+                title={user && !asGuest ? t('Join as {name}', { name: user.displayName }) : t('Join meeting')}
                 icon="video"
                 size="lg"
                 loading={busy}
@@ -184,6 +195,16 @@ export default function MeetScreen() {
               />
               {!user && (
                 <Button title={t('I have an account — sign in')} variant="ghost" onPress={() => router.push('/login')} />
+              )}
+              {!!user && !guestToken && (
+                <Button
+                  title={asGuest ? t('Join with my account instead') : t('Join as a guest instead')}
+                  variant="ghost"
+                  onPress={() => {
+                    setAsGuest((v) => !v);
+                    setError(null);
+                  }}
+                />
               )}
             </>
           ) : null}

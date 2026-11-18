@@ -50,6 +50,12 @@ sudo flockctl
 
 Want to look around first? Try the [live demo](https://app.flock.beer); its data is reset every day.
 
+### Cloud hosting
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/Pourii83/Flock)
+
+The Render button creates the Flock server and its PostgreSQL database from [`render.yaml`](render.yaml). On Railway, create a service from this repository, set its root directory to `server` (it builds from [`server/railway.json`](server/railway.json)), add a PostgreSQL database and set `DATABASE_URL` and `JWT_SECRET`. Either way you get the server only: use it from the apps or the web app by typing its address. On free plans uploaded files don't survive a redeploy, and calls use public STUN only.
+
 ## Documentation
 
 Full documentation lives at [docs.flock.beer](https://docs.flock.beer):

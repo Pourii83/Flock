@@ -16,7 +16,7 @@ import { meetingLink } from '@/lib/config';
 import type { CallLog, Room } from '@/lib/types';
 import { useCalls } from '@/state/calls';
 import { getItem, setItem } from '@/lib/storage';
-import { chatStore, useChat } from '@/state/chat-store';
+import { chatStore, useChat, useMark } from '@/state/chat-store';
 import { colors, radius } from '@/theme';
 import { t } from '@/lib/i18n';
 
@@ -215,8 +215,9 @@ function MeetingsCard() {
       )}
 
       {rooms?.map((room) => (
-        <View key={room.id} style={{ gap: 10, padding: 12, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.surfaceHigh }}>
-          <View style={{ gap: 2 }}>
+        // Name and expiry on the left, actions beside them; a stronger border so each link stands out.
+        <View key={room.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.surfaceHighest, backgroundColor: colors.canvas }}>
+          <View style={{ gap: 2, flex: 1, minWidth: 0 }}>
             <T variant="labelLg" numberOfLines={1}>
               {room.title || t('Meeting')}
             </T>
@@ -224,7 +225,7 @@ function MeetingsCard() {
               {untilLabel(room.expiresAt)}
             </T>
           </View>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+          <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center', flexShrink: 0 }}>
             {/* Compact icon actions with tooltips so the three actions fit on one line. */}
             <View
               style={{
@@ -234,8 +235,8 @@ function MeetingsCard() {
                 padding: 3,
                 borderRadius: radius.pill,
                 borderWidth: 1,
-                borderColor: colors.surfaceHigh,
-                backgroundColor: colors.canvas,
+                borderColor: colors.surfaceHighest,
+                backgroundColor: colors.surface,
               }}>
               <Tooltip label={copied === room.id ? t('Copied') : t('Copy link')} style={{ alignSelf: 'center' }}>
                 <IconButton
@@ -370,8 +371,12 @@ function CallsList() {
   const missed = calls?.filter((c) => c.missed) ?? [];
   const data = filter === 'missed' ? missed : (calls ?? []);
 
-  // Each tab's badge counts only calls newer than the last time that tab was looked at.
-  const [seen, setSeen] = useState<{ all: number; missed: number } | null>(null);
+  // Each tab's badge counts only calls newer than the last time that tab was looked at. The markers
+  // live on the server, so looking at the list on one device clears the badge on the others.
+  const seenAllMark = useMark('callsSeenAll');
+  const seenMissedMark = useMark('callsSeenMissed');
+  const [local, setLocal] = useState<{ all: number; missed: number } | null>(null);
+  const seen = local ? { all: Math.max(local.all, seenAllMark), missed: Math.max(local.missed, seenMissedMark) } : null;
   const [focused, setFocused] = useState(true);
   useFocusEffect(
     useCallback(() => {
@@ -381,8 +386,14 @@ function CallsList() {
   );
   useEffect(() => {
     let alive = true;
+    // Markers from before they were kept on the server: move them there once.
     Promise.all([getItem(SEEN_ALL_KEY), getItem(SEEN_MISSED_KEY)]).then(([a, m]) => {
-      if (alive) setSeen({ all: Number(a) || 0, missed: Number(m) || 0 });
+      if (!alive) return;
+      const all = Number(a) || 0;
+      const missedAt = Number(m) || 0;
+      setLocal({ all, missed: missedAt });
+      if (all) chatStore.setMark('callsSeenAll', all);
+      if (missedAt) chatStore.setMark('callsSeenMissed', missedAt);
     });
     return () => {
       alive = false;
@@ -392,8 +403,9 @@ function CallsList() {
     if (!seen || !focused || calls === null) return;
     const newest = data.reduce((max, c) => Math.max(max, c.startedAt), 0);
     if (newest <= seen[filter]) return;
-    setSeen({ ...seen, [filter]: newest });
+    setLocal((prev) => (prev ? { ...prev, [filter]: newest } : prev));
     void setItem(filter === 'all' ? SEEN_ALL_KEY : SEEN_MISSED_KEY, String(newest));
+    chatStore.setMark(filter === 'all' ? 'callsSeenAll' : 'callsSeenMissed', newest);
   }, [seen, focused, calls, data, filter]);
   const unseenAll = seen ? (calls ?? []).filter((c) => c.startedAt > seen.all).length : 0;
   const unseenMissed = seen ? missed.filter((c) => c.startedAt > seen.missed).length : 0;

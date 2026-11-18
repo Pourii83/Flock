@@ -4,6 +4,7 @@ import { ActivityIndicator, FlatList, Platform, Pressable, ScrollView, View } fr
 
 import { ContextMenu, type ContextMenuItem } from '@/components/context-menu';
 import { ChangelogModal, UpdateBanner } from '@/components/update-banner';
+import { useDraft, useDraftTimes } from '@/lib/drafts';
 import { shortTime } from '@/lib/format';
 import { systemText } from '@/lib/system-message';
 import type { Conversation } from '@/lib/types';
@@ -26,7 +27,14 @@ function pressPoint(event: any): { x: number; y: number } {
 }
 
 function useFilteredConversations(query: string, filter: Filter) {
-  const conversations = useChat((s) => s.conversations);
+  const all = useChat((s) => s.conversations);
+  const draftTimes = useDraftTimes();
+  // A chat with an unsent draft moves up to when the draft was started (pinned chats stay first).
+  const conversations = useMemo(() => {
+    if (!Object.keys(draftTimes).length) return all;
+    const at = (c: Conversation) => Math.max(c.updatedAt, draftTimes[c.id] ?? 0);
+    return [...all].sort((a, b) => Number(b.pinned) - Number(a.pinned) || at(b) - at(a));
+  }, [all, draftTimes]);
   return useMemo(() => {
     const q = query.trim().toLowerCase();
     return conversations.filter((c) => {
@@ -43,11 +51,20 @@ function useFilteredConversations(query: string, filter: Filter) {
   }, [conversations, query, filter]);
 }
 
-function Preview({ c, meId, typing }: { c: Conversation; meId?: string; typing: boolean }) {
+function Preview({ c, meId, typing, draft }: { c: Conversation; meId?: string; typing: boolean; draft?: string }) {
   if (typing)
     return (
       <T variant="body" color={colors.amberText} numberOfLines={1} style={{ flex: 1 }}>
         {t('typing…')}
+      </T>
+    );
+  if (draft)
+    return (
+      <T variant="body" color={colors.textMuted} numberOfLines={1} style={{ flex: 1, fontSize: 15 }}>
+        <T variant="body" color={colors.danger} style={{ fontSize: 15 }}>
+          {`${t('Draft:')} `}
+        </T>
+        {draft.replace(/\s+/g, ' ')}
       </T>
     );
   const m = c.lastMessage;
@@ -63,7 +80,7 @@ function Preview({ c, meId, typing }: { c: Conversation; meId?: string; typing: 
         {systemText(m.body)}
       </T>
     );
-  const preview = m.kind === 'file' ? t('File: {name}', { name: m.attachment?.name ?? t('File') }) : m.kind === 'call_invite' ? t('Group call invitation') : m.body;
+  const preview = m.kind === 'file' && m.attachment?.mimeType.startsWith('audio/') ? `🎤 ${t('Voice message')}` : m.kind === 'file' ? t('File: {name}', { name: m.attachment?.name ?? t('File') }) : m.kind === 'call_invite' ? t('Group call invitation') : m.body;
   const mine = m.senderId === meId;
   const read = mine && c.othersReadAt >= m.createdAt;
   const sender = c.type === 'group' && !mine ? `${c.members.find((u) => u.id === m.senderId)?.displayName.split(' ')[0]}: ` : '';
@@ -92,6 +109,8 @@ export function ChatRow({
 }) {
   const { user } = useAuth();
   const typing = useChat((s) => (s.typing[c.id]?.length ?? 0) > 0);
+  // The open chat shows its draft in its own composer; every other chat shows it here.
+  const draft = useDraft(c.id);
   const unread = c.unreadCount > 0;
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const name = isSavedConversation(c) ? t('Saved Messages') : c.name;
@@ -146,7 +165,7 @@ export function ChatRow({
             </T>
           </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <Preview c={c} meId={user?.id} typing={typing} />
+            <Preview c={c} meId={user?.id} typing={typing} draft={selected ? undefined : draft.trim() || undefined} />
             <UnreadBadge count={c.unreadCount} style={c.muted ? { backgroundColor: colors.surfaceHighest } : undefined} />
           </View>
         </View>

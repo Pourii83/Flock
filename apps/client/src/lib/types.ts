@@ -93,7 +93,8 @@ export type Conversation = {
   isSaved?: boolean;
   name: string;
   /** Members carry their group role (groups only). */
-  members: (User & { role?: GroupRole })[];
+  /** readAt: how far that member has read this conversation (ms). */
+  members: (User & { role?: GroupRole; readAt?: number })[];
   description: string;
   /** Group photo (server-relative), or null. */
   avatarUrl: string | null;

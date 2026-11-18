@@ -8,6 +8,8 @@ import { decryptText, encryptText, forgetLoadedDevice, loadDevice, onDeviceChang
 import { callPreview, parseCallLog } from '@/lib/call-log';
 import type { Conversation, Message, Reaction, User, ActiveCall } from '@/lib/types';
 import { t } from '@/lib/i18n';
+import { notifyMessage } from '@/lib/notifications';
+import { systemText } from '@/lib/system-message';
 
 type State = {
   connected: boolean;
@@ -23,6 +25,10 @@ type State = {
   pinned: Record<string, Message | null>;
   /** Which conversations already had their pinned message fetched. */
   pinnedLoaded: Record<string, boolean>;
+  /** conversationId -> every pinned message, newest pin first (the banner steps through them). */
+  pinnedList: Record<string, Message[]>;
+  /** Markers shared by all my devices (e.g. the newest missed call I looked at). */
+  marks: Record<string, number>;
   /** Set while a meeting guest (no account) is connected only for a meeting room. */
   guest: User | null;
 };
@@ -37,6 +43,8 @@ const initialState = (): State => ({
   activeCalls: {},
   pinned: {},
   pinnedLoaded: {},
+  pinnedList: {},
+  marks: {},
   guest: null,
 });
 
@@ -82,7 +90,9 @@ class ChatStore {
     socket.on('connect', () => {
       this.set({ connected: true });
       this.refreshConversations();
+      api.marks().then((marks) => this.set((s) => ({ marks: mergeMarks(s.marks, marks) })), () => {});
     });
+    socket.on('mark', ({ key, value }: { key: string; value: number }) => this.set((s) => ({ marks: mergeMarks(s.marks, { [key]: value }) })));
     socket.on('disconnect', () => this.set({ connected: false }));
     socket.on('message:new', (m: Message) => this.receiveMessage(m));
     socket.on('message:updated', (payload: { conversationId?: string; message?: Message } | Message) =>
@@ -104,9 +114,16 @@ class ChatStore {
       }),
     );
     socket.on('conversation:read', ({ conversationId, userId, readAt }) => {
-      if (userId === this.me?.id) return;
+      // I read it on another device: this one drops the unread count too.
+      if (userId === this.me?.id) {
+        this.patchConversation(conversationId, (c) =>
+          c.unreadCount && (!c.lastMessage || c.lastMessage.createdAt <= readAt) ? { unreadCount: 0 } : {},
+        );
+        return;
+      }
       this.patchConversation(conversationId, (c) => ({
         othersReadAt: c.type === 'direct' ? readAt : Math.max(c.othersReadAt, readAt),
+        members: c.members.map((m) => (m.id === userId ? { ...m, readAt } : m)),
       }));
     });
     socket.on('typing', ({ conversationId, userId, typing }) => this.setTyping(conversationId, userId, typing));
@@ -298,12 +315,12 @@ class ChatStore {
     if (this.state.pinnedLoaded[conversationId] && !force) return;
     try {
       const list = (await api.pinnedMessages(conversationId)).map((m) => this.reveal(m));
-      const latest = [...list].sort(
-        (a, b) => (b.pinnedAt ?? b.createdAt) - (a.pinnedAt ?? a.createdAt),
-      )[0];
+      const sorted = [...list].sort((a, b) => (b.pinnedAt ?? b.createdAt) - (a.pinnedAt ?? a.createdAt));
+      const latest = sorted[0];
       this.set((s) => ({
         pinned: { ...s.pinned, [conversationId]: latest ?? null },
         pinnedLoaded: { ...s.pinnedLoaded, [conversationId]: true },
+        pinnedList: { ...s.pinnedList, [conversationId]: sorted },
       }));
       if (latest) this.upsertMessage(latest);
     } catch {
@@ -336,6 +353,15 @@ class ChatStore {
       pinned: { ...s.pinned, [conversationId]: message },
       pinnedLoaded: { ...s.pinnedLoaded, [conversationId]: true },
     }));
+    // The full list (for stepping through several pins) comes from the server.
+    void this.loadPinned(conversationId, true);
+  }
+
+  /** Moves one of my shared markers forward on every device. */
+  setMark(key: string, value: number) {
+    if ((this.state.marks[key] ?? 0) >= value) return;
+    this.set((s) => ({ marks: { ...s.marks, [key]: value } }));
+    api.setMark(key, value).catch(() => {});
   }
 
   /** Applies an edited message or a server-side field change to the loaded list. */
@@ -426,13 +452,15 @@ class ChatStore {
   /** Saves an edited body; secret chats re-encrypt for the peer device like send() does. */
   async editMessage(message: Message, body: string) {
     const trimmed = body.trim();
-    if (!trimmed) throw new Error(t('Message is empty'));
+    // A photo/file may lose its caption; the server shows the file name instead.
+    if (!trimmed && message.kind !== 'file') throw new Error(t('Message is empty'));
     const conversation = this.state.conversations.find((c) => c.id === message.conversationId);
     const status = conversation ? secretStatus(conversation, this.me?.id) : null;
     const wire = status?.state === 'ready' ? encryptText(trimmed, status.peerKey) : trimmed;
     const updated = await api.editMessage(message.id, wire);
     const editedAt = updated.editedAt ?? Date.now();
-    this.patchMessage(message.conversationId, message.id, () => ({ body: trimmed, editedAt }));
+    const shown = message.kind === 'file' ? updated.body : trimmed;
+    this.patchMessage(message.conversationId, message.id, () => ({ body: shown, editedAt }));
     const known = this.messageById(message.conversationId, message.id);
     if (known && this.state.conversations.find((c) => c.id === message.conversationId)?.lastMessage?.id === message.id) {
       this.patchConversation(message.conversationId, () => ({ lastMessage: { ...known, body: trimmed } }));
@@ -505,6 +533,27 @@ class ChatStore {
     }));
     this.setTyping(m.conversationId, m.senderId, false);
     if (viewing && !mine) api.markRead(m.conversationId).catch(() => {});
+    if (!mine && m.kind !== 'call') {
+      const c = this.state.conversations.find((x) => x.id === m.conversationId)!;
+      const text =
+        m.kind === 'file' && m.attachment?.mimeType.startsWith('audio/')
+          ? `🎤 ${t('Voice message')}`
+          : m.kind === 'file'
+          ? `📎 ${m.body && m.body !== m.attachment?.name ? m.body : (m.attachment?.name ?? t('File'))}`
+          : m.kind === 'system'
+            ? systemText(m.body)
+            : m.kind === 'call_invite'
+              ? t('Group call invitation')
+              : m.body;
+      notifyMessage({
+        conversationId: c.id,
+        title: c.name,
+        sender: c.type === 'group' && m.kind !== 'system' ? this.memberName(c.id, m.senderId) : null,
+        text,
+        open: viewing,
+        muted: c.muted,
+      });
+    }
   }
 
   async send(conversationId: string, body: string, replyTo?: Message | null) {
@@ -661,3 +710,11 @@ export const useConversation = (id: string | undefined) =>
 export const useMessages = (id: string) => useChat((s) => s.messages[id] ?? EMPTY);
 export const useTyping = (id: string) => useChat((s) => s.typing[id] ?? EMPTY);
 export const usePinned = (id: string) => useChat((s) => s.pinned[id] ?? null);
+export const usePinnedList = (id: string) => useChat((s) => s.pinnedList[id] ?? EMPTY);
+export const useMark = (key: string) => useChat((s) => s.marks[key] ?? 0);
+
+function mergeMarks(a: Record<string, number>, b: Record<string, number>) {
+  const out = { ...a };
+  for (const [k, v] of Object.entries(b)) out[k] = Math.max(out[k] ?? 0, Number(v) || 0);
+  return out;
+}
