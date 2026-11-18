@@ -162,10 +162,11 @@ export async function migrate() {
       value BIGINT NOT NULL,
       PRIMARY KEY (user_id, key)
     );
-    -- Channels don't announce who joined; drop the notices older servers wrote.
+    -- Channels don't announce membership changes (joins, adds, removals, admins); drop the notices
+    -- older servers wrote.
     DELETE FROM messages m USING conversations c
     WHERE m.conversation_id = c.id AND c.type = 'channel' AND m.kind = 'system'
-      AND m.body LIKE '{"e":"joined-link"%';
+      AND m.body ~ '^[{]"e":"(joined-link|added|removed|left|promoted|demoted|transferred|owner)"';
     -- Existing groups: the creator (or, if they left, the earliest member) becomes the owner.
     UPDATE members m SET role = 'owner'
     FROM (

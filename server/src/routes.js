@@ -609,8 +609,13 @@ export function createRouter(realtime) {
 
   // ---------- groups: profile, members, roles ----------
 
+  const CHANNEL_SILENT_EVENTS = new Set(['joined-link', 'added', 'removed', 'left', 'promoted', 'demoted', 'transferred', 'owner']);
+
   /** Writes a system message (rendered/translated by the clients) and pushes it live. */
   async function systemMessage(conversationId, actorId, payload) {
+    // Channels don't announce who came, went or became an admin: subscribers only see the channel's
+    // own changes (created, renamed, description, photo).
+    if (CHANNEL_SILENT_EVENTS.has(payload.e) && (await repo.getConversationRow(conversationId))?.type === 'channel') return;
     const actor = await repo.getUserRow(actorId);
     const message = await repo.addMessage(conversationId, actorId, {
       kind: 'system',
