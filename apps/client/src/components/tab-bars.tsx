@@ -8,7 +8,7 @@ import { useChat } from '@/state/chat-store';
 import { colors, radius } from '@/theme';
 import { AppInfoDialog } from './app-info-dialog';
 import { Avatar } from './avatar';
-import { FlockTile } from './logo';
+import { FlockMark } from './logo';
 import { ServerUpdateButton } from './server-update';
 import { Icon, T, Tooltip, UnreadBadge, type IconName } from './ui';
 import { t } from '@/lib/i18n';
@@ -57,8 +57,9 @@ export function RailTabBar(props: BottomTabBarProps) {
             accessibilityRole="button"
             accessibilityLabel={t('About {name}', { name: t('Flock') })}
             onPress={() => setAbout(true)}
-            style={({ hovered }: any) => ({ borderRadius: radius.lg, opacity: hovered ? 0.9 : 1 })}>
-            <FlockTile size={52} />
+            style={({ hovered }: any) => ({ width: 52, height: 52, alignItems: 'center', justifyContent: 'center', borderRadius: radius.lg, opacity: hovered ? 0.8 : 1 })}>
+            {/* Just the birds, no tile behind them, in the text color so they show on either theme. */}
+            <FlockMark size={40} tint={colors.text} />
           </Pressable>
         </Tooltip>
         <View style={{ gap: 14, alignItems: 'center' }}>

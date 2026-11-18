@@ -2101,8 +2101,10 @@ function Composer({
             borderRadius: desktop ? radius.lg : 26,
             borderWidth: 1.5,
             borderColor: colors.surfaceHigh,
-            paddingLeft: desktop ? 8 : 20,
-            paddingRight: 8,
+            // A recording or a ready clip fills the box edge to edge, with even space on both sides.
+            // (the delete button's side gets less, the waveform's end a little more; RTL mirrors it).
+            paddingLeft: voice.recording || voiceClip ? (isRTL() ? 14 : 6) : desktop ? 8 : 20,
+            paddingRight: voice.recording || voiceClip ? (isRTL() ? 6 : 14) : 8,
             minHeight: 52,
           }}>
           {/* Every icon sits in a box as tall as one line of text, so it lines up with the text on

@@ -7,7 +7,7 @@ import { useChat } from '@/state/chat-store';
 import { colors, radius } from '@/theme';
 import { AppInfoDialog } from './app-info-dialog';
 import { Avatar } from './avatar';
-import { FlockTile } from './logo';
+import { FlockMark } from './logo';
 import { ServerUpdateButton } from './server-update';
 import { Icon, IconButton, T, Tooltip } from './ui';
 import { t } from '@/lib/i18n';
@@ -70,7 +70,7 @@ export function MobileHeader({ onSearch }: { onSearch?: () => void }) {
           borderRadius: radius.lg,
           backgroundColor: hovered ? colors.surface : 'transparent',
         })}>
-        <FlockTile size={34} />
+        <FlockMark size={32} tint={colors.text} />
         <T variant="headlineSm" style={{ fontSize: 24 }}>
           {t('Flock')}
         </T>

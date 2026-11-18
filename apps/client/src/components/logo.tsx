@@ -6,9 +6,9 @@ import { colors } from '@/theme';
 
 const MARK = require('@/assets/images/flock-mark.png');
 
-/** The app mark: three white birds flying together. */
-export function FlockMark({ size = 32 }: { size?: number }) {
-  return <Image source={MARK} style={{ width: size, height: size }} contentFit="contain" accessibilityLabel={getAppName()} />;
+/** The app mark: three white birds flying together. `tint` recolors it (e.g. the text color, so it shows on a light theme). */
+export function FlockMark({ size = 32, tint }: { size?: number; tint?: string }) {
+  return <Image source={MARK} style={{ width: size, height: size }} contentFit="contain" tintColor={tint} accessibilityLabel={getAppName()} />;
 }
 
 /** Mark inside the dark rounded tile, optionally with the ambient accent glow. */
