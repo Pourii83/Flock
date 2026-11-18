@@ -20,7 +20,7 @@ import { clock, dayDivider, dayAndTime, lastSeenLabel, sameDay } from '@/lib/for
 import { attachmentSource, openAttachment } from '@/lib/attachments';
 import { VideoThumb } from './video-thumb';
 import { VoicePlayer } from './voice-player';
-import { canRecordVoice, useVoiceRecorder, type VoiceClip } from '@/lib/voice-recorder';
+import { canRecordVoice, microphoneAllowed, useVoiceRecorder, type VoiceClip } from '@/lib/voice-recorder';
 import { SECRET_FILE_MAX_MB, useSealedUrl } from '@/lib/sealed-files';
 import { api } from '@/lib/api';
 import { callLine, parseCallLog } from '@/lib/call-log';
@@ -1615,6 +1615,20 @@ function Composer({
     if (!showMic) return;
     holding.current = true;
     heldPress.current = true;
+    // First use: the permission prompt would cut the hold short, so this touch only asks for it.
+    try {
+      if (!(await microphoneAllowed())) {
+        holding.current = false;
+        setUploadError(t('Microphone allowed. Now hold the button to record.'));
+        return;
+      }
+    } catch {
+      holding.current = false;
+      setUploadError(t('The microphone isn’t available. Allow it in the browser and try again.'));
+      return;
+    }
+    if (!holding.current) return;
+    setUploadError('');
     await startVoice();
     // Let go before the microphone was ready: end right away (too short, so nothing is kept).
     if (!holding.current) void stopToPreview();
@@ -1622,6 +1636,11 @@ function Composer({
   const endHold = () => {
     holding.current = false;
     if (voice.recording) void stopToPreview();
+    // The click that may follow this release must not send; one that never comes (a long touch
+    // has none) mustn't swallow the next real tap either.
+    setTimeout(() => {
+      heldPress.current = false;
+    }, 400);
   };
   const startVoice = async () => {
     setUploadError('');
@@ -2191,6 +2210,13 @@ function Composer({
             onPress={mainAction}
             onPressIn={showMic ? () => void startHold() : undefined}
             onPressOut={showMic || voice.recording ? endHold : undefined}
+            // A long touch fires the browser's context menu, which would end the press (and the
+            // recording) after half a second; handling the long press keeps it going. A finger that
+            // drifts a little mustn't cancel it either.
+            onLongPress={showMic || voice.recording ? () => {} : undefined}
+            delayLongPress={300}
+            cancelable={!(showMic || voice.recording)}
+            {...(Platform.OS === 'web' ? ({ onContextMenu: (e: any) => e.preventDefault?.() } as object) : {})}
             disabled={!mainEnabled}
             accessibilityLabel={voice.recording ? t('Send voice message') : showMic ? t('Record a voice message') : editing ? t('Save changes') : t('Send')}
             style={({ pressed }) => ({
@@ -2205,6 +2231,8 @@ function Composer({
               shadowColor: colors.amber,
               shadowOpacity: mainEnabled ? 0.4 : 0,
               shadowRadius: 12,
+              // No text selection, callout menu or scrolling from a held finger.
+              ...(Platform.OS === 'web' ? ({ userSelect: 'none', WebkitUserSelect: 'none', WebkitTouchCallout: 'none', touchAction: 'none' } as object) : {}),
             })}>
             {savingEdit ? <ActivityIndicator color={colors.onAmber} /> : <Icon name={mainIcon} size={22} color={colors.canvas} />}
           </Pressable>

@@ -16,6 +16,25 @@ function pickMime() {
 }
 
 /** waveform: the loudness bars measured from the recording (sent with the message). */
+/**
+ * Phones: the browser's permission prompt would interrupt a held finger, so the first touch only asks
+ * for the microphone. Resolves true when it is already allowed.
+ */
+export async function microphoneAllowed(): Promise<boolean> {
+  try {
+    const status = await (navigator as any).permissions?.query({ name: 'microphone' });
+    if (status?.state === 'granted') return true;
+    if (status?.state === 'denied') throw new Error('denied');
+  } catch (e) {
+    if (e instanceof Error && e.message === 'denied') throw e;
+    // No Permissions API for the microphone (some browsers): just try to record.
+    return true;
+  }
+  const mic = await navigator.mediaDevices.getUserMedia({ audio: true });
+  mic.getTracks().forEach((track) => track.stop());
+  return false;
+}
+
 export type VoiceClip = { file: File; seconds: number; waveform: string | null };
 
 export function useVoiceRecorder() {

@@ -852,6 +852,7 @@ const fa: Record<string, string> = {
   'Hold the microphone button to record': 'برای ضبط، دکمه‌ی میکروفون را نگه دارید',
   'Recording… let go to finish': 'در حال ضبط… برای پایان رها کنید',
   'Delete recording': 'حذف ضبط',
+  'Microphone allowed. Now hold the button to record.': 'میکروفون مجاز شد. حالا برای ضبط دکمه را نگه دارید.',
   'Files in secret chats can be up to 50 MB': 'فایل‌های چت مخفی حداکثر ۵۰ مگابایت هستند',
   'This file could not be decrypted': 'این فایل باز (رمزگشایی) نشد',
   'Decrypting…': 'در حال رمزگشایی…',
