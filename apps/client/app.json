@@ -75,6 +75,7 @@
         }
       ],
       "./plugins/with-webrtc-screen-share",
+      "./plugins/with-android-pip",
       "expo-localization",
       "expo-sharing",
       "expo-video"

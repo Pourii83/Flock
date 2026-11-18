@@ -11,6 +11,7 @@ import { timer } from '@/lib/format';
 import { setImmersive } from '@/lib/immersive';
 import { canSwitchCamera } from '@/lib/native-media';
 import { enterPip, pipAvailable, useAutoPip } from '@/lib/pip';
+import { enterNativePip, nativePipSupported, useInNativePip, useNativeAutoPip } from '@/lib/native-pip';
 import { getNoisePreference, strongNoiseSupported } from '@/lib/noise';
 import { setCallChatSounds, setReactionSounds, useCallSoundSettings } from '@/lib/call-sounds';
 import { REACTION_MS, STREAM_PRESETS, useCalls, type CallReaction, type CallRemote, type NetQuality, type StreamFps, type StreamQuality, type VoiceBitrate } from '@/state/calls';
@@ -65,7 +66,13 @@ function callName(call: { isGroup: boolean; title: string; peer: User | null }, 
 
 export function CallOverlay() {
   const { call } = useCalls();
+  // Android app: during a video call, leaving the app floats it in a small window (like Meet).
+  const remoteVideo = call.remotes.find((r) => (r.video || r.screen) && !!r.stream?.getVideoTracks().length);
+  const myVideo = !call.cameraOff && !!call.localStream?.getVideoTracks().length;
+  useNativeAutoPip(call.phase === 'active' && (!!remoteVideo || myVideo), !!remoteVideo?.screen);
+  const inPip = useInNativePip();
   if (call.phase === 'idle') return null;
+  if (inPip && call.phase === 'active') return <PipCall />;
   const minimized = call.phase === 'active' && call.minimized;
   return (
     <View style={[StyleSheet.absoluteFill, { zIndex: 100 }]} pointerEvents="box-none">
@@ -86,6 +93,23 @@ export function CallOverlay() {
             volume={call.speakerMuted ? 0 : (r.volume ?? 1)}
           />
         ))}
+    </View>
+  );
+}
+
+/** What the floating Android window shows: just the other person's video (or mine, or their picture). */
+function PipCall() {
+  const { call } = useCalls();
+  const remote = call.remotes.find((r) => (r.video || r.screen) && !!r.stream?.getVideoTracks().length);
+  const stream = remote?.stream ?? (!call.cameraOff ? call.localStream : null);
+  const person = remote?.user ?? call.remotes[0]?.user ?? call.peer;
+  return (
+    <View style={[StyleSheet.absoluteFill, { zIndex: 100, backgroundColor: '#000', alignItems: 'center', justifyContent: 'center' }]}>
+      {stream ? (
+        <VideoView key={`pip-${call.mediaVersion}-${stream.id}`} stream={stream} mirror={!remote && call.frontCamera} contain={!!remote?.screen} />
+      ) : (
+        <Avatar user={person} size={64} showPresence={false} />
+      )}
     </View>
   );
 }
@@ -597,7 +621,7 @@ function ActiveCall() {
   // The other person's video floats in a small window when the user leaves the tab/app (web).
   const pipStream = call.remotes.find((r) => (r.video || r.screen) && !!r.stream?.getVideoTracks().length)?.stream ?? null;
   useAutoPip(pipStream, call.phase === 'active' && !!pipStream);
-  const canPip = pipAvailable && !!pipStream;
+  const canPip = (pipAvailable && !!pipStream) || (nativePipSupported && (!!pipStream || camOn));
   // Front/back toggle: phones (native), and browsers that see more than one camera.
   const canFlip = (canSwitchCamera || (Platform.OS === 'web' && call.videoDevices.length > 1)) && !call.cameraOff;
   // A chevron on the camera button lists the other cameras (web/desktop with more than one).
@@ -615,7 +639,7 @@ function ActiveCall() {
         : t('{name} raised a hand', { name: call.remotes.find((r) => call.raisedBy.includes(r.userId))?.user?.displayName ?? t('Someone') });
   // Phones keep the essentials in the dock and the rest behind "More".
   const moreItems: MenuItem[] = [
-    ...(canPip ? [{ icon: 'minimize-2' as const, label: t('Picture in picture'), onPress: () => void enterPip(pipStream) }] : []),
+    ...(canPip ? [{ icon: 'minimize-2' as const, label: t('Picture in picture'), onPress: () => (nativePipSupported ? void enterNativePip() : void enterPip(pipStream)) }] : []),
     { icon: 'monitor', label: call.sharingScreen ? t('Stop sharing') : t('Share screen'), active: call.sharingScreen, onPress: () => void toggleScreenShare() },
     { icon: 'smile', label: t('Reactions'), active: panel === 'reactions', onPress: () => setPanel('reactions') },
     ...(call.isGroup ? [{ hand: true, label: call.raised ? t('Lower hand') : t('Raise hand'), active: call.raised, onPress: toggleRaiseHand }] : []),
@@ -829,7 +853,7 @@ function ActiveCall() {
                   {camOn && (
                     <DockButton icon={selfHidden ? 'eye' : 'eye-off'} active={selfHidden} onPress={() => setSelfHidden((h) => !h)} label={selfHidden ? t('Show my video') : t('Hide my video')} size={dockSize} />
                   )}
-                  {canPip && <DockButton icon="minimize-2" active={false} onPress={() => void enterPip(pipStream)} label={t('Picture in picture')} size={dockSize} />}
+                  {canPip && <DockButton icon="minimize-2" active={false} onPress={() => (nativePipSupported ? void enterNativePip() : void enterPip(pipStream))} label={t('Picture in picture')} size={dockSize} />}
                   <View ref={qualRef} collapsable={false}>
                     <DockButton icon="sliders" active={panel === 'quality'} onPress={() => openAt(measureQual, 'quality')} label={t('Call quality')} size={dockSize} />
                   </View>
