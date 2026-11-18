@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 
 import { api, setAuthToken, setUnauthorizedHandler } from '@/lib/api';
 import { getApiUrl, loadServerUrl, setServerUrl } from '@/lib/config';
+import { dropPush, syncPush } from '@/lib/notifications';
 import { getItem, setItem } from '@/lib/storage';
 import type { User } from '@/lib/types';
 import { chatStore } from './chat-store';
@@ -33,12 +34,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setToken] = useState<string | null>(null);
 
   const applySession = useCallback(async (nextToken: string | null, nextUser: User | null) => {
+    // Signing out: this device stops getting the old account's notifications (needs the old token).
+    if (!nextToken) await dropPush();
     setAuthToken(nextToken);
     await setItem(TOKEN_KEY, nextToken);
     await setItem(USER_KEY, nextToken && nextUser ? JSON.stringify(nextUser) : null);
     setToken(nextToken);
     setUser(nextUser);
-    if (nextToken && nextUser) chatStore.start(nextToken, nextUser);
+    if (nextToken && nextUser) {
+      chatStore.start(nextToken, nextUser);
+      // Background notifications for this device (if the user allowed them).
+      void syncPush();
+    }
     else chatStore.stop();
   }, []);
 

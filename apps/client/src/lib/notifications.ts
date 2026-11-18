@@ -1,11 +1,18 @@
-// Desktop/browser notifications for new messages and for messages in a meeting's chat.
-// Web and the Windows app (Electron) use the browser Notification API. The Android app has no
-// notifications yet: that needs a native module (expo-notifications) and a new APK.
+// Notifications for new messages, incoming calls and messages in a call's chat.
+// - Browsers and the installed PWA: Web Push. The server sends each message to this device's push
+//   subscription, so it arrives even when Flock is closed or the phone put it to sleep; the service
+//   worker (public/sw.js) shows it. While the app is open and in front, nothing pops up.
+// - Where push isn't available (the Windows app, some browsers): the page shows the notification
+//   itself while it is open, through the service worker when there is one (Chrome on Android only
+//   allows that) or the Notification API.
+// The Android app has no notifications yet: that needs a native module and a new APK.
 import { router } from 'expo-router';
 import { useSyncExternalStore } from 'react';
 import { Dimensions, Platform } from 'react-native';
 
 import { WIDE_BREAKPOINT } from '@/theme';
+import { api } from './api';
+import { getLang } from './i18n';
 
 export type NotifySettings = {
   /** New messages in chats that aren't open (muted chats never notify). */
@@ -48,6 +55,8 @@ export function setNotifySetting<K extends keyof NotifySettings>(key: K, value: 
   emit();
   // Turning something on is the moment to ask the browser for permission.
   if (value === true && permission === 'default') void requestNotificationPermission();
+  // The server writes the push notifications: tell it what this device wants.
+  void syncPush();
 }
 
 export async function requestNotificationPermission() {
@@ -58,7 +67,102 @@ export async function requestNotificationPermission() {
     permission = Notification.permission;
   }
   emit();
+  void syncPush();
   return permission;
+}
+
+// ---------- Web Push ----------
+
+const PUSH_KEY = 'flock.push';
+/** This device's push subscription is registered with the server (page notifications then stay quiet). */
+let pushActive = (() => {
+  try {
+    return notificationsSupported && !!localStorage.getItem(PUSH_KEY);
+  } catch {
+    return false;
+  }
+})();
+
+const pushSupported = () =>
+  notificationsSupported && typeof navigator !== 'undefined' && 'serviceWorker' in navigator && typeof window !== 'undefined' && 'PushManager' in window;
+
+function base64ToBytes(base64: string) {
+  const padded = (base64 + '='.repeat((4 - (base64.length % 4)) % 4)).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = atob(padded);
+  return Uint8Array.from(raw, (c) => c.charCodeAt(0));
+}
+
+/**
+ * Subscribes this device to push (or drops the subscription when message notifications are off).
+ * Called after sign-in, when permission is granted and when a setting changes. Never throws.
+ */
+export async function syncPush() {
+  if (!pushSupported()) return;
+  try {
+    const registration = await navigator.serviceWorker.ready;
+    const current = await registration.pushManager.getSubscription();
+    if (!settings.messages || permission !== 'granted') {
+      if (current) {
+        await api.pushUnsubscribe(current.endpoint).catch(() => {});
+        await current.unsubscribe().catch(() => {});
+      }
+      pushActive = false;
+      localStorage.removeItem(PUSH_KEY);
+      return;
+    }
+    const { publicKey } = await api.pushKey();
+    if (!publicKey) return;
+    let subscription = current;
+    // A subscription made for another server key can't be used: replace it.
+    const key = subscription?.options?.applicationServerKey;
+    if (subscription && key && btoa(String.fromCharCode(...new Uint8Array(key))).replace(/=+$/, '') !== btoa(String.fromCharCode(...base64ToBytes(publicKey))).replace(/=+$/, '')) {
+      await subscription.unsubscribe().catch(() => {});
+      subscription = null;
+    }
+    subscription ??= await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: base64ToBytes(publicKey) as BufferSource });
+    await api.pushSubscribe(subscription.toJSON(), settings.preview, getLang());
+    pushActive = true;
+    localStorage.setItem(PUSH_KEY, subscription.endpoint);
+  } catch (error) {
+    // No push service (blocked network, a browser without one): page notifications still work.
+    console.warn('[flock] push subscription failed', error);
+    pushActive = false;
+    try {
+      localStorage.removeItem(PUSH_KEY);
+    } catch {}
+  }
+}
+
+/** Signing out: this device stops receiving that account's notifications. */
+export async function dropPush() {
+  if (!pushSupported()) return;
+  try {
+    const registration = await navigator.serviceWorker.ready;
+    const current = await registration.pushManager.getSubscription();
+    if (current) {
+      await api.pushUnsubscribe(current.endpoint).catch(() => {});
+      await current.unsubscribe().catch(() => {});
+    }
+  } catch {}
+  pushActive = false;
+  try {
+    localStorage.removeItem(PUSH_KEY);
+  } catch {}
+}
+
+/** Opens a conversation (a tapped notification). */
+export function openConversationFromNotification(conversationId: string) {
+  const wide = Dimensions.get('window').width >= WIDE_BREAKPOINT;
+  if (wide) router.navigate({ pathname: '/', params: { c: conversationId } });
+  else router.push(`/chat/${conversationId}`);
+}
+
+// The service worker asks an open window to show the chat whose notification was tapped.
+if (notificationsSupported && typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+  navigator.serviceWorker.addEventListener('message', (event) => {
+    const data = event.data as { type?: string; conversationId?: string } | null;
+    if (data?.type === 'flock-open' && data.conversationId) openConversationFromNotification(data.conversationId);
+  });
 }
 
 const subscribe = (fn: () => void) => {
@@ -72,36 +176,42 @@ export function useNotifySettings() {
 
 const windowActive = () => typeof document !== 'undefined' && document.visibilityState === 'visible' && document.hasFocus();
 
-function show(title: string, body: string, tag: string, onClick?: () => void) {
+async function show(title: string, body: string, tag: string, conversationId?: string) {
   if (!notificationsSupported || permission !== 'granted') return;
+  const options = { body, tag, icon: '/icon-192.png', badge: '/icon-192.png', data: { conversationId: conversationId ?? null } };
+  // Desktop browsers and the Windows app: a page notification. Chrome on Android refuses that
+  // (`new Notification()` throws there), so it goes through the service worker, whose click handler
+  // then opens the chat.
   try {
-    const n = new Notification(title, { body, tag, icon: '/icon-192.png', badge: '/icon-192.png' });
+    const n = new Notification(title, options);
     n.onclick = () => {
       window.focus();
-      onClick?.();
+      if (conversationId) openConversationFromNotification(conversationId);
       n.close();
     };
-  } catch {
-    // Some mobile browsers only allow notifications from a service worker: skip quietly.
-  }
+    return;
+  } catch {}
+  try {
+    const registration = 'serviceWorker' in navigator ? await navigator.serviceWorker.getRegistration() : undefined;
+    await registration?.showNotification(title, options);
+  } catch {}
 }
 
 /** A new message arrived in a chat that isn't on screen (or the window is in the background). */
 export function notifyMessage(opts: { conversationId: string; title: string; sender: string | null; text: string; open: boolean; muted: boolean }) {
   if (!settings.messages || opts.muted) return;
+  // With push on, the server's notification covers it (and the service worker skips it while the
+  // app is in front); showing one here too would ring twice.
+  if (pushActive) return;
   if (opts.open && windowActive()) return;
   const who = opts.sender ? `${opts.sender}: ` : '';
-  const body = settings.preview ? `${who}${opts.text}` : opts.sender ?? '';
-  show(opts.title, body.slice(0, 180), `chat-${opts.conversationId}`, () => {
-    const wide = Dimensions.get('window').width >= WIDE_BREAKPOINT;
-    if (wide) router.navigate({ pathname: '/', params: { c: opts.conversationId } });
-    else router.push(`/chat/${opts.conversationId}`);
-  });
+  const body = settings.preview ? `${who}${opts.text}` : (opts.sender ?? '');
+  void show(opts.title, body.slice(0, 180), `chat-${opts.conversationId}`, opts.conversationId);
 }
 
 /** A message in the call/meeting chat while the window is in the background. */
 export function notifyCallChat(opts: { title: string; author: string | null; text: string }) {
   if (!settings.meetings || windowActive()) return;
   const body = settings.preview ? `${opts.author ? `${opts.author}: ` : ''}${opts.text}` : (opts.author ?? '');
-  show(opts.title, body.slice(0, 180), 'call-chat');
+  void show(opts.title, body.slice(0, 180), 'call-chat');
 }

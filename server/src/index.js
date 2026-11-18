@@ -10,6 +10,7 @@ import { deleteStoredFile } from './files.js';
 import { createRealtime } from './realtime.js';
 import { createRouter } from './routes.js';
 import * as repo from './repo.js';
+import { initPush } from './push.js';
 
 const PORT = Number(process.env.PORT || 4000);
 const HOST = process.env.HOST || '0.0.0.0';
@@ -21,6 +22,8 @@ const CORS_ORIGIN = rawOrigins.includes('*') ? '*' : rawOrigins;
 
 await migrate();
 await loadSettings();
+// Background notifications; the server runs without them if this fails.
+await initPush().catch((error) => console.warn('[flock] push notifications unavailable:', error?.message ?? error));
 
 const app = express();
 app.disable('x-powered-by');

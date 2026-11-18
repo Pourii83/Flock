@@ -268,6 +268,10 @@ export const api = {
   savedMessages: () => request<Conversation>('GET', '/conversations/saved'),
   messageInfo: (messageId: string) =>
     request<{ seen: { userId: string; at: number | null }[]; reactions: { userId: string; emoji: string; at: number }[] }>('GET', `/messages/${messageId}/info`),
+  pushKey: () => request<{ publicKey: string }>('GET', '/push/key'),
+  pushSubscribe: (subscription: PushSubscriptionJSON, preview: boolean, lang: string) =>
+    request<{ ok: true }>('POST', '/push/subscribe', { subscription, preview, lang }),
+  pushUnsubscribe: (endpoint: string) => request<{ ok: true }>('DELETE', '/push/subscribe', { endpoint }),
   marks: () => request<Record<string, number>>('GET', '/me/marks'),
   setMark: (key: string, value: number) => request<{ key: string; value: number }>('PUT', `/me/marks/${encodeURIComponent(key)}`, { value }),
   markRead: (id: string) => request<{ readAt: number }>('POST', `/conversations/${id}/read`),

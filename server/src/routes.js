@@ -9,6 +9,7 @@ import { serverUsage } from './usage.js';
 import { installedVersion, releaseNotes, releaseNotesFa } from './version.js';
 import { serverUpdateInfo, startSelfUpdate } from './releases.js';
 import * as repo from './repo.js';
+import * as push from './push.js';
 
 const USERNAME_RE = /^[a-zA-Z0-9_.]{3,24}$/;
 
@@ -591,6 +592,22 @@ export function createRouter(realtime) {
     if (!attachment) return res.status(404).json({ error: 'File not found' });
     const { exp, sig } = signFileLink(req.params.messageId);
     res.json({ url: `/api/f/${req.params.messageId}?e=${exp}&s=${sig}` });
+  });
+
+  // ---------- Web Push (notifications while Flock is closed) ----------
+
+  r.get('/push/key', (_req, res) => res.json({ publicKey: push.pushPublicKey() }));
+  r.post('/push/subscribe', async (req, res) => {
+    try {
+      await push.subscribe(req.userId, req.body?.subscription, { preview: req.body?.preview !== false, lang: req.body?.lang });
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+  r.delete('/push/subscribe', async (req, res) => {
+    await push.unsubscribe(req.userId, req.body?.endpoint);
+    res.json({ ok: true });
   });
 
   // Markers every device of mine shares (e.g. the newest missed call I've looked at).

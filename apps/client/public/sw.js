@@ -5,7 +5,7 @@
 // (/_expo/static/js/web/<route>-<hash>.js) and fonts are only requested when a screen needs them,
 // so an installed PWA opened offline would otherwise get a blank page. The list is found by
 // reading index.html and the bundles it loads, so it follows each build without a manifest.
-const CACHE = 'flock-v3';
+const CACHE = 'flock-v4';
 const SHELL = ['/', '/manifest.json', '/favicon.png', '/icon-192.png', '/icon-512.png'];
 const NAV_TIMEOUT_MS = 4000;
 
@@ -148,4 +148,52 @@ self.addEventListener('fetch', (event) => {
       ),
     );
   }
+});
+
+// ---------- notifications ----------
+
+// A push from the Flock server (lib/notifications subscribes this device). It arrives even when the
+// app is closed or asleep; while the app is open and in front, the app itself shows the message.
+self.addEventListener('push', (event) => {
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch {
+    return;
+  }
+  event.waitUntil(
+    (async () => {
+      const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+      const watching = windows.some((w) => w.visibilityState === 'visible' && w.focused);
+      if (watching && data.kind !== 'call') return;
+      await self.registration.showNotification(data.title || 'Flock', {
+        body: data.body || '',
+        tag: data.tag,
+        renotify: true,
+        icon: '/icon-192.png',
+        badge: '/icon-192.png',
+        requireInteraction: data.kind === 'call',
+        vibrate: data.kind === 'call' ? [300, 150, 300, 150, 300] : [120],
+        data: { conversationId: data.conversationId || null },
+      });
+    })(),
+  );
+});
+
+// Tapping a notification opens Flock on that chat (an open window is reused).
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const conversationId = event.notification.data && event.notification.data.conversationId;
+  event.waitUntil(
+    (async () => {
+      const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+      const open = windows[0];
+      if (open) {
+        await open.focus();
+        if (conversationId) open.postMessage({ type: 'flock-open', conversationId });
+        return;
+      }
+      await self.clients.openWindow(conversationId ? `/?open=${encodeURIComponent(conversationId)}` : '/');
+    })(),
+  );
 });

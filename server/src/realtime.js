@@ -2,6 +2,7 @@ import { Server } from 'socket.io';
 import { verifyGuestToken, verifyToken } from './auth.js';
 import * as presence from './presence.js';
 import * as repo from './repo.js';
+import { pushCall, pushMessage } from './push.js';
 
 const RING_TIMEOUT_MS = 35_000;
 /**
@@ -263,6 +264,9 @@ export function createRealtime(httpServer, corsOrigin) {
           me,
         );
         await publishState(call.id, c);
+        pushCall({ callId: call.id, conversationId, userIds: others, callerName: caller.displayName, video: !!video, title: c.isGroup ? conversation.name : caller.displayName }).catch(
+          (error) => console.warn('[flock] push', error?.message ?? error),
+        );
         return { callId: call.id };
       }),
     );
@@ -431,6 +435,8 @@ export function createRealtime(httpServer, corsOrigin) {
     },
     async notifyMessage(message) {
       await toMembers(message.conversationId, 'message:new', message);
+      // Devices where Flock is closed or asleep hear about it through Web Push.
+      pushMessage(message).catch((error) => console.warn('[flock] push', error?.message ?? error));
     },
     async notifyReactions(conversationId, payload) {
       await toMembers(conversationId, 'message:reactions', payload);

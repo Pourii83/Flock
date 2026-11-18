@@ -17,7 +17,16 @@ import { t } from '@/lib/i18n';
 export default function ChatsScreen() {
   const wide = useIsWide();
   const roomForPanel = useShowDetailsPanel();
-  const { c: selectedId } = useLocalSearchParams<{ c?: string }>();
+  const { c: selectedId, open } = useLocalSearchParams<{ c?: string; open?: string }>();
+  // A tapped notification opened the app on "/?open=<chat>": go to that chat.
+  useEffect(() => {
+    if (!open) return;
+    if (wide) router.setParams({ c: open, open: undefined });
+    else {
+      router.setParams({ open: undefined });
+      router.push(`/chat/${open}`);
+    }
+  }, [open, wide]);
   const [detailsOpen, setDetailsOpen] = useState(true);
   const conversations = useChat((s) => s.conversations);
 

@@ -50,14 +50,14 @@ export function VoicePlayer({
   };
 
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: compact ? 8 : 10, minWidth: compact ? 0 : 250 }}>
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: compact ? 8 : 10, minWidth: compact ? 0 : 250, ...(compact ? { flex: 1, alignSelf: 'stretch' } : null) }}>
       <Pressable
         onPress={toggle}
         accessibilityLabel={isPlaying ? t('Pause') : t('Play voice message')}
         style={{ width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: mine ? 'rgba(61,38,0,0.14)' : colors.amber }}>
         <Icon name={isPlaying ? 'pause' : 'play'} size={18} color={colors.onAmber} />
       </Pressable>
-      <View style={{ flex: 1, gap: 4 }}>
+      <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
         <WaveBars
           levels={levels}
           progress={progress}
