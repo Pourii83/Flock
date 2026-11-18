@@ -1,7 +1,10 @@
 // Hover tooltip for web/desktop. Native renders the child unchanged (see tooltip.tsx).
-// The bubble is plain RN views so it inherits the app's tokens; it is positioned above the
-// wrapped control and hidden on press, scroll or unmount.
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+// The bubble is plain RN views so it inherits the app's tokens. It is drawn in a portal on the
+// page itself (fixed to the control's position), so neighbouring content such as the next message
+// bubble can never cover it; it hides on press, scroll or unmount.
+import { useEffect, useRef, useState, type ComponentRef, type ReactNode } from 'react';
+// @ts-expect-error react-dom ships without type declarations in this app (it is only used on the web).
+import { createPortal as portal } from 'react-dom';
 import { Text, View, type StyleProp, type ViewStyle } from 'react-native';
 
 import { colors, fonts, radius } from '@/theme';
@@ -22,6 +25,9 @@ export function Tooltip({
 }) {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [open, setOpen] = useState(false);
+  const anchor = useRef<ComponentRef<typeof View>>(null);
+  const createPortal = portal as (node: ReactNode, container: Element) => ReactNode;
+  const [rect, setRect] = useState<{ x: number; top: number; bottom: number } | null>(null);
 
   const clear = () => {
     if (timer.current) clearTimeout(timer.current);
@@ -30,7 +36,13 @@ export function Tooltip({
   const show = () => {
     if (!label) return;
     clear();
-    timer.current = setTimeout(() => setOpen(true), delay);
+    timer.current = setTimeout(() => {
+      const node = anchor.current as unknown as HTMLElement | null;
+      const box = node?.getBoundingClientRect?.();
+      if (!box) return;
+      setRect({ x: box.left + box.width / 2, top: box.top, bottom: box.bottom });
+      setOpen(true);
+    }, delay);
   };
   const hide = () => {
     clear();
@@ -47,22 +59,21 @@ export function Tooltip({
 
   return (
     <View
+      ref={anchor}
       style={[{ alignSelf: 'flex-start' }, style]}
       {...({ onMouseEnter: show, onMouseLeave: hide, onPointerDown: hide } as object)}>
       {children}
-      {open && !!label && (
+      {open && !!label && !!rect && typeof document !== 'undefined' && createPortal(
         <View
           pointerEvents="none"
           style={{
-            position: 'absolute',
-            // Fixed width centered on the control: the wrapper itself is only as wide as the
-            // control, which would otherwise clamp the label to a narrow column and wrap it.
-            left: '50%',
-            marginLeft: -130,
+            position: 'fixed' as 'absolute',
+            // A fixed-width row centered on the control, kept inside the window.
+            left: Math.max(4, Math.min(rect.x - 130, window.innerWidth - 264)),
             width: 260,
-            alignItems: 'center',
-            zIndex: 2000,
-            ...(side === 'top' ? { bottom: '100%', marginBottom: 6 } : { top: '100%', marginTop: 6 }),
+            alignItems: rect.x - 130 < 4 ? 'flex-start' : rect.x + 130 > window.innerWidth - 4 ? 'flex-end' : 'center',
+            zIndex: 100000,
+            ...(side === 'top' ? { bottom: window.innerHeight - rect.top + 6 } : { top: rect.bottom + 6 }),
           }}>
           <View
             style={{
@@ -79,7 +90,8 @@ export function Tooltip({
               {label}
             </Text>
           </View>
-        </View>
+        </View>,
+        document.body,
       )}
     </View>
   );
