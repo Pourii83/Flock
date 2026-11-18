@@ -3,7 +3,8 @@ import { Dimensions, PixelRatio, Platform } from 'react-native';
 
 import { callAudio, listCameras, switchCamera, type AudioDeviceChoice, type VideoDeviceChoice } from '@/lib/native-media';
 import { api } from '@/lib/api';
-import { playCallChatSound, playReactionSound } from '@/lib/call-sounds';
+import { playCallChatSound, playRaiseHandSound, playReactionSound } from '@/lib/call-sounds';
+import { notifyCallChat } from '@/lib/notifications';
 import { getNoisePreference, micConstraints, processMic, strongNoiseSupported, type NoiseMode } from '@/lib/noise';
 import {
   createPeer,
@@ -533,14 +534,36 @@ export function CallProvider({ children }: { children: ReactNode }) {
       }
       const entry: Peer = { pc, pending: [], offerer };
       peers.current.set(userId, entry);
-      pc.oniceconnectionstatechange = async () => {
-        // Network changed (Wi-Fi ↔ mobile data…): the offerer renegotiates new ICE paths.
-        if (pc.iceConnectionState === 'failed' && offerer && peers.current.get(userId)?.pc === pc) {
+      // A link that drops (packet loss, Wi-Fi ↔ mobile data…) gets three ICE restarts, five seconds
+      // apart, before it is given up on; the offerer of the pair renegotiates, so offers don't collide.
+      let retryTimer: ReturnType<typeof setTimeout> | null = null;
+      let attempts = 0;
+      const restart = async () => {
+        retryTimer = null;
+        if (peers.current.get(userId)?.pc !== pc || ['connected', 'completed', 'closed'].includes(pc.iceConnectionState)) return;
+        if (attempts >= 3) return;
+        attempts += 1;
+        if (offerer) {
           try {
             const offer = await pc.createOffer({ iceRestart: true });
             await pc.setLocalDescription(offer);
             signal({ type: 'offer', sdp: offer.sdp }, userId);
           } catch {}
+        }
+        retryTimer = setTimeout(() => void restart(), 5000);
+      };
+      pc.oniceconnectionstatechange = () => {
+        const state = pc.iceConnectionState;
+        if (state === 'connected' || state === 'completed') {
+          attempts = 0;
+          if (retryTimer) clearTimeout(retryTimer);
+          retryTimer = null;
+          return;
+        }
+        if (state === 'closed' && retryTimer) clearTimeout(retryTimer);
+        if ((state === 'disconnected' || state === 'failed') && !retryTimer) {
+          // 'disconnected' often heals by itself: give it a moment before restarting.
+          retryTimer = setTimeout(() => void restart(), state === 'failed' ? 0 : 2000);
         }
       };
       if (offerer) {
@@ -610,6 +633,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
         return;
       }
       if (data?.type === 'raise' && typeof data.raised === 'boolean') {
+        if (data.raised && !callRef.current.raisedBy.includes(from) && !callRef.current.speakerMuted) playRaiseHandSound();
         setCall((c) => ({
           ...c,
           raisedBy: data.raised ? (c.raisedBy.includes(from) ? c.raisedBy : [...c.raisedBy, from]) : c.raisedBy.filter((id) => id !== from),
@@ -634,6 +658,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
         setCall((c) => ({ ...c, chat: [...c.chat, msg], chatUnread: c.chatUnread + 1 }));
         // A short notification while the chat panel is closed (and the speaker isn't muted).
         if (!callRef.current.chatOpen && !callRef.current.speakerMuted) playCallChatSound();
+        // In the background (another tab/app): a system notification too.
+        notifyCallChat({ title: callRef.current.title || t('Call chat'), author: author ?? null, text: msg.text });
         return;
       }
       if (data?.type === 'muted' && typeof data.muted === 'boolean') {
@@ -751,6 +777,31 @@ export function CallProvider({ children }: { children: ReactNode }) {
       if (callRef.current.callId === callId) cleanup();
     };
 
+    // The server connection came back mid-call: take my place in the call again on this connection.
+    // The call itself ends only if the server already gave up on me (after its grace period).
+    const onReconnect = () => {
+      const c = callRef.current;
+      if (!c.callId || (c.phase !== 'active' && c.phase !== 'outgoing')) return;
+      socket.timeout(8000).emit('call:rejoin', { callId: c.callId }, (err: unknown, res: any) => {
+        if (callRef.current.callId !== c.callId) return;
+        if (err) return;
+        if (res?.error) {
+          cleanup();
+          return;
+        }
+        // Links that died while I was away renegotiate from my side.
+        for (const [userId, { pc }] of peers.current) {
+          if (['connected', 'completed'].includes(pc.iceConnectionState)) continue;
+          pc.createOffer({ iceRestart: true })
+            .then(async (offer) => {
+              await pc.setLocalDescription(offer);
+              signal({ type: 'offer', sdp: offer.sdp }, userId);
+            })
+            .catch(() => {});
+        }
+      });
+    };
+
     socket.on('call:incoming', onIncoming);
     socket.on('call:accepted', onAccepted);
     socket.on('call:participant-joined', onJoined);
@@ -758,7 +809,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
     socket.on('call:ring-stop', onRingStop);
     socket.on('call:signal', onSignal);
     socket.on('call:ended', onEnded);
+    socket.on('connect', onReconnect);
     return () => {
+      socket.off('connect', onReconnect);
       socket.off('call:incoming', onIncoming);
       socket.off('call:accepted', onAccepted);
       socket.off('call:participant-joined', onJoined);
@@ -767,7 +820,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       socket.off('call:signal', onSignal);
       socket.off('call:ended', onEnded);
     };
-  }, [user, connected, cleanup, patch, setCall, closePeer, upsertRemote, handleSignal]);
+  }, [user, connected, cleanup, patch, setCall, closePeer, upsertRemote, handleSignal, signal]);
 
   // Watch real audio flow: video can work while audio silently doesn't (muted device, blocked playback…).
   useEffect(() => {
@@ -1259,11 +1312,22 @@ export function CallProvider({ children }: { children: ReactNode }) {
   }, [setCall]);
 
   const flipCamera = useCallback(() => {
-    if (Platform.OS === 'web') return;
     const c = callRef.current;
+    if (Platform.OS === 'web') {
+      // Browsers (phones: front/back) switch to the next camera in the list.
+      const devices = c.videoDevices.filter((d) => d.id && d.id !== 'default');
+      if (devices.length < 2) return;
+      const activeId = c.videoDeviceId !== 'default' ? c.videoDeviceId : (cameraTrack.current?.getSettings?.().deviceId ?? '');
+      const index = devices.findIndex((d) => d.id === activeId);
+      const next = devices[(index + 1) % devices.length]!;
+      void selectVideoDevice(next.id);
+      // A back camera ("back"/"rear"/"environment" in its name) isn't mirrored.
+      patch({ frontCamera: !/back|rear|environment|پشت/i.test(next.label) });
+      return;
+    }
     switchCamera(c.localStream);
     patch({ frontCamera: !c.frontCamera });
-  }, [patch]);
+  }, [patch, selectVideoDevice]);
 
   const setMinimized = useCallback((minimized: boolean) => patch({ minimized }), [patch]);
   const setMiniPreview = useCallback((miniPreview: boolean) => patch({ miniPreview }), [patch]);
@@ -1273,6 +1337,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     // Direct calls have no hand to raise.
     if (!c.isGroup) return;
     const raised = !c.raised;
+    if (raised) playRaiseHandSound();
     patch({ raised });
     signal({ type: 'raise', raised });
   }, [patch, signal]);

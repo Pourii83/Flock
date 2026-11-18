@@ -217,7 +217,7 @@ async function loadConversations(meId, onlyId) {
       // Channel subscribers only see the channel's owner and admins (and themselves), never each other.
       members: members
         .filter((m) => c.type !== 'channel' || c.my_role !== 'member' || m.member_role !== 'member' || m.id === meId)
-        .map((m) => ({ ...publicUser(m), role: m.member_role })),
+        .map((m) => ({ ...publicUser(m), role: m.member_role, readAt: m.member_read_at })),
       memberCount: members.length,
       description: c.description ?? '',
       // Secret chats: the two device keys messages are encrypted between (recipient set once accepted).
@@ -236,8 +236,9 @@ async function loadConversations(meId, onlyId) {
       unreadCount: Number(c.unread),
       pinned: c.pinned,
       muted: c.muted,
-      // Read receipts: the point every other member has read up to.
-      othersReadAt: others.length ? Math.min(...others.map((m) => m.member_read_at)) : 0,
+      // Read receipts: in a direct chat, how far the other person read; in a group or channel, the
+      // furthest any other member read (a message counts as seen once anyone saw it, like Telegram).
+      othersReadAt: others.length ? Math.max(...others.map((m) => m.member_read_at)) : 0,
       createdAt: c.created_at,
       updatedAt: last?.created_at ?? c.created_at,
     };
@@ -261,8 +262,56 @@ export async function updateMembership(conversationId, meId, { pinned, muted }) 
 
 export async function markRead(conversationId, meId) {
   const t = now();
+  const prev = await one('SELECT last_read_at FROM members WHERE conversation_id = $1 AND user_id = $2', [conversationId, meId]);
   await query('UPDATE members SET last_read_at = $3 WHERE conversation_id = $1 AND user_id = $2', [conversationId, meId, t]);
+  // Only keep a mark when something new was there to read, so the history stays small.
+  const fresh = await one(
+    'SELECT 1 FROM messages WHERE conversation_id = $1 AND sender_id <> $2 AND created_at > $3 LIMIT 1',
+    [conversationId, meId, prev?.last_read_at ?? 0],
+  );
+  if (fresh) await query('INSERT INTO read_marks (conversation_id, user_id, read_at) VALUES ($1, $2, $3)', [conversationId, meId, t]);
   return t;
+}
+
+/**
+ * Who has seen a message and when, and who reacted with what and when. A member who read past the
+ * message before read times were recorded is listed with `at: null`.
+ */
+export async function messageInfo(message) {
+  const reads = await query(
+    `SELECT m.user_id, m.last_read_at,
+       (SELECT min(r.read_at) FROM read_marks r
+         WHERE r.conversation_id = m.conversation_id AND r.user_id = m.user_id AND r.read_at >= $2) AS seen_at
+     FROM members m
+     WHERE m.conversation_id = $1 AND m.user_id <> $3 AND m.last_read_at >= $2`,
+    [message.conversation_id, message.created_at, message.sender_id],
+  );
+  const reactions = await query(
+    'SELECT user_id, emoji, created_at FROM message_reactions WHERE message_id = $1 ORDER BY created_at',
+    [message.id],
+  );
+  return {
+    seen: reads.map((r) => ({ userId: r.user_id, at: r.seen_at ?? null })).sort((a, b) => (a.at ?? 0) - (b.at ?? 0)),
+    reactions: reactions.map((r) => ({ userId: r.user_id, emoji: r.emoji, at: r.created_at })),
+  };
+}
+
+// ---------- per-user markers (shared across the user's devices) ----------
+
+export async function getMarks(userId) {
+  const rows = await query('SELECT key, value FROM user_marks WHERE user_id = $1', [userId]);
+  return Object.fromEntries(rows.map((r) => [r.key, r.value]));
+}
+
+/** Moves a marker forward (never back); returns its stored value. */
+export async function setMark(userId, key, value) {
+  const row = await one(
+    `INSERT INTO user_marks (user_id, key, value) VALUES ($1, $2, $3)
+     ON CONFLICT (user_id, key) DO UPDATE SET value = GREATEST(user_marks.value, EXCLUDED.value)
+     RETURNING value`,
+    [userId, key, value],
+  );
+  return row.value;
 }
 
 // ---------- messages ----------
@@ -668,6 +717,18 @@ const ownsDevice = async (userId, deviceId) =>
 export async function createSecretConversation(meId, otherId, deviceId) {
   if (!isUuid(otherId) || otherId === meId || !(await getUserRow(otherId))) throw new Error('Pick someone to chat with');
   if (!(await ownsDevice(meId, deviceId))) throw new Error('Invalid device key');
+  // One secret chat per pair of people on this device: starting it again opens the existing one
+  // (mine from this device, or theirs that I accepted here) instead of piling up copies.
+  const existing = await one(
+    `SELECT c.id FROM conversations c
+     JOIN members a ON a.conversation_id = c.id AND a.user_id = $1
+     JOIN members b ON b.conversation_id = c.id AND b.user_id = $2
+     WHERE c.secret AND c.type = 'direct'
+       AND ((c.created_by = $1 AND c.secret_initiator_device = $3) OR (c.created_by = $2 AND c.secret_recipient_device = $3))
+     ORDER BY c.created_at DESC LIMIT 1`,
+    [meId, otherId, deviceId],
+  );
+  if (existing) return existing.id;
   const id = newId();
   const t = now();
   await tx(async (client) => {

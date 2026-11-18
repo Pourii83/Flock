@@ -4,13 +4,15 @@ import * as Clipboard from 'expo-clipboard';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, View } from 'react-native';
 
+import { api } from '@/lib/api';
 import { confirm } from '@/lib/confirm';
+import { dayAndTime } from '@/lib/format';
 import type { Conversation, Message } from '@/lib/types';
 import { t } from '@/lib/i18n';
 import { useAuth } from '@/state/auth';
 import { chatStore, useChat } from '@/state/chat-store';
 import { colors, radius } from '@/theme';
-import { ConversationAvatar } from './avatar';
+import { Avatar, ConversationAvatar } from './avatar';
 import { ContextMenu, type ContextMenuItem } from './context-menu';
 import { EmojiPickerModal } from './emoji-picker';
 import { Icon, IconButton, T } from './ui';
@@ -25,9 +27,12 @@ export function MessageMenu({
   point,
   onReply,
   onEdit,
+  onSelect,
   onError,
   onClose,
 }: {
+  /** Starts multi-select with this message. */
+  onSelect?: () => void;
   message: Message;
   conversation: Conversation;
   mine: boolean;
@@ -42,9 +47,10 @@ export function MessageMenu({
   const [menuPoint, setMenuPoint] = useState<{ x: number; y: number } | null>(point);
   const [forwardOpen, setForwardOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [infoOpen, setInfoOpen] = useState(false);
 
-  // The whole menu dismisses only once every layer (menu, forward, picker) is closed.
-  const done = !menuPoint && !forwardOpen && !pickerOpen;
+  // The whole menu dismisses only once every layer (menu, forward, picker, info) is closed.
+  const done = !menuPoint && !forwardOpen && !pickerOpen && !infoOpen;
   useEffect(() => {
     if (done) onClose();
   }, [done, onClose]);
@@ -100,12 +106,17 @@ export function MessageMenu({
 
   // Only offer what actually applies to this message: disabled rows are noise (user request).
   const menuItems: ContextMenuItem[] = [{ icon: 'corner-up-left', label: t('Reply'), onPress: onReply }];
-  if (canAct && isText && mine) menuItems.push({ icon: 'edit-2', label: t('Edit'), onPress: onEdit });
+  // Text, or the caption of my own photo/file.
+  if (canAct && mine && (isText || message.kind === 'file')) menuItems.push({ icon: 'edit-2', label: t('Edit'), onPress: onEdit });
   if (canForward) menuItems.push({ icon: 'corner-up-right', label: t('Forward'), onPress: () => setForwardOpen(true) });
   if (canAct && isText) menuItems.push({ icon: 'copy', label: t('Copy'), onPress: () => void copy() });
   if (canSave) menuItems.push({ icon: 'bookmark', label: t('Saved Messages'), onPress: () => void save() });
   if (canDelete) menuItems.push({ icon: 'trash-2', label: t('Delete'), danger: true, onPress: () => void remove() });
   if (canPin) menuItems.push({ pin: true, label: pinned ? t('Unpin') : t('Pin'), onPress: () => void togglePin() });
+  if (canAct && onSelect) menuItems.push({ icon: 'check-square', label: t('Select'), onPress: onSelect });
+  // Who saw it and who reacted, with times (my own messages, or any message that has reactions).
+  if (canAct && !conversation.isSaved && (mine || (message.reactions ?? []).some((r) => r.userIds.length)))
+    menuItems.push({ icon: 'info', label: t('Seen and reactions'), onPress: () => setInfoOpen(true) });
 
   return (
     <>
@@ -128,6 +139,7 @@ export function MessageMenu({
           onError={fail}
         />
       )}
+      {infoOpen && <MessageInfoDialog message={message} conversation={conversation} onClose={() => setInfoOpen(false)} />}
       {pickerOpen && (
         <EmojiPickerModal
           onPick={(emoji) => {
@@ -138,6 +150,87 @@ export function MessageMenu({
         />
       )}
     </>
+  );
+}
+
+/** Who has seen a message and who reacted to it, each with the time it happened. */
+function MessageInfoDialog({ message, conversation, onClose }: { message: Message; conversation: Conversation; onClose: () => void }) {
+  const [info, setInfo] = useState<Awaited<ReturnType<typeof api.messageInfo>> | null>(null);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    let alive = true;
+    api.messageInfo(message.id).then(
+      (data) => alive && setInfo(data),
+      (e) => alive && setError(e instanceof Error ? e.message : t('Something went wrong')),
+    );
+    return () => {
+      alive = false;
+    };
+  }, [message.id]);
+  const member = (id: string) => conversation.members.find((m) => m.id === id);
+  const row = (key: string, userId: string, right: string, emoji?: string) => (
+    <View key={key} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 18, paddingVertical: 8 }}>
+      <Avatar user={member(userId)} size={34} showPresence={false} />
+      <T variant="labelLg" numberOfLines={1} style={{ flex: 1 }}>
+        {userId === chatStore.me?.id ? t('You') : (member(userId)?.displayName ?? t('Someone'))}
+      </T>
+      {!!emoji && <T style={{ fontSize: 18 }}>{emoji}</T>}
+      <T variant="bodySm" color={colors.textMuted}>
+        {right}
+      </T>
+    </View>
+  );
+  const section = (label: string) => (
+    <T variant="label" color={colors.amberText} style={{ paddingHorizontal: 18, paddingTop: 12, paddingBottom: 4 }}>
+      {label}
+    </T>
+  );
+  return (
+    <Modal transparent animationType="fade" visible onRequestClose={onClose}>
+      <Pressable onPress={onClose} accessibilityLabel={t('Close')} style={{ flex: 1, backgroundColor: colors.scrim, alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+        <Pressable
+          onPress={(event) => event.stopPropagation()}
+          style={{ width: '100%', maxWidth: 420, maxHeight: '76%', backgroundColor: colors.panel, borderRadius: radius.xl, borderWidth: 1, borderColor: colors.surfaceHigh, overflow: 'hidden' }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 18, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: colors.hairline }}>
+            <Icon name="info" size={18} color={colors.amberText} />
+            <View style={{ flex: 1 }}>
+              <T variant="labelLg" style={{ fontSize: 15 }}>
+                {t('Seen and reactions')}
+              </T>
+              <T variant="bodySm" color={colors.textMuted} numberOfLines={1}>
+                {t('Sent {time}', { time: dayAndTime(message.createdAt) })}
+              </T>
+            </View>
+            <IconButton name="x" label={t('Close')} onPress={onClose} />
+          </View>
+          <ScrollView contentContainerStyle={{ paddingBottom: 12 }}>
+            {!info && !error && <ActivityIndicator color={colors.amberText} style={{ margin: 24 }} />}
+            {!!error && (
+              <T variant="bodySm" color={colors.danger} style={{ padding: 18 }}>
+                {error}
+              </T>
+            )}
+            {info && message.senderId === chatStore.me?.id && (
+              <>
+                {section(t('Seen by'))}
+                {info.seen.length === 0 && (
+                  <T variant="bodySm" color={colors.textMuted} style={{ paddingHorizontal: 18, paddingVertical: 6 }}>
+                    {t('Nobody has seen it yet')}
+                  </T>
+                )}
+                {info.seen.map((s) => row(`s-${s.userId}`, s.userId, s.at ? dayAndTime(s.at) : t('Seen')))}
+              </>
+            )}
+            {info && info.reactions.length > 0 && (
+              <>
+                {section(t('Reactions'))}
+                {info.reactions.map((r) => row(`r-${r.userId}-${r.emoji}`, r.userId, dayAndTime(r.at), r.emoji))}
+              </>
+            )}
+          </ScrollView>
+        </Pressable>
+      </Pressable>
+    </Modal>
   );
 }
 

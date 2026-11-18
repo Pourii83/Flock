@@ -258,6 +258,10 @@ export const api = {
   /** Copies a message into my Saved Messages (created on first use). */
   saveMessage: (messageId: string) => request<Message>('POST', `/messages/${messageId}/save`),
   savedMessages: () => request<Conversation>('GET', '/conversations/saved'),
+  messageInfo: (messageId: string) =>
+    request<{ seen: { userId: string; at: number | null }[]; reactions: { userId: string; emoji: string; at: number }[] }>('GET', `/messages/${messageId}/info`),
+  marks: () => request<Record<string, number>>('GET', '/me/marks'),
+  setMark: (key: string, value: number) => request<{ key: string; value: number }>('PUT', `/me/marks/${encodeURIComponent(key)}`, { value }),
   markRead: (id: string) => request<{ readAt: number }>('POST', `/conversations/${id}/read`),
   calls: () => request<CallLog[]>('GET', '/calls'),
   ice: () => request<{ iceServers: RTCIceServer[]; iceTransportPolicy?: RTCIceTransportPolicy }>('GET', '/ice', undefined, authToken ? null : guestPass),

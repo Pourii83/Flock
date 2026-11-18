@@ -129,3 +129,12 @@ export function playCallChatSound() {
     { frequency: 1175, at: 0.09, length: 0.18, volume: 0.04 },
   ]);
 }
+
+/** Someone raised a hand in a group call: a short, quiet two-note ping (follows the reaction-sound toggle). */
+export function playRaiseHandSound() {
+  if (!settings.reactionSounds) return;
+  chime([
+    { frequency: 660, at: 0, length: 0.09, volume: 0.03, type: 'triangle' },
+    { frequency: 880, at: 0.08, length: 0.12, volume: 0.025, type: 'triangle' },
+  ]);
+}

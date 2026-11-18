@@ -345,13 +345,25 @@ export function createRouter(realtime) {
     }
   });
 
-  // Sender edits the text of their own message.
+  // Who saw a message (and when) and who reacted (and when).
+  r.get('/messages/:messageId/info', async (req, res) => {
+    const message = await visibleMessage(req, res);
+    if (!message) return;
+    res.json(await repo.messageInfo(message));
+  });
+
+  // Sender edits the text of their own message, or the caption of their own photo/file.
   r.patch('/messages/:messageId', async (req, res) => {
     const message = await visibleMessage(req, res);
     if (!message) return;
     if (message.sender_id !== req.userId) return res.status(403).json({ error: 'You can only edit your own messages' });
-    if (message.kind !== 'text') return res.status(400).json({ error: 'Only text messages can be edited' });
-    const { body, error } = await messageText(message.conversation_id, req.body?.body);
+    if (message.kind !== 'text' && message.kind !== 'file') return res.status(400).json({ error: 'Only text messages can be edited' });
+    let body, error;
+    if (message.kind === 'file') {
+      // An empty caption falls back to the file name, as when it was sent without one.
+      const caption = String(req.body?.body ?? '').trim().slice(0, 4000);
+      body = caption || message.attachment_name || 'File';
+    } else ({ body, error } = await messageText(message.conversation_id, req.body?.body));
     if (error) return res.status(error.status).json({ error: error.message });
     const updated = await repo.updateMessageBody(message.id, body);
     if (!updated) return res.status(404).json({ error: 'Message not found' });
@@ -560,6 +572,17 @@ export function createRouter(realtime) {
     if (!attachment) return res.status(404).json({ error: 'File not found' });
     const { exp, sig } = signFileLink(req.params.messageId);
     res.json({ url: `/api/f/${req.params.messageId}?e=${exp}&s=${sig}` });
+  });
+
+  // Markers every device of mine shares (e.g. the newest missed call I've looked at).
+  r.get('/me/marks', async (req, res) => res.json(await repo.getMarks(req.userId)));
+  r.put('/me/marks/:key', async (req, res) => {
+    const key = String(req.params.key);
+    const value = Number(req.body?.value);
+    if (!/^[a-z][a-zA-Z0-9.]{0,40}$/.test(key) || !Number.isFinite(value) || value < 0) return res.status(400).json({ error: 'Bad marker' });
+    const stored = await repo.setMark(req.userId, key, Math.floor(value));
+    realtime.notifyMark(req.userId, key, stored);
+    res.json({ key, value: stored });
   });
 
   r.post('/conversations/:id/read', member, async (req, res) => {

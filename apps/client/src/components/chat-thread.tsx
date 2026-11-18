@@ -6,6 +6,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -18,6 +19,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { clock, dayDivider, dayAndTime, lastSeenLabel, sameDay } from '@/lib/format';
 import { attachmentSource, openAttachment } from '@/lib/attachments';
 import { VideoThumb } from './video-thumb';
+import { VoicePlayer } from './voice-player';
+import { canRecordVoice, useVoiceRecorder } from '@/lib/voice-recorder';
 import { api } from '@/lib/api';
 import { callLine, parseCallLog } from '@/lib/call-log';
 import { confirm } from '@/lib/confirm';
@@ -27,7 +30,7 @@ import { systemText } from '@/lib/system-message';
 import type { Conversation, Message } from '@/lib/types';
 import { useAuth } from '@/state/auth';
 import { useCalls } from '@/state/calls';
-import { chatStore, useChat, useConversation, useMessages, usePinned, useTyping } from '@/state/chat-store';
+import { chatStore, useChat, useConversation, useMessages, usePinned, usePinnedList, useTyping } from '@/state/chat-store';
 import { colors, fonts, radius } from '@/theme';
 import { Avatar, ConversationAvatar, MegaphoneIcon } from './avatar';
 import { EmojiPicker } from './emoji-picker';
@@ -83,7 +86,12 @@ export function ChatThread({
   const messages = useMessages(conversationId);
   const loadedMessages = useChat((s) => !!s.messages[conversationId]);
   const hasMore = useChat((s) => !!s.hasMore[conversationId]);
-  const pinned = usePinned(conversationId);
+  const latestPin = usePinned(conversationId);
+  const pinnedList = usePinnedList(conversationId);
+  // Several pins: the banner shows one at a time; tapping it jumps there and moves to the next older pin.
+  const [pinIndex, setPinIndex] = useState(0);
+  const pinCount = pinnedList.length;
+  const pinned = pinCount ? pinnedList[pinIndex % pinCount]! : latestPin;
   const { user } = useAuth();
   // Channels are broadcast-only: only the owner and admins get a composer.
   const myRole = conversation?.members.find((m) => m.id === user?.id)?.role;
@@ -122,7 +130,35 @@ export function ChatThread({
     };
   }, []);
 
+  // Esc leaves selection mode on desktop.
+  const selecting = selection.length > 0;
+  useEffect(() => {
+    if (Platform.OS !== 'web' || !selecting) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setSelection([]);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [selecting]);
+
   const rows = useMemo(() => buildRows(messages), [messages]);
+  // Floating date over the list while scrolled up: the day of the oldest row on screen.
+  const [floatingDay, setFloatingDay] = useState<string | null>(null);
+  const [scrolledUp, setScrolledUp] = useState(false);
+  const [listTop, setListTop] = useState(0);
+  // FlatList needs the same function for its whole life.
+  const [onViewable] = useState(() => ({ viewableItems }: { viewableItems: { item: Row; index?: number | null }[] }) => {
+    let top: Row | null = null;
+    let topIndex = -1;
+    for (const v of viewableItems) {
+      if (v.index != null && v.index > topIndex) {
+        topIndex = v.index;
+        top = v.item;
+      }
+    }
+    if (!top) return;
+    setFloatingDay(top.type === 'day' ? top.label : dayDivider(top.message.createdAt));
+  });
   const desktop = variant === 'desktop';
   // Android edge-to-edge windows can report the IME without resizing the React tree,
   // so adjust this screen's height explicitly to keep the composer above the keyboard.
@@ -139,7 +175,11 @@ export function ChatThread({
   const clearSelection = () => setSelection([]);
   const toggleSelected = (id: string) => setSelection((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   const copySelected = async () => {
-    const body = selectedMessages.map((m) => m.body).filter(Boolean).join('\n\n');
+    const many = selectedMessages.length > 1 && conversation?.type !== 'direct';
+    const body = selectedMessages
+      .filter((m) => m.body)
+      .map((m) => (many ? `${chatStore.memberName(conversationId, m.senderId)}: ${m.body}` : m.body))
+      .join('\n\n');
     if (body) await Clipboard.setStringAsync(body).catch(() => showError(t('Something went wrong')));
     clearSelection();
   };
@@ -229,6 +269,7 @@ export function ChatThread({
           onSave={() => void saveSelected()}
           onPin={() => void pinSelected()}
           onDelete={() => void deleteSelected()}
+          canDelete={selectedMessages.length > 0 && selectedMessages.every((m) => m.senderId === user?.id)}
         />
       ) : (
         <ThreadHeader
@@ -241,7 +282,18 @@ export function ChatThread({
           onToggleSearch={() => setSearchOpen((v) => !v)}
         />
       )}
-      {!!pinned && <PinnedBanner message={pinned} conversation={conversation} onOpen={() => void jumpTo(pinned.id)} onUnpin={unpin} />}
+      {!!pinned && (
+        <PinnedBanner
+          message={pinned}
+          conversation={conversation}
+          position={pinCount > 1 ? { index: pinIndex % pinCount, total: pinCount } : null}
+          onOpen={() => {
+            void jumpTo(pinned.id);
+            if (pinCount > 1) setPinIndex((i) => (i + 1) % pinCount);
+          }}
+          onUnpin={unpin}
+        />
+      )}
       <JoinCallBanner conversation={conversation} />
       {!!conversation.secret && <SecretBanner conversation={conversation} />}
       {searchOpen && (
@@ -285,6 +337,11 @@ export function ChatThread({
           data={rows}
           keyExtractor={(r) => (r.type === 'day' ? r.key : r.message.id)}
           onEndReached={() => hasMore && chatStore.loadOlder(conversationId)}
+          onLayout={(e) => setListTop(e.nativeEvent.layout.y)}
+          onViewableItemsChanged={onViewable}
+          viewabilityConfig={{ itemVisiblePercentThreshold: 10 }}
+          onScroll={(e) => setScrolledUp(e.nativeEvent.contentOffset.y > 120)}
+          scrollEventThrottle={100}
           onEndReachedThreshold={0.3}
           onScrollToIndexFailed={() => {
             // Variable-height rows: retry once the list has laid out, then rely on the highlight.
@@ -325,6 +382,15 @@ export function ChatThread({
           }
         />
       )}
+      {scrolledUp && !!floatingDay && loadedMessages && (
+        <View pointerEvents="none" style={{ position: 'absolute', top: listTop + 10, start: 0, end: 0, alignItems: 'center', zIndex: 5 }}>
+          <View style={{ backgroundColor: colors.glass, borderWidth: 1, borderColor: colors.hairline, borderRadius: radius.pill, paddingHorizontal: 14, paddingVertical: 5 }}>
+            <T variant="label" color={colors.text}>
+              {floatingDay}
+            </T>
+          </View>
+        </View>
+      )}
       <TypingIndicator conversation={conversation} />
       {canPost ? (
         <Composer
@@ -334,6 +400,11 @@ export function ChatThread({
           onClearReply={() => setReplyTo(null)}
           editing={editing}
           onCancelEdit={() => setEditing(null)}
+          onSent={() => listRef.current?.scrollToOffset({ offset: 0, animated: true })}
+          onEditLast={() => {
+            const last = [...messages].reverse().find((m) => m.senderId === user?.id && (m.kind === 'text' || m.kind === 'file') && !m.pending && !m.failed);
+            if (last) setEditing(last);
+          }}
         />
       ) : (
         <ReadOnlyBar />
@@ -347,6 +418,7 @@ export function ChatThread({
           point={menu.point}
           onReply={() => setReplyTo(menu.message)}
           onEdit={() => setEditing(menu.message)}
+          onSelect={() => toggleSelected(menu.message.id)}
           onError={showError}
           onClose={() => setMenu(null)}
         />
@@ -401,7 +473,9 @@ function SelectionBar({
   onSave,
   onPin,
   onDelete,
+  canDelete,
 }: {
+  canDelete: boolean;
   count: number;
   single: boolean;
   onClose: () => void;
@@ -453,7 +527,7 @@ function SelectionBar({
           <PushPin size={17} color={colors.text} />
         </Pressable>
       </Tooltip>
-      <IconButton name="trash-2" label={t('Delete')} onPress={onDelete} color={colors.danger} size={36} iconSize={17} />
+      <IconButton name="trash-2" label={t('Delete')} onPress={onDelete} disabled={!canDelete} color={colors.danger} size={36} iconSize={17} style={{ opacity: canDelete ? 1 : 0.4 }} />
     </View>
   );
 }
@@ -462,11 +536,14 @@ function SelectionBar({
 function PinnedBanner({
   message,
   conversation,
+  position,
   onOpen,
   onUnpin,
 }: {
   message: Message;
   conversation: Conversation;
+  /** Which of several pins is shown (newest = 0); null with a single pin. */
+  position: { index: number; total: number } | null;
   onOpen: () => void;
   onUnpin: () => void;
 }) {
@@ -488,10 +565,22 @@ function PinnedBanner({
         accessibilityRole="button"
         accessibilityLabel={t('Pinned message')}
         style={({ hovered }: any) => ({ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 3, opacity: hovered ? 0.85 : 1 })}>
-        <PushPin size={16} color={colors.amberText} />
+        {position ? (
+          // One bar per pin (up to 4), the shown one lit, like Telegram.
+          <View style={{ gap: 2, alignSelf: 'stretch', justifyContent: 'center' }}>
+            {Array.from({ length: Math.min(position.total, 4) }).map((_, i) => (
+              <View
+                key={i}
+                style={{ width: 3, flex: 1, maxHeight: 10, borderRadius: 2, backgroundColor: colors.amberText, opacity: i === Math.min(position.index, 3) ? 1 : 0.3 }}
+              />
+            ))}
+          </View>
+        ) : (
+          <PushPin size={16} color={colors.amberText} />
+        )}
         <View style={{ flex: 1, minWidth: 0 }}>
           <T variant="labelSm" color={colors.amberText}>
-            {t('Pinned message')}
+            {position ? t('Pinned message {n} of {total}', { n: num(position.total - position.index), total: num(position.total) }) : t('Pinned message')}
           </T>
           <T variant="bodySm" color={colors.text} numberOfLines={1}>
             {`${sender}: ${message.attachment?.name ?? message.body}`}
@@ -1078,8 +1167,9 @@ function Bubble({
           style={[
             {
               backgroundColor: bubbleBg,
-              paddingHorizontal: 18,
-              paddingVertical: 13,
+              // The border is always there (transparent when idle) so highlighting it doesn't shift the bubble.
+              paddingHorizontal: 16,
+              paddingVertical: 11,
               borderRadius: r,
               borderBottomStartRadius: !mine && !last ? 8 : r,
               borderTopStartRadius: !mine && !first ? 8 : r,
@@ -1087,7 +1177,7 @@ function Bubble({
               borderTopEndRadius: mine && !first ? 8 : r,
               opacity: m.pending ? 0.75 : 1,
               gap: 8,
-              borderWidth: highlighted || menuOpen || selected ? 2 : 1,
+              borderWidth: 2,
               borderColor: highlighted || menuOpen || selected ? colors.amber : 'transparent',
             },
             web && (hovered || menuOpen) && ({ filter: 'brightness(1.06)' } as object),
@@ -1210,6 +1300,7 @@ function AttachmentCard({ message, mine }: { message: Message; mine: boolean }) 
   const video = attachment.mimeType.startsWith('video/');
   // Photos and videos open in the viewer; the download icon still saves the file.
   const media = image || video;
+  const audio = attachment.mimeType.startsWith('audio/');
   // A file message's body is the caption the sender typed; with no caption the server stores the
   // file name, which the card already shows, so it isn't repeated underneath.
   const rawCaption = (message.body ?? '').trim();
@@ -1233,7 +1324,9 @@ function AttachmentCard({ message, mine }: { message: Message; mine: boolean }) 
         media={viewing && attachment.url ? { url: attachment.url, name: attachment.name, mimeType: attachment.mimeType } : null}
         onClose={() => setViewing(false)}
       />
-      {media && !expired && attachment.url ? (
+      {audio && !expired && attachment.url ? (
+        <VoicePlayer url={attachment.url} mine={mine} />
+      ) : media && !expired && attachment.url ? (
         // Photos/videos: the file name and download sit on the image's top-right corner, so the
         // caption can breathe underneath.
         <View style={{ position: 'relative', borderRadius: 12, overflow: 'hidden', backgroundColor: colors.surface }}>
@@ -1436,6 +1529,8 @@ function Composer({
   onClearReply,
   editing,
   onCancelEdit,
+  onSent,
+  onEditLast,
 }: {
   conversation: Conversation;
   desktop: boolean;
@@ -1444,6 +1539,10 @@ function Composer({
   /** Message being edited: the composer prefills it and Saves instead of Sending. */
   editing: Message | null;
   onCancelEdit: () => void;
+  /** A message left the composer: the thread scrolls back down to it. */
+  onSent?: () => void;
+  /** Arrow-up in an empty composer: edit my last message. */
+  onEditLast?: () => void;
 }) {
   const { user } = useAuth();
   const secret = useSecretStatus(conversation, user?.id);
@@ -1453,7 +1552,7 @@ function Composer({
   const draft = useDraft(conversation.id);
   const [editText, setEditText] = useState<string | null>(null);
   // While editing, the composer is detached from the draft; cancel restores the draft untouched.
-  const text = editing ? (editText ?? editing.body) : draft;
+  const text = editing ? (editText ?? editableText(editing)) : draft;
   const setText = (value: string) => {
     if (editing) setEditText(value);
     else setDraft(conversation.id, value);
@@ -1474,7 +1573,45 @@ function Composer({
   const captionRef = useRef<TextInputInstance>(null);
   const [inputHeight, setInputHeight] = useState(50);
   const insets = useSafeAreaInsets();
-  const canSend = !uploading && !savingEdit && (text.trim().length > 0 || (!!staged && !editing));
+  const canSend = !uploading && !savingEdit && (text.trim().length > 0 || (!!staged && !editing) || editing?.kind === 'file');
+  // Voice messages (web/desktop): with nothing typed, the send button becomes a microphone.
+  const voice = useVoiceRecorder();
+  const showMic = canRecordVoice && filesAllowed && !text.trim() && !staged && !editing && !uploading;
+  const startVoice = async () => {
+    setUploadError('');
+    setEmojiOpen(false);
+    try {
+      await voice.start();
+    } catch {
+      setUploadError(t('The microphone isn’t available. Allow it in the browser and try again.'));
+    }
+  };
+  const sendVoice = async () => {
+    const clip = await voice.stop();
+    if (!clip) return;
+    setUploading(true);
+    setProgress(0);
+    try {
+      await chatStore.sendFile(
+        conversation.id,
+        { uri: '', name: clip.file.name, size: clip.file.size, mimeType: clip.file.type, lastModified: clip.file.lastModified, file: clip.file } as DocumentPicker.DocumentPickerAsset,
+        replyTo,
+        undefined,
+        (f) => setProgress(f),
+      );
+      onClearReply();
+      onSent?.();
+    } catch (e) {
+      setUploadError(e instanceof Error ? e.message : t('Could not upload file'));
+    } finally {
+      setUploading(false);
+      setProgress(null);
+    }
+  };
+  /** The round button: send text, start a voice message, or send the one being recorded. */
+  const mainAction = () => (voice.recording ? void sendVoice() : showMic ? void startVoice() : send());
+  const mainIcon: IconName = voice.recording ? 'send' : showMic ? 'mic' : editing ? 'check' : 'send';
+  const mainEnabled = canSend || showMic || voice.recording;
 
   useLayoutEffect(() => {
     if (Platform.OS !== 'web') return;
@@ -1497,7 +1634,7 @@ function Composer({
     if (!editing) return;
     if (seenEditId.current === editing.id) return;
     seenEditId.current = editing.id;
-    setEditText(editing.body);
+    setEditText(editableText(editing));
     setEmojiOpen(false);
     setStaged(null);
     setCaption('');
@@ -1514,7 +1651,7 @@ function Composer({
 
   const saveEdit = async () => {
     const body = text.trim();
-    if (!editing || !body || savingEdit) return;
+    if (!editing || (!body && editing.kind !== 'file') || savingEdit) return;
     setSavingEdit(true);
     setUploadError('');
     try {
@@ -1536,7 +1673,22 @@ function Composer({
 
   const insertEmoji = (emoji: string) => {
     setText(text + emoji);
-    inputRef.current?.focus();
+    // On phones the panel takes the keyboard's place, so focusing would bring the keyboard back.
+    if (desktop) inputRef.current?.focus();
+  };
+
+  /** Phones: the emoji panel replaces the keyboard (never both); desktop: a floating panel. */
+  const toggleEmoji = () => {
+    if (emojiOpen) {
+      setEmojiOpen(false);
+      if (!desktop) inputRef.current?.focus();
+      return;
+    }
+    if (!desktop) {
+      inputRef.current?.blur();
+      Keyboard.dismiss();
+    }
+    setEmojiOpen(true);
   };
 
   const checkSize = async (asset: DocumentPicker.DocumentPickerAsset) => {
@@ -1577,6 +1729,7 @@ function Composer({
       setStaged(null);
       setCaption('');
       onClearReply();
+      onSent?.();
       inputRef.current?.focus();
     } catch (e) {
       setUploadError(e instanceof Error ? e.message : t('Could not upload file'));
@@ -1612,6 +1765,8 @@ function Composer({
     chatStore.notifyTyping(conversation.id, false);
     chatStore.send(conversation.id, body, replyTo);
     onClearReply();
+    onSent?.();
+    // On phones the emoji panel stays closed and the keyboard stays up for the next message.
     inputRef.current?.focus();
   };
 
@@ -1711,6 +1866,7 @@ function Composer({
         borderTopWidth: desktop ? 1 : 0,
         borderTopColor: colors.surfaceHigh,
         gap: 10,
+        position: 'relative',
       }}>
       {editing && (
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: colors.surface, borderRadius: radius.lg, padding: 10, paddingLeft: 14 }}>
@@ -1837,13 +1993,11 @@ function Composer({
           </View>
         </View>
       )}
-      {emojiOpen && (
-        <EmojiPicker
-          onPick={insertEmoji}
-          onClose={() => setEmojiOpen(false)}
-          maxHeight={desktop ? 240 : 200}
-          style={!desktop && { maxWidth: undefined }}
-        />
+      {emojiOpen && desktop && (
+        // Floats over the messages instead of pushing them up.
+        <View style={{ position: 'absolute', bottom: '100%', start: 24, zIndex: 20, marginBottom: 8 }}>
+          <EmojiPicker onPick={insertEmoji} onClose={() => setEmojiOpen(false)} maxHeight={300} />
+        </View>
       )}
       {!!uploadError && <T variant="bodySm" color={colors.danger}>{uploadError}</T>}
       <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 10 }}>
@@ -1862,20 +2016,34 @@ function Composer({
           style={{
             flex: 1,
             flexDirection: 'row',
-            alignItems: 'center',
+            // Icons stay on the bottom line while the text grows upward.
+            alignItems: 'flex-end',
             backgroundColor: colors.surface,
             borderRadius: desktop ? radius.lg : 26,
             borderWidth: 1.5,
             borderColor: colors.surfaceHigh,
             paddingLeft: desktop ? 8 : 20,
             paddingRight: 8,
+            paddingBottom: desktop ? 4 : 5,
             minHeight: 52,
           }}>
           {desktop && (
             <>
               {filesAllowed && <IconButton name="paperclip" label={t('Upload file')} onPress={() => void pickFile()} disabled={uploading} color={colors.textMuted} />}
-              <IconButton name="smile" label={t('Emoji')} onPress={() => setEmojiOpen((v) => !v)} color={emojiOpen ? colors.amberText : colors.textMuted} />
+              <IconButton name="smile" label={t('Emoji')} onPress={toggleEmoji} color={emojiOpen ? colors.amberText : colors.textMuted} />
             </>
+          )}
+          {voice.recording && (
+            <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 44, paddingHorizontal: 6 }}>
+              <IconButton name="x" label={t('Cancel recording')} onPress={voice.cancel} size={36} iconSize={18} color={colors.danger} />
+              <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: colors.danger }} />
+              <T variant="body" color={colors.text} style={{ fontVariant: ['tabular-nums'] }}>
+                {`${Math.floor(voice.seconds / 60)}:${String(voice.seconds % 60).padStart(2, '0')}`}
+              </T>
+              <T variant="bodySm" color={colors.textMuted} numberOfLines={1} style={{ flex: 1 }}>
+                {t('Recording… tap send to finish')}
+              </T>
+            </View>
           )}
           <TextInput
             ref={inputRef}
@@ -1892,10 +2060,19 @@ function Composer({
               if (Platform.OS === 'web') return;
               setInputHeight(Math.min(140, Math.max(50, event.nativeEvent.contentSize.height)));
             }}
+            onFocus={() => {
+              if (!desktop && emojiOpen) setEmojiOpen(false);
+            }}
             onKeyPress={(e: any) => {
-              if (Platform.OS === 'web' && e.nativeEvent.key === 'Enter' && !e.nativeEvent.shiftKey) {
+              if (Platform.OS !== 'web') return;
+              const key = e.nativeEvent.key;
+              // Touch keyboards: Enter is a new line, the send button sends (like Telegram).
+              if (key === 'Enter' && !e.nativeEvent.shiftKey && !touchKeyboard()) {
                 e.preventDefault();
                 send();
+              } else if (key === 'ArrowUp' && !text && !editing && !staged && onEditLast) {
+                e.preventDefault();
+                onEditLast();
               }
             }}
             style={[
@@ -1913,50 +2090,67 @@ function Composer({
               },
               noOutline,
               persianFont(text || placeholder, { fontFamily: fonts.regular }),
+              voice.recording && { display: 'none' },
             ]}
           />
           {!desktop && (
-            <IconButton name="smile" label={t('Emoji')} onPress={() => setEmojiOpen((v) => !v)} color={emojiOpen ? colors.amberText : colors.textMuted} iconSize={22} />
+            <IconButton name={emojiOpen ? 'type' : 'smile'} label={emojiOpen ? t('Keyboard') : t('Emoji')} onPress={toggleEmoji} color={emojiOpen ? colors.amberText : colors.textMuted} iconSize={22} />
           )}
           {desktop && (
             <Pressable
-              onPress={send}
-              disabled={!canSend}
-              accessibilityLabel={editing ? t('Save changes') : t('Send')}
+              onPress={mainAction}
+              disabled={!mainEnabled}
+              accessibilityLabel={voice.recording ? t('Send voice message') : showMic ? t('Record a voice message') : editing ? t('Save changes') : t('Send')}
               style={{
                 width: 44,
                 height: 44,
                 borderRadius: 14,
-                backgroundColor: canSend ? colors.amber : colors.surfaceHigh,
+                backgroundColor: mainEnabled ? colors.amber : colors.surfaceHigh,
                 alignItems: 'center',
                 justifyContent: 'center',
               }}>
-              {savingEdit ? <ActivityIndicator color={colors.onAmber} size="small" /> : <Icon name={editing ? 'check' : 'send'} size={18} color={canSend ? colors.canvas : colors.textMuted} />}
+              {savingEdit ? <ActivityIndicator color={colors.onAmber} size="small" /> : <Icon name={mainIcon} size={18} color={mainEnabled ? colors.canvas : colors.textMuted} />}
             </Pressable>
           )}
         </View>
         {!desktop && (
           <Pressable
-            onPress={send}
-            disabled={!canSend}
-            accessibilityLabel={editing ? t('Save changes') : t('Send')}
+            onPress={mainAction}
+            disabled={!mainEnabled}
+            accessibilityLabel={voice.recording ? t('Send voice message') : showMic ? t('Record a voice message') : editing ? t('Save changes') : t('Send')}
             style={({ pressed }) => ({
               width: 52,
               height: 52,
               borderRadius: 26,
               backgroundColor: colors.amber,
-              opacity: canSend ? 1 : 0.55,
+              opacity: mainEnabled ? 1 : 0.55,
               alignItems: 'center',
               justifyContent: 'center',
               transform: [{ scale: pressed ? 0.94 : 1 }],
               shadowColor: colors.amber,
-              shadowOpacity: canSend ? 0.4 : 0,
+              shadowOpacity: mainEnabled ? 0.4 : 0,
               shadowRadius: 12,
             })}>
-            {savingEdit ? <ActivityIndicator color={colors.onAmber} /> : <Icon name={editing ? 'check' : 'send'} size={22} color={colors.canvas} />}
+            {savingEdit ? <ActivityIndicator color={colors.onAmber} /> : <Icon name={mainIcon} size={22} color={colors.canvas} />}
           </Pressable>
         )}
       </View>
+      {emojiOpen && !desktop && (
+        // Sits where the keyboard was.
+        <EmojiPicker onPick={insertEmoji} onClose={() => setEmojiOpen(false)} maxHeight={280} style={{ maxWidth: undefined }} />
+      )}
     </View>
   );
+}
+
+/** What the composer shows when editing: a photo's caption (empty when it only has the file name). */
+function editableText(m: Message) {
+  if (m.kind === 'file' && m.attachment && m.body.trim() === m.attachment.name.trim()) return '';
+  return m.body;
+}
+
+/** A phone/tablet browser: its on-screen keyboard has no Shift+Enter, so Enter adds a line. */
+function touchKeyboard() {
+  if (Platform.OS !== 'web' || typeof window === 'undefined' || !window.matchMedia) return false;
+  return window.matchMedia('(pointer: coarse)').matches && !window.matchMedia('(pointer: fine)').matches;
 }

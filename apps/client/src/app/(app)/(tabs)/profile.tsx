@@ -8,6 +8,7 @@ import { DesktopTopBar, MobileHeader, PageTitle } from '@/components/shell';
 import { Button, Card, Field, Icon, SectionLabel, T } from '@/components/ui';
 import { useIsWide } from '@/hooks/use-layout';
 import { pickAvatar } from '@/lib/avatar-upload';
+import { confirm } from '@/lib/confirm';
 import { t } from '@/lib/i18n';
 import { useAuth } from '@/state/auth';
 import { chatStore, useChat } from '@/state/chat-store';
@@ -127,6 +128,17 @@ function ProfileBody() {
   const save = async () => {
     if (!displayName.trim()) return setMessage({ text: t('Name cannot be empty'), ok: false });
     if (usernameError) return setMessage({ text: t('Pick a valid username'), ok: false });
+    // A new username is also the new sign-in name: say so before it changes.
+    if (
+      usernameChanged &&
+      !(await confirm(
+        t('Change username'),
+        t('From now on you sign in with @{username}. The old username will no longer work.', { username }),
+        t('Change'),
+        t('Cancel'),
+      ))
+    )
+      return;
     setSaving(true);
     setMessage(null);
     try {

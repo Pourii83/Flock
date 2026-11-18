@@ -28,7 +28,15 @@ export function shortTime(ts: number) {
 /** "Today, 10:14 AM" style label used in call history. */
 export function dayAndTime(ts: number) {
   const today = startOfDay(Date.now());
-  const day = ts >= today ? t('Today') : ts >= today - DAY ? t('Yesterday') : shortDate(ts);
+  // Future times too (a meeting link valid for 7 days): only today's own date says "Today".
+  const day =
+    ts >= today + 2 * DAY || ts < today - DAY
+      ? shortDate(ts)
+      : ts >= today + DAY
+        ? t('Tomorrow')
+        : ts >= today
+          ? t('Today')
+          : t('Yesterday');
   return `${day}${locale() === 'fa-IR' ? '، ' : ', '}${clock(ts)}`;
 }
 

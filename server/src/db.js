@@ -148,6 +148,20 @@ export async function migrate() {
       created_at BIGINT NOT NULL,
       PRIMARY KEY (message_id, user_id, emoji)
     );
+    -- Every time someone reads a conversation: tells when each member saw a given message.
+    CREATE TABLE IF NOT EXISTS read_marks (
+      conversation_id UUID NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      read_at BIGINT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS read_marks_conv_user ON read_marks (conversation_id, user_id, read_at);
+    -- Per-user markers shared by all of a user's devices (e.g. the newest missed call they looked at).
+    CREATE TABLE IF NOT EXISTS user_marks (
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      key TEXT NOT NULL,
+      value BIGINT NOT NULL,
+      PRIMARY KEY (user_id, key)
+    );
     -- Channels don't announce who joined; drop the notices older servers wrote.
     DELETE FROM messages m USING conversations c
     WHERE m.conversation_id = c.id AND c.type = 'channel' AND m.kind = 'system'

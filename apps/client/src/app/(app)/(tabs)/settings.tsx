@@ -16,6 +16,7 @@ import { useIsWide } from '@/hooks/use-layout';
 import { ServerField, useServerField } from '@/components/server-field';
 import { useBranding } from '@/lib/brand';
 import { checkServer, isInstalledApp, useServerUrl } from '@/lib/config';
+import { notificationsSupported, requestNotificationPermission, setNotifySetting, useNotifySettings } from '@/lib/notifications';
 import { useAuth } from '@/state/auth';
 import { useChat } from '@/state/chat-store';
 import { markRemount, rememberSettingsScroll, settingsScrollToRestore } from '@/lib/settings-scroll';
@@ -237,6 +238,65 @@ function AccentPicker() {
   );
 }
 
+/** Message and meeting-chat notifications (web and desktop). */
+function NotificationSettings() {
+  const { settings, permission } = useNotifySettings();
+  const row = (key: keyof typeof settings, label: string, description: string, disabled = false) => (
+    <Pressable
+      key={key}
+      accessibilityRole="checkbox"
+      accessibilityState={{ checked: settings[key], disabled }}
+      accessibilityLabel={label}
+      disabled={disabled}
+      onPress={() => setNotifySetting(key, !settings[key])}
+      style={({ hovered }: any) => ({
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+        opacity: disabled ? 0.5 : 1,
+        backgroundColor: hovered ? colors.surfaceHigh : 'transparent',
+      })}>
+      <View style={{ flex: 1, gap: 2 }}>
+        <T variant="labelLg">{label}</T>
+        <T variant="bodySm" color={colors.textMuted}>
+          {description}
+        </T>
+      </View>
+      <View
+        style={{
+          width: 42,
+          height: 24,
+          borderRadius: 12,
+          padding: 3,
+          backgroundColor: settings[key] ? colors.amber : colors.surfaceHighest,
+          alignItems: settings[key] ? 'flex-end' : 'flex-start',
+        }}>
+        <View style={{ width: 18, height: 18, borderRadius: 9, backgroundColor: settings[key] ? colors.onAmber : colors.textMuted }} />
+      </View>
+    </Pressable>
+  );
+  return (
+    <Card style={{ paddingVertical: 6 }}>
+      {permission !== 'granted' && (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 10 }}>
+          <Icon name="bell-off" size={16} color={permission === 'denied' ? colors.danger : colors.amberText} />
+          <T variant="bodySm" color={colors.textMuted} style={{ flex: 1 }}>
+            {permission === 'denied'
+              ? t('Notifications are blocked for this site. Allow them in the browser’s site settings.')
+              : t('Allow notifications so new messages reach you while the app is in the background.')}
+          </T>
+          {permission === 'default' && <Button title={t('Allow')} size="sm" onPress={() => void requestNotificationPermission()} />}
+        </View>
+      )}
+      {row('messages', t('New messages'), t('Chats you haven’t opened. Muted chats stay quiet.'))}
+      {row('meetings', t('Call and meeting chat'), t('Messages in a call’s chat while you are in another tab or app.'))}
+      {row('preview', t('Show message text'), t('Off: notifications only say who wrote.'), !settings.messages && !settings.meetings)}
+    </Card>
+  );
+}
+
 function SettingsBody() {
   const scrollRef = useRef<ComponentRef<typeof ScrollView>>(null);
   const restored = useRef(false);
@@ -286,6 +346,13 @@ function SettingsBody() {
       </Pressable>
 
       {isInstalledApp && <ServerSettings />}
+
+      {notificationsSupported && (
+        <>
+          <SectionLabel>{t('Notifications')}</SectionLabel>
+          <NotificationSettings />
+        </>
+      )}
 
       <SectionLabel>{t('Noise cancellation')}</SectionLabel>
       <NoisePicker />

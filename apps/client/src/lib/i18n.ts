@@ -807,6 +807,48 @@ const fa: Record<string, string> = {
   'That release is not the latest on GitHub': 'آن نسخه آخرین ریلیز گیت‌هاب نیست',
   'Invalid release tag': 'تگ ریلیز معتبر نیست',
   'Updating…': 'در حال به‌روزرسانی…',
+  // ----- MUMF round (2026-11-18) -----
+  Keyboard: 'صفحه‌کلید',
+  Tomorrow: 'فردا',
+  Select: 'انتخاب',
+  'Seen and reactions': 'دیده‌شده و واکنش‌ها',
+  'Sent {time}': 'ارسال: {time}',
+  'Seen by': 'دیده شده توسط',
+  'Nobody has seen it yet': 'هنوز کسی آن را ندیده است',
+  Seen: 'دیده شد',
+  'Pinned message {n} of {total}': 'پیام سنجاق‌شده {n} از {total}',
+  'Draft:': 'پیش‌نویس:',
+  'Support the project': 'حمایت از پروژه',
+  'If Flock is useful to you, you can support its development with these wallets. Send each coin only on the network named above it.':
+    'اگر فلاک برایتان مفید است، می‌توانید با این کیف‌پول‌ها از توسعه‌اش حمایت کنید. هر ارز را فقط روی شبکه‌ای که بالای آن نوشته شده بفرستید.',
+  'Change username': 'تغییر نام کاربری',
+  'From now on you sign in with @{username}. The old username will no longer work.':
+    'از این به بعد با ‎@{username}‎ وارد می‌شوید و نام کاربری قبلی دیگر کار نمی‌کند.',
+  Change: 'تغییر',
+  'Picture in picture': 'تصویر در تصویر',
+  Notifications: 'اعلان‌ها',
+  'Notifications are blocked for this site. Allow them in the browser’s site settings.':
+    'اعلان‌ها برای این سایت مسدود است. در تنظیمات سایت مرورگر اجازه‌شان را بدهید.',
+  'Allow notifications so new messages reach you while the app is in the background.':
+    'اجازه‌ی اعلان بدهید تا وقتی برنامه در پس‌زمینه است پیام‌های تازه به شما برسد.',
+  Allow: 'اجازه',
+  'New messages': 'پیام‌های تازه',
+  'Chats you haven’t opened. Muted chats stay quiet.': 'گفتگوهایی که باز نیستند. گفتگوهای بی‌صدا اعلان نمی‌دهند.',
+  'Call and meeting chat': 'چت تماس و جلسه',
+  'Messages in a call’s chat while you are in another tab or app.': 'پیام‌های چت تماس وقتی در تب یا برنامه‌ی دیگری هستید.',
+  'Show message text': 'نمایش متن پیام',
+  'Off: notifications only say who wrote.': 'خاموش: اعلان فقط می‌گوید چه کسی نوشته.',
+  'Voice message': 'پیام صوتی',
+  Pause: 'توقف',
+  'Play voice message': 'پخش پیام صوتی',
+  'Could not play this voice message': 'این پیام صوتی پخش نشد',
+  'The microphone isn’t available. Allow it in the browser and try again.': 'میکروفون در دسترس نیست. در مرورگر اجازه‌اش را بدهید و دوباره امتحان کنید.',
+  'Send voice message': 'ارسال پیام صوتی',
+  'Record a voice message': 'ضبط پیام صوتی',
+  'Cancel recording': 'لغو ضبط',
+  'Recording… tap send to finish': 'در حال ضبط… برای پایان، ارسال را بزنید',
+  'Join with my account instead': 'ورود با حساب خودم',
+  'Join as a guest instead': 'ورود به‌عنوان مهمان',
 };
 
 const dictionaries: Record<Lang, Record<string, string>> = { en: {}, fa };
