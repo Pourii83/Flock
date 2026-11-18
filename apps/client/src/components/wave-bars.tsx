@@ -37,7 +37,7 @@ export function WaveBars({
           style={{
             flex: 1,
             height: Math.max(4, Math.round(level * HEIGHT)),
-            minWidth: 2,
+            minWidth: 1,
             borderRadius: 2,
             backgroundColor: (i + 0.5) / bars.length <= progress ? played : rest,
           }}

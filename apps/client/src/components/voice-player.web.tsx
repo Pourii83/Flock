@@ -19,7 +19,20 @@ export const clockOf = (sec: number) => {
  * A voice message in the chat (web/desktop): play/pause, a progress bar you can tap to seek, and
  * the time. The file needs the Authorization header, so it plays from a short-lived signed link.
  */
-export function VoicePlayer({ url, mine, waveform, duration }: { url: string; mine: boolean; waveform?: string | null; duration?: number }) {
+export function VoicePlayer({
+  url,
+  mine,
+  waveform,
+  duration,
+  compact,
+}: {
+  url: string;
+  mine: boolean;
+  waveform?: string | null;
+  duration?: number;
+  /** Fits a narrow space (the composer's preview of a fresh recording). */
+  compact?: boolean;
+}) {
   // Loudness bars: sent with the message, or measured here from the file for older messages.
   const levels = useWaveform(url, waveform, async () =>
     (await fetch(isLocalUrl(url) ? url : `${getApiUrl()}${url}`, isLocalUrl(url) ? undefined : { headers: getAuthHeaders() })).arrayBuffer(),
@@ -83,7 +96,7 @@ export function VoicePlayer({ url, mine, waveform, duration }: { url: string; mi
 
   const progress = length ? Math.min(1, time / length) : 0;
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, minWidth: 250 }}>
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: compact ? 8 : 10, minWidth: compact ? 0 : 250 }}>
       <Pressable
         onPress={() => void toggle()}
         accessibilityLabel={playing ? t('Pause') : t('Play voice message')}

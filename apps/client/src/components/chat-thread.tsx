@@ -20,7 +20,7 @@ import { clock, dayDivider, dayAndTime, lastSeenLabel, sameDay } from '@/lib/for
 import { attachmentSource, openAttachment } from '@/lib/attachments';
 import { VideoThumb } from './video-thumb';
 import { VoicePlayer } from './voice-player';
-import { canRecordVoice, useVoiceRecorder } from '@/lib/voice-recorder';
+import { canRecordVoice, useVoiceRecorder, type VoiceClip } from '@/lib/voice-recorder';
 import { SECRET_FILE_MAX_MB, useSealedUrl } from '@/lib/sealed-files';
 import { api } from '@/lib/api';
 import { callLine, parseCallLog } from '@/lib/call-log';
@@ -1593,7 +1593,36 @@ function Composer({
   const canSend = !uploading && !savingEdit && (text.trim().length > 0 || (!!staged && !editing) || editing?.kind === 'file');
   // Voice messages (web/desktop): with nothing typed, the send button becomes a microphone.
   const voice = useVoiceRecorder();
-  const showMic = canRecordVoice && filesAllowed && !text.trim() && !staged && !editing && !uploading;
+  // Phones: hold the mic to record, let go to get the clip ready (play it back, then send or delete).
+  const [ready, setReady] = useState<{ clip: VoiceClip; url: string } | null>(null);
+  const voiceClip = ready?.clip ?? null;
+  const voiceUrl = ready?.url ?? null;
+  /** Keeps (or drops, with null) the recorded clip, with a local URL to play it back. */
+  const setVoiceClip = (clip: VoiceClip | null) =>
+    setReady((prev) => {
+      if (prev) URL.revokeObjectURL(prev.url);
+      return clip ? { clip, url: URL.createObjectURL(clip.file) } : null;
+    });
+  const holding = useRef(false);
+  const heldPress = useRef(false);
+  const showMic = canRecordVoice && filesAllowed && !text.trim() && !staged && !editing && !uploading && !voiceClip;
+  const stopToPreview = async () => {
+    const clip = await voice.stop();
+    if (clip) setVoiceClip(clip);
+    else setUploadError(t('Hold the microphone button to record'));
+  };
+  const startHold = async () => {
+    if (!showMic) return;
+    holding.current = true;
+    heldPress.current = true;
+    await startVoice();
+    // Let go before the microphone was ready: end right away (too short, so nothing is kept).
+    if (!holding.current) void stopToPreview();
+  };
+  const endHold = () => {
+    holding.current = false;
+    if (voice.recording) void stopToPreview();
+  };
   const startVoice = async () => {
     setUploadError('');
     setEmojiOpen(false);
@@ -1603,8 +1632,8 @@ function Composer({
       setUploadError(t('The microphone isn’t available. Allow it in the browser and try again.'));
     }
   };
-  const sendVoice = async () => {
-    const clip = await voice.stop();
+  const sendVoice = async (ready?: VoiceClip) => {
+    const clip = ready ?? (await voice.stop());
     if (!clip) return;
     setUploading(true);
     setProgress(0);
@@ -1618,6 +1647,7 @@ function Composer({
         clip.waveform,
         clip.seconds,
       );
+      setVoiceClip(null);
       onClearReply();
       onSent?.();
     } catch (e) {
@@ -1627,10 +1657,24 @@ function Composer({
       setProgress(null);
     }
   };
-  /** The round button: send text, start a voice message, or send the one being recorded. */
-  const mainAction = () => (voice.recording ? void sendVoice() : showMic ? void startVoice() : send());
-  const mainIcon: IconName = voice.recording ? 'send' : showMic ? 'mic' : editing ? 'check' : 'send';
-  const mainEnabled = canSend || showMic || voice.recording;
+  /** The round button: send text or a ready voice clip; on desktop also start/finish a recording. */
+  const mainAction = () => {
+    // The release of a hold-to-record press isn't a "send".
+    if (heldPress.current) {
+      heldPress.current = false;
+      return;
+    }
+    if (voiceClip) return void sendVoice(voiceClip);
+    if (voice.recording) return void sendVoice();
+    if (showMic) {
+      if (desktop) void startVoice();
+      else setUploadError(t('Hold the microphone button to record'));
+      return;
+    }
+    send();
+  };
+  const mainIcon: IconName = voice.recording && desktop ? 'send' : voiceClip ? 'send' : showMic || voice.recording ? 'mic' : editing ? 'check' : 'send';
+  const mainEnabled = canSend || showMic || voice.recording || !!voiceClip;
 
   useLayoutEffect(() => {
     if (Platform.OS !== 'web') return;
@@ -1867,12 +1911,8 @@ function Composer({
   }, [blocked, filesAllowed]);
 
 
-  const firstName = conversation.type === 'direct' ? conversation.name.split(' ')[0] : conversation.name;
-  const placeholder = conversation.isSaved
-    ? t('Write a note…')
-    : desktop
-      ? t('Type a message to {name}…', { name: firstName })
-      : t('Message {name}…', { name: firstName });
+  // Just "Message", like other messengers (Saved Messages keeps its own hint).
+  const placeholder = conversation.isSaved ? t('Write a note…') : t('Message');
   // Secret chat not usable on this device yet: the banner above says why.
   if (blocked) return null;
 
@@ -2056,14 +2096,22 @@ function Composer({
           )}
           {voice.recording && (
             <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 44, paddingHorizontal: 6 }}>
-              <IconButton name="x" label={t('Cancel recording')} onPress={voice.cancel} size={36} iconSize={18} color={colors.danger} />
+              {desktop && <IconButton name="x" label={t('Cancel recording')} onPress={voice.cancel} size={36} iconSize={18} color={colors.danger} />}
               <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: colors.danger }} />
               <T variant="body" color={colors.text} style={{ fontVariant: ['tabular-nums'] }}>
                 {`${Math.floor(voice.seconds / 60)}:${String(voice.seconds % 60).padStart(2, '0')}`}
               </T>
               <T variant="bodySm" color={colors.textMuted} numberOfLines={1} style={{ flex: 1 }}>
-                {t('Recording… tap send to finish')}
+                {desktop ? t('Recording… tap send to finish') : t('Recording… let go to finish')}
               </T>
+            </View>
+          )}
+          {!!voiceClip && !voice.recording && (
+            <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 50, paddingVertical: 4 }}>
+              <IconButton name="trash-2" label={t('Delete recording')} onPress={() => setVoiceClip(null)} size={36} iconSize={18} color={colors.danger} />
+              <View style={{ flex: 1, minWidth: 0 }}>
+                {!!voiceUrl && <VoicePlayer url={voiceUrl} mine={false} waveform={voiceClip.waveform} duration={voiceClip.seconds} compact />}
+              </View>
             </View>
           )}
           <TextInput
@@ -2111,10 +2159,10 @@ function Composer({
               },
               noOutline,
               persianFont(text || placeholder, { fontFamily: fonts.regular }),
-              voice.recording && { display: 'none' },
+              (voice.recording || !!voiceClip) && { display: 'none' },
             ]}
           />
-          {!desktop && (
+          {!desktop && !voice.recording && !voiceClip && (
             <View style={lineBox}>
               <IconButton name={emojiOpen ? 'type' : 'smile'} label={emojiOpen ? t('Keyboard') : t('Emoji')} onPress={toggleEmoji} color={emojiOpen ? colors.amberText : colors.textMuted} iconSize={22} />
             </View>
@@ -2141,6 +2189,8 @@ function Composer({
         {!desktop && (
           <Pressable
             onPress={mainAction}
+            onPressIn={showMic ? () => void startHold() : undefined}
+            onPressOut={showMic || voice.recording ? endHold : undefined}
             disabled={!mainEnabled}
             accessibilityLabel={voice.recording ? t('Send voice message') : showMic ? t('Record a voice message') : editing ? t('Save changes') : t('Send')}
             style={({ pressed }) => ({
@@ -2151,7 +2201,7 @@ function Composer({
               opacity: mainEnabled ? 1 : 0.55,
               alignItems: 'center',
               justifyContent: 'center',
-              transform: [{ scale: pressed ? 0.94 : 1 }],
+              transform: [{ scale: voice.recording && !desktop ? 1.25 : pressed ? 0.94 : 1 }],
               shadowColor: colors.amber,
               shadowOpacity: mainEnabled ? 0.4 : 0,
               shadowRadius: 12,

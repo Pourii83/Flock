@@ -15,7 +15,20 @@ export const clockOf = (sec: number) => {
 };
 
 /** A voice message in the chat (Android): expo-video's player plays audio-only files too. */
-export function VoicePlayer({ url, mine, waveform, duration }: { url: string; mine: boolean; waveform?: string | null; duration?: number }) {
+export function VoicePlayer({
+  url,
+  mine,
+  waveform,
+  duration,
+  compact,
+}: {
+  url: string;
+  mine: boolean;
+  waveform?: string | null;
+  duration?: number;
+  /** Fits a narrow space (the composer's preview of a fresh recording). */
+  compact?: boolean;
+}) {
   // The bars come with the message (older voice messages show a flat line here).
   const levels = useWaveform(url, waveform, null);
   const player = useVideoPlayer(attachmentSource(url), (p) => {
@@ -37,7 +50,7 @@ export function VoicePlayer({ url, mine, waveform, duration }: { url: string; mi
   };
 
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, minWidth: 250 }}>
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: compact ? 8 : 10, minWidth: compact ? 0 : 250 }}>
       <Pressable
         onPress={toggle}
         accessibilityLabel={isPlaying ? t('Pause') : t('Play voice message')}
