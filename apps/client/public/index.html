@@ -40,6 +40,10 @@
       ::-webkit-scrollbar { width: 10px; height: 10px; }
       ::-webkit-scrollbar-thumb { background: #1a2130; border-radius: 8px; border: 2px solid #0b0e14; }
       ::-webkit-scrollbar-track { background: transparent; }
+      /* Sideways rows (chat filters): the thin bar is always there but invisible, and shows on
+         hover, so the row doesn't move when it appears. */
+      [data-hscroll='hover'] { scrollbar-width: thin; scrollbar-color: transparent transparent; padding-bottom: 4px; }
+      [data-hscroll='hover']:hover { scrollbar-color: rgba(150, 160, 180, 0.5) transparent; }
     </style>
     <script>
       // Register the PWA service worker for built apps (skipped on the Metro dev server).
