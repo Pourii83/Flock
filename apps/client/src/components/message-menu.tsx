@@ -107,7 +107,8 @@ export function MessageMenu({
   // Only offer what actually applies to this message: disabled rows are noise (user request).
   const menuItems: ContextMenuItem[] = [{ icon: 'corner-up-left', label: t('Reply'), onPress: onReply }];
   // Text, or the caption of my own photo/file.
-  if (canAct && mine && (isText || message.kind === 'file')) menuItems.push({ icon: 'edit-2', label: t('Edit'), onPress: onEdit });
+  // The server can't read (or re-encrypt) a secret file's caption, so those aren't editable.
+  if (canAct && mine && (isText || (message.kind === 'file' && !conversation.secret))) menuItems.push({ icon: 'edit-2', label: t('Edit'), onPress: onEdit });
   if (canForward) menuItems.push({ icon: 'corner-up-right', label: t('Forward'), onPress: () => setForwardOpen(true) });
   if (canAct && isText) menuItems.push({ icon: 'copy', label: t('Copy'), onPress: () => void copy() });
   if (canSave) menuItems.push({ icon: 'bookmark', label: t('Saved Messages'), onPress: () => void save() });

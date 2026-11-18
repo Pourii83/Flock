@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 
 import { api } from '@/lib/api';
+import { isLocalUrl } from '@/lib/sealed-files';
 import { getApiUrl } from '@/lib/config';
 
 // The browser streams the video itself through a short-lived signed link: it asks only for the parts
@@ -54,9 +55,9 @@ export function VideoThumb({ url, onSize }: { url: string; size?: number; mimeTy
   useEffect(() => {
     if (frame) return;
     let cancelled = false;
-    api
-      .fileLink(url)
-      .then(({ url: signed }) => firstFrame(`${getApiUrl()}${signed}`))
+    // A decrypted secret-chat file is already local; anything else plays from a signed link.
+    (isLocalUrl(url) ? Promise.resolve(url) : api.fileLink(url).then(({ url: signed }) => `${getApiUrl()}${signed}`))
+      .then((src) => firstFrame(src))
       .then((made) => {
         frames.set(url, made);
         if (!cancelled) setFrame(made);

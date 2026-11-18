@@ -49,6 +49,8 @@ export type Message = {
     expired: boolean;
     /** Authenticated server-relative URL, null after expiry. */
     url: string | null;
+    /** Secret chats: the key that opens the encrypted file (from the decrypted message text). */
+    sealed?: { k: string; n: string };
   } | null;
   replyTo: { id: string; body: string; senderId: string; senderName: string } | null;
   /** Set on copies made into Saved Messages: the original sender's name. */

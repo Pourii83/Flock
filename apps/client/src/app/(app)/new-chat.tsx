@@ -60,7 +60,13 @@ export default function NewChatScreen() {
           icon="lock"
           title={t('Secret chat')}
           pros={[t('End-to-end encrypted: the server only sees scrambled text'), t('Safety code to verify')]}
-          cons={[t('Only on this device and one of theirs'), t('Lost if you clear this browser or reinstall'), t('No files yet')]}
+          cons={[
+            t('Only on this device and one of theirs'),
+            t('Lost if you clear this browser or reinstall'),
+            t('Files up to 50 MB, no forwarding or saving'),
+            t('Videos play only after the whole file has downloaded'),
+            t('Captions can’t be edited after sending'),
+          ]}
         />
       </View>
       <SearchBar value={query} onChangeText={setQuery} placeholder={t('Search people by name or @username')} autoFocus />

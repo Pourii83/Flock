@@ -9,6 +9,7 @@ import { callPreview, parseCallLog } from '@/lib/call-log';
 import type { Conversation, Message, Reaction, User, ActiveCall } from '@/lib/types';
 import { t } from '@/lib/i18n';
 import { notifyMessage } from '@/lib/notifications';
+import { parseSealedMeta, sealFile } from '@/lib/sealed-files';
 import { systemText } from '@/lib/system-message';
 
 type State = {
@@ -156,11 +157,22 @@ class ChatStore {
       return { ...m, call, body: callPreview(call) };
     }
     const c = conversation ?? this.state.conversations.find((x) => x.id === m.conversationId);
-    if (!c?.secret || m.kind !== 'text' || m.secret === 'ok') return m;
+    if (!c?.secret || (m.kind !== 'text' && m.kind !== 'file') || m.secret === 'ok') return m;
     const status = secretStatus(c, this.me?.id);
     const open = (body: string) => (status?.state === 'ready' ? decryptText(body, status.peerKey) : null);
     const body = open(m.body);
     const reply = m.replyTo ? open(m.replyTo.body) : null;
+    // An encrypted file: its real name, type, size, caption and key are inside the text.
+    if (m.kind === 'file') {
+      const meta = body ? parseSealedMeta(body) : null;
+      return {
+        ...m,
+        body: meta ? (meta.caption || meta.name) : t('Encrypted message — readable only on the device this secret chat lives on'),
+        secret: meta ? 'ok' : 'locked',
+        attachment: meta && m.attachment ? { ...m.attachment, name: meta.name, mimeType: meta.mime, size: meta.size, sealed: { k: meta.k, n: meta.n } } : m.attachment,
+        replyTo: m.replyTo ? { ...m.replyTo, body: reply ?? t('Encrypted message') } : null,
+      };
+    }
     return {
       ...m,
       body: body ?? t('Encrypted message — readable only on the device this secret chat lives on'),
@@ -603,6 +615,17 @@ class ChatStore {
 
   async sendFile(conversationId: string, asset: DocumentPickerAsset, replyTo?: Message | null, caption?: string, onProgress?: (fraction: number) => void) {
     const trimmed = caption?.trim();
+    // Secret chats: encrypt the file here; only ciphertext (and sealed metadata) is uploaded.
+    const conversation = this.state.conversations.find((c) => c.id === conversationId);
+    const status = conversation ? secretStatus(conversation, this.me?.id) : null;
+    if (conversation?.secret) {
+      if (status?.state !== 'ready') throw new Error(t('Waiting for the other person to accept the secret chat'));
+      const { upload, meta } = await sealFile(asset, trimmed);
+      const sealed = encryptText(JSON.stringify(meta), status.peerKey);
+      const saved = await api.sendFile(conversationId, upload, replyTo?.id, undefined, onProgress, sealed);
+      this.receiveMessage(saved);
+      return saved;
+    }
     const saved = await api.sendFile(conversationId, asset, replyTo?.id, trimmed || undefined, onProgress);
     // Socket delivery and the HTTP response can race; receiveMessage de-duplicates by id.
     this.receiveMessage(saved);

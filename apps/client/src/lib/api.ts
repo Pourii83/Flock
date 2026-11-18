@@ -65,12 +65,15 @@ async function uploadFile(
   caption?: string,
   /** 0..1 upload progress, when the platform can report it (web/desktop). */
   onProgress?: (fraction: number) => void,
+  /** Secret chats: the encrypted metadata (name, type, key, caption) of an encrypted file. */
+  sealed?: string,
 ): Promise<Message> {
   const form = new FormData();
   const part = asset.file ?? ({ uri: asset.uri, name: asset.name, type: asset.mimeType || 'application/octet-stream' } as any);
   form.append('file', part);
   if (replyToId) form.append('replyToId', replyToId);
   if (caption?.trim()) form.append('caption', caption.trim());
+  if (sealed) form.append('sealed', sealed);
   const url = `${getApiUrl()}/api/conversations/${conversationId}/files`;
   // fetch() cannot report upload progress; XHR can, so big files get a real bar on web/desktop.
   if (onProgress && typeof XMLHttpRequest !== 'undefined') {

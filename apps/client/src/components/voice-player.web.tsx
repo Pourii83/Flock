@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, View } from 'react-native';
 
 import { api } from '@/lib/api';
+import { isLocalUrl } from '@/lib/sealed-files';
 import { getApiUrl } from '@/lib/config';
 import { t } from '@/lib/i18n';
 import { colors } from '@/theme';
@@ -32,8 +33,7 @@ export function VoicePlayer({ url, mine }: { url: string; mine: boolean }) {
     if (audio.current) return audio.current;
     setLoading(true);
     try {
-      const { url: signed } = await api.fileLink(url);
-      const full = `${getApiUrl()}${signed}`;
+      const full = isLocalUrl(url) ? url : `${getApiUrl()}${(await api.fileLink(url)).url}`;
       const el = new Audio(full);
       el.preload = 'auto';
       el.onplay = () => setPlaying(true);

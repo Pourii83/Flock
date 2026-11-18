@@ -849,6 +849,13 @@ const fa: Record<string, string> = {
   'Recording… tap send to finish': 'در حال ضبط… برای پایان، ارسال را بزنید',
   'Join with my account instead': 'ورود با حساب خودم',
   'Join as a guest instead': 'ورود به‌عنوان مهمان',
+  'Files in secret chats can be up to 50 MB': 'فایل‌های چت مخفی حداکثر ۵۰ مگابایت هستند',
+  'This file could not be decrypted': 'این فایل باز (رمزگشایی) نشد',
+  'Decrypting…': 'در حال رمزگشایی…',
+  'Files up to 50 MB, no forwarding or saving': 'فایل تا ۵۰ مگابایت، بدون فوروارد یا ذخیره',
+  'Videos play only after the whole file has downloaded': 'ویدیو فقط بعد از دانلود کامل پخش می‌شود',
+  'Captions can’t be edited after sending': 'کپشن فایل بعد از ارسال قابل ویرایش نیست',
+  'Captions of files in secret chats can’t be edited': 'کپشن فایل‌های چت مخفی قابل ویرایش نیست',
 };
 
 const dictionaries: Record<Lang, Record<string, string>> = { en: {}, fa };

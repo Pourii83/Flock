@@ -359,6 +359,8 @@ export function createRouter(realtime) {
     if (message.sender_id !== req.userId) return res.status(403).json({ error: 'You can only edit your own messages' });
     if (message.kind !== 'text' && message.kind !== 'file') return res.status(400).json({ error: 'Only text messages can be edited' });
     let body, error;
+    if (message.kind === 'file' && (await repo.getSecretState(message.conversation_id))?.secret)
+      return res.status(400).json({ error: 'Captions of files in secret chats can’t be edited' });
     if (message.kind === 'file') {
       // An empty caption falls back to the file name, as when it was sent without one.
       const caption = String(req.body?.body ?? '').trim().slice(0, 4000);
@@ -517,6 +519,8 @@ export function createRouter(realtime) {
     return !role || repo.ROLE_RANK[role] < repo.ROLE_RANK.admin;
   }
   const CHANNEL_READ_ONLY = 'Only channel admins can post here';
+  /** Secret-chat files are encrypted and opened in memory on the devices, so they stay small. */
+  const SECRET_FILE_MAX_MB = 50;
 
   r.post('/conversations/:id/messages', member, async (req, res) => {
     if (await postingBlocked(req.params.id, req.userId)) return res.status(403).json({ error: CHANNEL_READ_ONLY });
@@ -532,23 +536,35 @@ export function createRouter(realtime) {
       if (req.file) await deleteStoredFile(req.file.filename);
       return res.status(403).json({ error: CHANNEL_READ_ONLY });
     }
-    if ((await repo.getSecretState(req.params.id))?.secret) {
-      if (req.file) await deleteStoredFile(req.file.filename);
-      return res.status(400).json({ error: 'Files are not available in secret chats yet' });
-    }
     if (!req.file) return res.status(400).json({ error: 'Choose a file to upload' });
+    // Secret chats: the file arrives already encrypted on the sender's device. Its name, type, size
+    // and caption travel inside `sealed` (encrypted like a text message); the server stores bytes
+    // it can't read and never learns what they are.
+    let sealed = null;
+    if ((await repo.getSecretState(req.params.id))?.secret) {
+      if (req.file.size > SECRET_FILE_MAX_MB * 1024 * 1024) {
+        await deleteStoredFile(req.file.filename);
+        return res.status(413).json({ error: 'Files in secret chats can be up to 50 MB' });
+      }
+      const checked = await messageText(req.params.id, req.body?.sealed);
+      if (checked.error) {
+        await deleteStoredFile(req.file.filename);
+        return res.status(checked.error.status).json({ error: checked.error.message });
+      }
+      sealed = checked.body;
+    }
     const retention = getSettings().fileRetentionDays;
-    const name = req.file.originalname.slice(0, 255) || 'File';
+    const name = sealed ? 'sealed.bin' : req.file.originalname.slice(0, 255) || 'File';
     // An optional caption becomes the message text; without one the file name is shown.
     const caption = String(req.body?.caption ?? '').trim().slice(0, 4000);
     try {
       const message = await repo.addMessage(req.params.id, req.userId, {
         kind: 'file',
-        body: caption || name,
+        body: sealed ?? (caption || name),
         replyToId: req.body?.replyToId,
         attachment: {
           name,
-          mimeType: safeMimeType(req.file.mimetype),
+          mimeType: sealed ? 'application/octet-stream' : safeMimeType(req.file.mimetype),
           size: req.file.size,
           path: req.file.filename,
           expiresAt: Date.now() + retention * 24 * 60 * 60 * 1000,

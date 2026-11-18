@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 
 import { api } from '@/lib/api';
+import { isLocalUrl } from '@/lib/sealed-files';
 import { getApiUrl } from '@/lib/config';
 import { t } from '@/lib/i18n';
 import { colors } from '@/theme';
@@ -19,9 +20,8 @@ export function MediaVideo({ url, fit }: { url: string; fit: (w: number, h: numb
 
   useEffect(() => {
     let cancelled = false;
-    api
-      .fileLink(url)
-      .then(({ url: signed }) => !cancelled && setSrc(`${getApiUrl()}${signed}`))
+    (isLocalUrl(url) ? Promise.resolve(url) : api.fileLink(url).then(({ url: signed }) => `${getApiUrl()}${signed}`))
+      .then((full) => !cancelled && setSrc(full))
       .catch((e) => !cancelled && setError(e instanceof Error ? e.message : t('Could not download file')));
     return () => {
       cancelled = true;

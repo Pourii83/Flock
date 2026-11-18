@@ -21,6 +21,7 @@ import { attachmentSource, openAttachment } from '@/lib/attachments';
 import { VideoThumb } from './video-thumb';
 import { VoicePlayer } from './voice-player';
 import { canRecordVoice, useVoiceRecorder } from '@/lib/voice-recorder';
+import { SECRET_FILE_MAX_MB, useSealedUrl } from '@/lib/sealed-files';
 import { api } from '@/lib/api';
 import { callLine, parseCallLog } from '@/lib/call-log';
 import { confirm } from '@/lib/confirm';
@@ -1288,13 +1289,28 @@ function bytesLabel(size: number) {
 }
 
 function AttachmentCard({ message, mine }: { message: Message; mine: boolean }) {
-  const attachment = message.attachment;
+  // A secret-chat file is downloaded and decrypted first; it then shows from a local URL.
+  const sealedFile = useSealedUrl(message.id, message.attachment);
+  const attachment = message.attachment?.sealed ? { ...message.attachment, url: sealedFile.url } : message.attachment;
   const [opening, setOpening] = useState(false);
   const [error, setError] = useState('');
   const [viewing, setViewing] = useState(false);
   // The video's own proportions (known once its first frame is read); 16:9 until then.
   const [videoRatio, setVideoRatio] = useState(16 / 9);
   if (!attachment) return <T color={mine ? colors.onAmber : colors.textMuted}>{t('File unavailable')}</T>;
+  if (message.secret === 'locked') return <T color={mine ? colors.onAmber : colors.textMuted}>{message.body}</T>;
+  if (attachment.sealed && !attachment.expired && !attachment.url)
+    return (
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, minWidth: 200 }}>
+        {sealedFile.error ? <Icon name="alert-circle" size={18} color={colors.danger} /> : <ActivityIndicator color={mine ? colors.onAmber : colors.amberText} />}
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <T variant="labelLg" color={mine ? colors.onAmber : colors.text} numberOfLines={1}>{attachment.name}</T>
+          <T variant="bodySm" color={sealedFile.error ? colors.danger : mine ? '#72521B' : colors.textMuted}>
+            {sealedFile.error || t('Decrypting…')}
+          </T>
+        </View>
+      </View>
+    );
   const expired = attachment.expired || !attachment.url;
   const image = attachment.mimeType.startsWith('image/');
   const video = attachment.mimeType.startsWith('video/');
@@ -1547,7 +1563,8 @@ function Composer({
   const { user } = useAuth();
   const secret = useSecretStatus(conversation, user?.id);
   const blocked = !!conversation.secret && secret?.state !== 'ready';
-  const filesAllowed = !conversation.secret;
+  // Secret chats send files too: they are encrypted on this device before upload.
+  const filesAllowed = true;
   // Unsent text lives in the per-conversation draft store (restored when switching chats).
   const draft = useDraft(conversation.id);
   const [editText, setEditText] = useState<string | null>(null);
@@ -1692,7 +1709,8 @@ function Composer({
   };
 
   const checkSize = async (asset: DocumentPicker.DocumentPickerAsset) => {
-    const maxMb = await uploadLimitMb();
+    const serverMax = await uploadLimitMb();
+    const maxMb = conversation.secret ? Math.min(serverMax, SECRET_FILE_MAX_MB) : serverMax;
     if ((asset.size ?? 0) > maxMb * 1024 * 1024) {
       setUploadError(t('Files can be up to {n} MB', { n: num(maxMb) }));
       return false;
@@ -2024,14 +2042,15 @@ function Composer({
             borderColor: colors.surfaceHigh,
             paddingLeft: desktop ? 8 : 20,
             paddingRight: 8,
-            paddingBottom: desktop ? 4 : 5,
             minHeight: 52,
           }}>
+          {/* Every icon sits in a box as tall as one line of text, so it lines up with the text on
+              the first line and stays on the bottom line as the message grows. */}
           {desktop && (
-            <>
+            <View style={lineBox}>
               {filesAllowed && <IconButton name="paperclip" label={t('Upload file')} onPress={() => void pickFile()} disabled={uploading} color={colors.textMuted} />}
               <IconButton name="smile" label={t('Emoji')} onPress={toggleEmoji} color={emojiOpen ? colors.amberText : colors.textMuted} />
-            </>
+            </View>
           )}
           {voice.recording && (
             <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 44, paddingHorizontal: 6 }}>
@@ -2094,9 +2113,12 @@ function Composer({
             ]}
           />
           {!desktop && (
-            <IconButton name={emojiOpen ? 'type' : 'smile'} label={emojiOpen ? t('Keyboard') : t('Emoji')} onPress={toggleEmoji} color={emojiOpen ? colors.amberText : colors.textMuted} iconSize={22} />
+            <View style={lineBox}>
+              <IconButton name={emojiOpen ? 'type' : 'smile'} label={emojiOpen ? t('Keyboard') : t('Emoji')} onPress={toggleEmoji} color={emojiOpen ? colors.amberText : colors.textMuted} iconSize={22} />
+            </View>
           )}
           {desktop && (
+            <View style={lineBox}>
             <Pressable
               onPress={mainAction}
               disabled={!mainEnabled}
@@ -2111,6 +2133,7 @@ function Composer({
               }}>
               {savingEdit ? <ActivityIndicator color={colors.onAmber} size="small" /> : <Icon name={mainIcon} size={18} color={mainEnabled ? colors.canvas : colors.textMuted} />}
             </Pressable>
+            </View>
           )}
         </View>
         {!desktop && (
@@ -2142,6 +2165,9 @@ function Composer({
     </View>
   );
 }
+
+/** One composer text line tall (the input's single-line height): icons centered on it. */
+const lineBox = { height: 50, flexDirection: 'row', alignItems: 'center' } as const;
 
 /** What the composer shows when editing: a photo's caption (empty when it only has the file name). */
 function editableText(m: Message) {
