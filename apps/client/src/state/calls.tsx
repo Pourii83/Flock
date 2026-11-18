@@ -9,6 +9,7 @@ import { getNoisePreference, micConstraints, processMic, strongNoiseSupported, t
 import {
   createPeer,
   getCameraTrack,
+  getFacingCameraTrack,
   getLocalMedia,
   loadIceConfig,
   mediaErrorMessage,
@@ -1156,7 +1157,16 @@ export function CallProvider({ children }: { children: ReactNode }) {
       }
       if (!c.cameraOff && c.videoDeviceId === deviceId) return;
       try {
-        const track = await getCameraTrack(deviceId);
+        let track: MediaStreamTrack;
+        try {
+          track = await getCameraTrack(deviceId);
+        } catch (first) {
+          // Phones open one camera at a time: release the current one and try again.
+          const current = cameraTrack.current;
+          if (!current) throw first;
+          current.stop();
+          track = await getCameraTrack(deviceId);
+        }
         const old = cameraTrack.current;
         cameraTrack.current = track;
         c.localStream.addTrack(track);
@@ -1311,23 +1321,55 @@ export function CallProvider({ children }: { children: ReactNode }) {
     setCall((c) => ({ ...c, speakerMuted: !c.speakerMuted }));
   }, [setCall]);
 
+  /**
+   * Browser front/back switch. Asks for the other *facing* (not the next device in the list, which
+   * on phones holds several back lenses), and closes the current camera first when the phone can't
+   * keep two open; if the other side won't open, the camera we had comes back.
+   */
+  const flipWebCamera = useCallback(async () => {
+    const c = callRef.current;
+    if (!c.localStream || c.cameraOff) return;
+    const old = cameraTrack.current;
+    const facing = (old?.getSettings?.().facingMode as string | undefined) ?? (c.frontCamera ? 'user' : 'environment');
+    const target: 'user' | 'environment' = facing === 'environment' ? 'user' : 'environment';
+    const put = async (track: MediaStreamTrack, front: boolean) => {
+      cameraTrack.current = track;
+      c.localStream!.addTrack(track);
+      if (old && old !== track) c.localStream!.removeTrack(old);
+      setCall((s) => ({ ...s, cameraOff: false, frontCamera: front, videoDeviceId: track.getSettings?.().deviceId ?? 'default', notice: null, mediaVersion: s.mediaVersion + 1 }));
+      await syncVideoSender();
+    };
+    try {
+      let track: MediaStreamTrack;
+      try {
+        track = await getFacingCameraTrack(target);
+      } catch {
+        old?.stop();
+        track = await getFacingCameraTrack(target);
+      }
+      if (old && old.readyState !== 'ended') old.stop();
+      await put(track, target === 'user');
+    } catch (e) {
+      patch({ notice: e instanceof Error ? e.message : String(e) });
+      // Bring the previous camera back so the call doesn't lose video.
+      if (old?.readyState === 'ended') {
+        try {
+          await put(await getFacingCameraTrack(target === 'user' ? 'environment' : 'user'), target !== 'user');
+        } catch {}
+      }
+    }
+  }, [patch, setCall, syncVideoSender]);
+
   const flipCamera = useCallback(() => {
     const c = callRef.current;
     if (Platform.OS === 'web') {
-      // Browsers (phones: front/back) switch to the next camera in the list.
-      const devices = c.videoDevices.filter((d) => d.id && d.id !== 'default');
-      if (devices.length < 2) return;
-      const activeId = c.videoDeviceId !== 'default' ? c.videoDeviceId : (cameraTrack.current?.getSettings?.().deviceId ?? '');
-      const index = devices.findIndex((d) => d.id === activeId);
-      const next = devices[(index + 1) % devices.length]!;
-      void selectVideoDevice(next.id);
-      // A back camera ("back"/"rear"/"environment" in its name) isn't mirrored.
-      patch({ frontCamera: !/back|rear|environment|پشت/i.test(next.label) });
+      void flipWebCamera();
       return;
     }
     switchCamera(c.localStream);
     patch({ frontCamera: !c.frontCamera });
-  }, [patch, selectVideoDevice]);
+  }, [patch, flipWebCamera]);
+
 
   const setMinimized = useCallback((minimized: boolean) => patch({ minimized }), [patch]);
   const setMiniPreview = useCallback((miniPreview: boolean) => patch({ miniPreview }), [patch]);

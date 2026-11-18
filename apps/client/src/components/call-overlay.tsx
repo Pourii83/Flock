@@ -10,7 +10,7 @@ import { meetingLink } from '@/lib/config';
 import { timer } from '@/lib/format';
 import { setImmersive } from '@/lib/immersive';
 import { canSwitchCamera } from '@/lib/native-media';
-import { enterPip, pipSupported, useAutoPip } from '@/lib/pip';
+import { enterPip, pipAvailable, useAutoPip } from '@/lib/pip';
 import { getNoisePreference, strongNoiseSupported } from '@/lib/noise';
 import { setCallChatSounds, setReactionSounds, useCallSoundSettings } from '@/lib/call-sounds';
 import { REACTION_MS, STREAM_PRESETS, useCalls, type CallReaction, type CallRemote, type NetQuality, type StreamFps, type StreamQuality, type VoiceBitrate } from '@/state/calls';
@@ -597,7 +597,7 @@ function ActiveCall() {
   // The other person's video floats in a small window when the user leaves the tab/app (web).
   const pipStream = call.remotes.find((r) => (r.video || r.screen) && !!r.stream?.getVideoTracks().length)?.stream ?? null;
   useAutoPip(pipStream, call.phase === 'active' && !!pipStream);
-  const canPip = pipSupported && !!pipStream;
+  const canPip = pipAvailable && !!pipStream;
   // Front/back toggle: phones (native), and browsers that see more than one camera.
   const canFlip = (canSwitchCamera || (Platform.OS === 'web' && call.videoDevices.length > 1)) && !call.cameraOff;
   // A chevron on the camera button lists the other cameras (web/desktop with more than one).

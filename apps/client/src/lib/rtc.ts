@@ -123,6 +123,24 @@ export async function getLocalMedia(video: boolean, mic: MediaTrackConstraints =
 }
 
 /** Opens the camera mid-call; throws a friendly, actionable error when unavailable. */
+/**
+ * A phone's front ("user") or back ("environment") camera. Phones often list several back lenses
+ * (wide, ultra-wide, depth…) and some can't be opened, so ask by facing, not by the device list.
+ */
+export async function getFacingCameraTrack(facing: 'user' | 'environment') {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { ...CAMERA, facingMode: { exact: facing } } });
+    return stream.getVideoTracks()[0]!;
+  } catch {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { ...CAMERA, facingMode: facing } });
+      return stream.getVideoTracks()[0]!;
+    } catch (error) {
+      throw new Error(mediaErrorMessage(error, 'camera'));
+    }
+  }
+}
+
 export async function getCameraTrack(deviceId?: string) {
   const video = Platform.OS === 'web' && deviceId && deviceId !== 'default' ? { ...CAMERA, deviceId: { exact: deviceId } } : CAMERA;
   try {
