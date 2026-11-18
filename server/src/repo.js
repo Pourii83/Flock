@@ -153,6 +153,8 @@ function serializeMessage(row) {
           expiresAt: row.attachment_expires_at,
           expired: !row.attachment_path || row.attachment_expires_at <= now(),
           url: row.attachment_path && row.attachment_expires_at > now() ? `/api/files/${row.id}` : null,
+          ...(row.attachment_waveform ? { waveform: row.attachment_waveform } : {}),
+          ...(row.attachment_duration_ms ? { duration: row.attachment_duration_ms / 1000 } : {}),
         }
       : null,
     replyTo: row.reply_to_id
@@ -446,8 +448,8 @@ export async function addMessage(conversationId, senderId, { body, replyToId, ki
   await query(
     `INSERT INTO messages
        (id, conversation_id, sender_id, kind, body, reply_to_id, created_at,
-        attachment_name, attachment_mime, attachment_size, attachment_path, attachment_expires_at, forwarded_from)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+        attachment_name, attachment_mime, attachment_size, attachment_path, attachment_expires_at, forwarded_from, attachment_waveform, attachment_duration_ms)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
     [
       id,
       conversationId,
@@ -462,6 +464,8 @@ export async function addMessage(conversationId, senderId, { body, replyToId, ki
       attachment?.path ?? null,
       attachment?.expiresAt ?? null,
       forwardedFrom,
+      attachment?.waveform ?? null,
+      attachment?.durationMs ?? null,
     ],
   );
   await query('UPDATE members SET last_read_at = $3 WHERE conversation_id = $1 AND user_id = $2', [conversationId, senderId, t]);

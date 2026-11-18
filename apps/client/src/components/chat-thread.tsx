@@ -1341,7 +1341,7 @@ function AttachmentCard({ message, mine }: { message: Message; mine: boolean }) 
         onClose={() => setViewing(false)}
       />
       {audio && !expired && attachment.url ? (
-        <VoicePlayer url={attachment.url} mine={mine} />
+        <VoicePlayer url={attachment.url} mine={mine} waveform={attachment.waveform} duration={attachment.duration} />
       ) : media && !expired && attachment.url ? (
         // Photos/videos: the file name and download sit on the image's top-right corner, so the
         // caption can breathe underneath.
@@ -1615,6 +1615,8 @@ function Composer({
         replyTo,
         undefined,
         (f) => setProgress(f),
+        clip.waveform,
+        clip.seconds,
       );
       onClearReply();
       onSent?.();

@@ -148,6 +148,10 @@ export async function migrate() {
       created_at BIGINT NOT NULL,
       PRIMARY KEY (message_id, user_id, emoji)
     );
+    -- Voice messages: loudness bars for the timeline, one base-32 digit (0-v = 0-31) per bar.
+    ALTER TABLE messages ADD COLUMN IF NOT EXISTS attachment_waveform TEXT;
+    -- Voice messages: length in milliseconds (browser recordings don't carry it in the file).
+    ALTER TABLE messages ADD COLUMN IF NOT EXISTS attachment_duration_ms INTEGER;
     -- Every time someone reads a conversation: tells when each member saw a given message.
     CREATE TABLE IF NOT EXISTS read_marks (
       conversation_id UUID NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,

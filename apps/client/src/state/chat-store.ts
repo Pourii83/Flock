@@ -169,7 +169,10 @@ class ChatStore {
         ...m,
         body: meta ? (meta.caption || meta.name) : t('Encrypted message — readable only on the device this secret chat lives on'),
         secret: meta ? 'ok' : 'locked',
-        attachment: meta && m.attachment ? { ...m.attachment, name: meta.name, mimeType: meta.mime, size: meta.size, sealed: { k: meta.k, n: meta.n } } : m.attachment,
+        attachment:
+          meta && m.attachment
+            ? { ...m.attachment, name: meta.name, mimeType: meta.mime, size: meta.size, sealed: { k: meta.k, n: meta.n }, ...(meta.w ? { waveform: meta.w } : {}), ...(meta.d ? { duration: meta.d } : {}) }
+            : m.attachment,
         replyTo: m.replyTo ? { ...m.replyTo, body: reply ?? t('Encrypted message') } : null,
       };
     }
@@ -613,20 +616,29 @@ class ChatStore {
     }
   }
 
-  async sendFile(conversationId: string, asset: DocumentPickerAsset, replyTo?: Message | null, caption?: string, onProgress?: (fraction: number) => void) {
+  async sendFile(
+    conversationId: string,
+    asset: DocumentPickerAsset,
+    replyTo?: Message | null,
+    caption?: string,
+    onProgress?: (fraction: number) => void,
+    /** Voice messages: the loudness bars measured while recording, and the length in seconds. */
+    waveform?: string | null,
+    seconds?: number,
+  ) {
     const trimmed = caption?.trim();
     // Secret chats: encrypt the file here; only ciphertext (and sealed metadata) is uploaded.
     const conversation = this.state.conversations.find((c) => c.id === conversationId);
     const status = conversation ? secretStatus(conversation, this.me?.id) : null;
     if (conversation?.secret) {
       if (status?.state !== 'ready') throw new Error(t('Waiting for the other person to accept the secret chat'));
-      const { upload, meta } = await sealFile(asset, trimmed);
+      const { upload, meta } = await sealFile(asset, trimmed, waveform, seconds);
       const sealed = encryptText(JSON.stringify(meta), status.peerKey);
       const saved = await api.sendFile(conversationId, upload, replyTo?.id, undefined, onProgress, sealed);
       this.receiveMessage(saved);
       return saved;
     }
-    const saved = await api.sendFile(conversationId, asset, replyTo?.id, trimmed || undefined, onProgress);
+    const saved = await api.sendFile(conversationId, asset, replyTo?.id, trimmed || undefined, onProgress, undefined, waveform, seconds ? seconds * 1000 : undefined);
     // Socket delivery and the HTTP response can race; receiveMessage de-duplicates by id.
     this.receiveMessage(saved);
     return saved;

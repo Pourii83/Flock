@@ -67,6 +67,9 @@ async function uploadFile(
   onProgress?: (fraction: number) => void,
   /** Secret chats: the encrypted metadata (name, type, key, caption) of an encrypted file. */
   sealed?: string,
+  /** Voice messages: the loudness bars and the length (secret chats carry them inside `sealed`). */
+  waveform?: string | null,
+  durationMs?: number,
 ): Promise<Message> {
   const form = new FormData();
   const part = asset.file ?? ({ uri: asset.uri, name: asset.name, type: asset.mimeType || 'application/octet-stream' } as any);
@@ -74,6 +77,8 @@ async function uploadFile(
   if (replyToId) form.append('replyToId', replyToId);
   if (caption?.trim()) form.append('caption', caption.trim());
   if (sealed) form.append('sealed', sealed);
+  if (waveform && !sealed) form.append('waveform', waveform);
+  if (durationMs && !sealed) form.append('durationMs', String(Math.round(durationMs)));
   const url = `${getApiUrl()}/api/conversations/${conversationId}/files`;
   // fetch() cannot report upload progress; XHR can, so big files get a real bar on web/desktop.
   if (onProgress && typeof XMLHttpRequest !== 'undefined') {

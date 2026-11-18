@@ -18,7 +18,7 @@ import { t } from './i18n';
 export const SECRET_FILE_MAX_MB = 50;
 
 /** What travels (encrypted) in a secret file message's text. */
-export type SealedFileMeta = { t: 'file'; k: string; n: string; name: string; mime: string; size: number; caption?: string };
+export type SealedFileMeta = { t: 'file'; k: string; n: string; name: string; mime: string; size: number; caption?: string; w?: string; d?: number };
 
 export function parseSealedMeta(text: string): SealedFileMeta | null {
   try {
@@ -39,7 +39,7 @@ async function assetBytes(asset: DocumentPickerAsset): Promise<Uint8Array> {
  * Encrypts a picked/pasted file. Returns the ciphertext as an upload-ready asset and the metadata
  * that goes (encrypted) into the message text.
  */
-export async function sealFile(asset: DocumentPickerAsset, caption: string | undefined) {
+export async function sealFile(asset: DocumentPickerAsset, caption: string | undefined, waveform?: string | null, seconds?: number) {
   if ((asset.size ?? 0) > SECRET_FILE_MAX_MB * 1024 * 1024) throw new Error(t('Files in secret chats can be up to 50 MB'));
   const plain = await assetBytes(asset);
   const key = nacl.randomBytes(nacl.secretbox.keyLength);
@@ -53,6 +53,8 @@ export async function sealFile(asset: DocumentPickerAsset, caption: string | und
     mime: asset.mimeType || 'application/octet-stream',
     size: plain.length,
     ...(caption?.trim() ? { caption: caption.trim() } : {}),
+    ...(waveform ? { w: waveform } : {}),
+    ...(seconds ? { d: Math.round(seconds * 10) / 10 } : {}),
   };
   let upload: DocumentPickerAsset;
   if (Platform.OS === 'web') {

@@ -328,7 +328,7 @@ export function createRouter(realtime) {
       const live = src.attachment_path && src.attachment_expires_at > Date.now();
       const copy = live ? await copyStoredFile(src.attachment_path) : null;
       if (!copy) return res.status(410).json({ error: 'File expired' });
-      attachment = { name: src.attachment_name, mimeType: src.attachment_mime, size: src.attachment_size, path: copy, expiresAt: src.attachment_expires_at };
+      attachment = { name: src.attachment_name, mimeType: src.attachment_mime, size: src.attachment_size, path: copy, expiresAt: src.attachment_expires_at, waveform: src.attachment_waveform, durationMs: src.attachment_duration_ms };
     }
     try {
       const message = await repo.addMessage(id, req.userId, {
@@ -401,7 +401,7 @@ export function createRouter(realtime) {
       const live = src.attachment_path && src.attachment_expires_at > Date.now();
       const copy = live ? await copyStoredFile(src.attachment_path) : null;
       if (!copy) return res.status(410).json({ error: 'File expired' });
-      attachment = { name: src.attachment_name, mimeType: src.attachment_mime, size: src.attachment_size, path: copy, expiresAt: src.attachment_expires_at };
+      attachment = { name: src.attachment_name, mimeType: src.attachment_mime, size: src.attachment_size, path: copy, expiresAt: src.attachment_expires_at, waveform: src.attachment_waveform, durationMs: src.attachment_duration_ms };
     }
     const sender = await repo.getUserRow(src.sender_id);
     try {
@@ -565,6 +565,9 @@ export function createRouter(realtime) {
         attachment: {
           name,
           mimeType: sealed ? 'application/octet-stream' : safeMimeType(req.file.mimetype),
+          // Voice messages: the bars the sender's device measured (secret chats keep them sealed).
+          waveform: !sealed && /^[0-9a-v]{8,128}$/.test(String(req.body?.waveform ?? '')) ? req.body.waveform : null,
+          durationMs: !sealed && Number.isInteger(Number(req.body?.durationMs)) && Number(req.body.durationMs) > 0 && Number(req.body.durationMs) <= 6 * 3600_000 ? Number(req.body.durationMs) : null,
           size: req.file.size,
           path: req.file.filename,
           expiresAt: Date.now() + retention * 24 * 60 * 60 * 1000,

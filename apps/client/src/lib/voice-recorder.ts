@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { Platform } from 'react-native';
 
+import { measureWave } from './waveform';
+
 export const canRecordVoice =
   Platform.OS === 'web' && typeof window !== 'undefined' && typeof (window as any).MediaRecorder !== 'undefined' && !!navigator.mediaDevices?.getUserMedia;
 
@@ -13,7 +15,8 @@ function pickMime() {
   return '';
 }
 
-export type VoiceClip = { file: File; seconds: number };
+/** waveform: the loudness bars measured from the recording (sent with the message). */
+export type VoiceClip = { file: File; seconds: number; waveform: string | null };
 
 export function useVoiceRecorder() {
   const [recording, setRecording] = useState(false);
@@ -58,7 +61,7 @@ export function useVoiceRecorder() {
     rec.ondataavailable = (event) => {
       if (event.data.size) chunks.current.push(event.data);
     };
-    rec.onstop = () => {
+    rec.onstop = async () => {
       const done = finish.current;
       finish.current = null;
       const secondsTaken = (Date.now() - startedAt.current) / 1000;
@@ -69,7 +72,8 @@ export function useVoiceRecorder() {
       if (!blob.size || secondsTaken < 0.6) return done(null);
       const ext = type.includes('mp4') ? 'm4a' : type.includes('ogg') ? 'ogg' : 'webm';
       const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
-      done({ file: new File([blob], `voice-${stamp}.${ext}`, { type }), seconds: secondsTaken });
+      const waveform = await measureWave(await blob.arrayBuffer()).catch(() => null);
+      done({ file: new File([blob], `voice-${stamp}.${ext}`, { type }), seconds: secondsTaken, waveform });
     };
     stream.current = mic;
     recorder.current = rec;

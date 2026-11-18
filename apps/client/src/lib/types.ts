@@ -49,6 +49,10 @@ export type Message = {
     expired: boolean;
     /** Authenticated server-relative URL, null after expiry. */
     url: string | null;
+    /** Voice messages: loudness bars, one base-32 digit (0-31) per bar. */
+    waveform?: string;
+    /** Voice messages: length in seconds, as recorded. */
+    duration?: number;
     /** Secret chats: the key that opens the encrypted file (from the decrypted message text). */
     sealed?: { k: string; n: string };
   } | null;
