@@ -139,10 +139,10 @@ export function ChatRow({
           flexDirection: 'row',
           alignItems: 'center',
           gap: 14,
+          paddingHorizontal: 14,
           paddingVertical: card ? 16 : 12,
           minHeight: 68,
-          // Phone rows are rounded cards; desktop rows are square and touch both edges of the list.
-          borderRadius: card ? radius.lg : 0,
+          borderRadius: radius.lg,
           // Stitch: phone rows are cards; the open chat on desktop is a card with a soft amber edge.
           backgroundColor: pressed ? colors.surfaceHigh : selected || card ? colors.surface : hovered ? colors.hover : 'transparent',
           borderWidth: 1,
@@ -150,10 +150,8 @@ export function ChatRow({
           // The open chat is marked by its leading edge drawn as one amber line.
           borderStartWidth: selected ? 3 : 1,
           borderStartColor: selected ? colors.amber : card ? colors.border : 'transparent',
-          borderEndWidth: card ? 1 : 0,
-          // Desktop rows run edge to edge, past the list's 16px padding.
-          marginHorizontal: card ? 0 : -16,
-          paddingHorizontal: card ? 14 : 22,
+          // Desktop rows run the full width of the list, past the header's padding.
+          marginHorizontal: card ? 0 : -8,
         })}>
         <ConversationAvatar conversation={c} meId={user?.id} size={card ? 52 : 48} ringBg={selected ? colors.surface : colors.canvas} />
         <View style={{ flex: 1, gap: 4 }}>
