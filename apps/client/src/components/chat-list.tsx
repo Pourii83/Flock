@@ -143,9 +143,10 @@ export function ChatRow({
           paddingVertical: card ? 16 : 12,
           minHeight: 68,
           borderRadius: radius.lg,
-          backgroundColor: selected || pressed ? colors.surface : hovered ? colors.hover : card ? (unread ? colors.surface : colors.hover) : 'transparent',
-          borderWidth: card ? 1 : 0,
-          borderColor: colors.surfaceHigh,
+          // Stitch: phone rows are cards; the open chat on desktop is a card with a soft amber edge.
+          backgroundColor: pressed ? colors.surfaceHigh : selected || card ? colors.surface : hovered ? colors.hover : 'transparent',
+          borderWidth: 1,
+          borderColor: selected ? colors.amberGlow : card ? colors.border : 'transparent',
         })}>
         {selected && (
           <View style={{ position: 'absolute', start: 0, top: 14, bottom: 14, width: 3, borderRadius: 2, backgroundColor: colors.amber }} />

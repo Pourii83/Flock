@@ -555,11 +555,18 @@ function PinnedBanner({
         flexDirection: 'row',
         alignItems: 'center',
         gap: 10,
-        paddingHorizontal: 16,
-        paddingVertical: 6,
-        backgroundColor: colors.amberTint,
-        borderBottomWidth: 1,
-        borderBottomColor: colors.surfaceHigh,
+        // A floating card under the header with an amber strip on its leading edge (Stitch).
+        marginHorizontal: 10,
+        marginTop: 8,
+        paddingStart: 14,
+        paddingEnd: 8,
+        paddingVertical: 4,
+        borderRadius: radius.md + 4,
+        backgroundColor: colors.panel,
+        borderWidth: 1,
+        borderColor: colors.border,
+        borderStartWidth: 3,
+        borderStartColor: colors.amber,
       }}>
       <Pressable
         onPress={onOpen}
@@ -1088,7 +1095,8 @@ function Bubble({
   const showSender = !mine && first && conversation.type !== 'channel' && (conversation.type === 'group' || desktop);
   const bubbleBg = mine ? colors.amberSoft : colors.bubble;
   const fg = mine ? colors.onAmber : colors.text;
-  const r = 20;
+  // Stitch bubbles: 16px corners, the speaker's corner pinched to 4px on the last of a run.
+  const r = 16;
   // Pending/failed messages don't exist on the server yet, so they have no menu.
   const canAct = !m.pending && !m.failed;
   const web = Platform.OS === 'web';
@@ -1172,14 +1180,16 @@ function Bubble({
               paddingHorizontal: 16,
               paddingVertical: 11,
               borderRadius: r,
-              borderBottomStartRadius: !mine && !last ? 8 : r,
-              borderTopStartRadius: !mine && !first ? 8 : r,
-              borderBottomEndRadius: mine && !last ? 8 : mine ? 6 : r,
-              borderTopEndRadius: mine && !first ? 8 : r,
+              borderBottomStartRadius: !mine ? 4 : r,
+              borderTopStartRadius: !mine && !first ? 4 : r,
+              borderBottomEndRadius: mine ? 4 : r,
+              borderTopEndRadius: mine && !first ? 4 : r,
               opacity: m.pending ? 0.75 : 1,
               gap: 8,
-              borderWidth: 2,
-              borderColor: highlighted || menuOpen || selected ? colors.amber : 'transparent',
+              // Their messages are cards with a hairline edge; mine are amber. Highlighting only
+              // recolors the edge, so the bubble never shifts.
+              borderWidth: 1.5,
+              borderColor: highlighted || menuOpen || selected ? colors.amber : mine ? 'transparent' : colors.border,
             },
             web && (hovered || menuOpen) && ({ filter: 'brightness(1.06)' } as object),
           ]}>
@@ -1188,8 +1198,8 @@ function Bubble({
               style={{
                 flexDirection: 'row',
                 gap: 10,
-                backgroundColor: mine ? 'rgba(61,38,0,0.08)' : colors.surface,
-                borderRadius: 12,
+                backgroundColor: mine ? 'rgba(61,38,0,0.08)' : colors.surfaceHigh,
+                borderRadius: 10,
                 padding: 10,
               }}>
               <View style={{ width: 3, borderRadius: 2, backgroundColor: colors.amber }} />
@@ -1237,9 +1247,9 @@ function Bubble({
                     paddingHorizontal: 9,
                     paddingVertical: 3,
                     borderRadius: radius.pill,
-                    backgroundColor: own ? colors.amberTint : colors.surfaceHigh,
+                    backgroundColor: own ? colors.amberTint : colors.rail,
                     borderWidth: 1,
-                    borderColor: own ? colors.amber : 'transparent',
+                    borderColor: own ? colors.amber : colors.border,
                   }}>
                   <T style={{ fontSize: 15, lineHeight: 20 }}>{r.emoji}</T>
                   <T variant="label" color={own ? colors.amberText : colors.textMuted}>
@@ -1587,6 +1597,8 @@ function Composer({
   const [staged, setStaged] = useState<{ asset: DocumentPicker.DocumentPickerAsset; preview: string | null } | null>(null);
   const [caption, setCaption] = useState('');
   const inputRef = useRef<TextInputInstance>(null);
+  // The composer's edge lights up in amber while it has focus (Stitch).
+  const [inputFocused, setInputFocused] = useState(false);
   const captionRef = useRef<TextInputInstance>(null);
   const [inputHeight, setInputHeight] = useState(50);
   const insets = useSafeAreaInsets();
@@ -2100,7 +2112,7 @@ function Composer({
             backgroundColor: colors.surface,
             borderRadius: desktop ? radius.lg : 26,
             borderWidth: 1.5,
-            borderColor: colors.surfaceHigh,
+            borderColor: inputFocused ? colors.amber : colors.border,
             // A recording or a ready clip fills the box edge to edge, with even space on both sides.
             // (the delete button's side gets less, the waveform's end a little more; RTL mirrors it).
             paddingLeft: voice.recording || voiceClip ? (isRTL() ? 14 : 6) : desktop ? 8 : 20,
@@ -2151,8 +2163,10 @@ function Composer({
               setInputHeight(Math.min(140, Math.max(50, event.nativeEvent.contentSize.height)));
             }}
             onFocus={() => {
+              setInputFocused(true);
               if (!desktop && emojiOpen) setEmojiOpen(false);
             }}
+            onBlur={() => setInputFocused(false)}
             onKeyPress={(e: any) => {
               if (Platform.OS !== 'web') return;
               const key = e.nativeEvent.key;

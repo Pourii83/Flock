@@ -6,23 +6,25 @@ import { getItem, setItem } from './lib/storage';
 // Design tokens from the Stitch "Synchronous Flight" design system: the original dark palette and
 // a light counterpart with the same roles. `colors` is swapped in place when the theme changes and
 // the app root remounts (see ThemedApp in app/_layout.tsx), so components just read `colors.x`.
+// 2026-11-19: tones refreshed from Stitch's "Obsidian Kinetic" pass (same roles, deeper indigo slates).
 const dark = {
-  canvas: '#0B0E14', // L0 deep space
-  rail: '#121721', // L2 navigation / floating
-  surface: '#161D2A', // L1 containers
-  surfaceHigh: '#1A2130', // hover / inset borders
-  surfaceHighest: '#232B3B',
-  border: 'rgba(26, 33, 48, 0.9)',
-  hairline: 'rgba(248, 250, 252, 0.08)',
-  hover: 'rgba(22, 29, 42, 0.6)',
+  canvas: '#0A0D14', // L0 canvas
+  rail: '#0E121B', // L1 recessed: rail, sidebars
+  surface: '#141A26', // L2 cards, panels, threads
+  surfaceHigh: '#1A2232', // hover / inset fields
+  surfaceHighest: '#20293D', // L3 popovers, pressed
+  border: '#1E2638', // hairline between panes and around cards
+  hairline: 'rgba(255, 255, 255, 0.06)',
+  hover: 'rgba(32, 41, 61, 0.6)',
   /** Translucent bars over content: mobile headers, composer, tab bar. */
-  bar: 'rgba(18, 23, 33, 0.92)',
-  barDeep: 'rgba(11, 14, 20, 0.96)',
+  bar: 'rgba(14, 18, 27, 0.92)',
+  barDeep: 'rgba(10, 13, 20, 0.96)',
   /** Floating glass chips and panels (call screen). */
-  glass: 'rgba(18, 23, 33, 0.75)',
-  panel: 'rgba(18, 23, 33, 0.97)',
+  glass: 'rgba(20, 26, 38, 0.72)',
+  panel: 'rgba(20, 26, 38, 0.97)',
   scrim: 'rgba(0, 0, 0, 0.55)',
-  bubble: '#202838',
+  /** Their messages: a card with a hairline border. */
+  bubble: '#141A26',
 
   text: '#F8FAFC',
   textMuted: '#94A3B8',
@@ -53,12 +55,12 @@ export type Palette = typeof dark;
 export type ThemeMode = 'dark' | 'light';
 
 const light: Palette = {
-  canvas: '#F5F6FA',
+  canvas: '#F8FAFC',
   rail: '#FFFFFF',
   surface: '#FFFFFF',
   surfaceHigh: '#EDF0F5',
   surfaceHighest: '#E1E6EE',
-  border: 'rgba(15, 23, 42, 0.08)',
+  border: '#E2E8F0',
   hairline: 'rgba(15, 23, 42, 0.10)',
   hover: 'rgba(15, 23, 42, 0.04)',
   bar: 'rgba(255, 255, 255, 0.94)',

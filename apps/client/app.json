@@ -7,7 +7,7 @@
     "icon": "./assets/images/icon.png",
     "scheme": "flock",
     "userInterfaceStyle": "dark",
-    "backgroundColor": "#0B0E14",
+    "backgroundColor": "#0A0D14",
     "ios": {
       "bundleIdentifier": "app.flock.messenger",
       "supportsTablet": true,
@@ -43,8 +43,8 @@
       "bundler": "metro",
       "name": "Flock",
       "shortName": "Flock",
-      "themeColor": "#0B0E14",
-      "backgroundColor": "#0B0E14",
+      "themeColor": "#0A0D14",
+      "backgroundColor": "#0A0D14",
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
@@ -53,7 +53,7 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#0B0E14",
+          "backgroundColor": "#0A0D14",
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 120
         }
