@@ -245,6 +245,8 @@ export const api = {
       'GET',
       `/conversations/${id}/search?q=${encodeURIComponent(q)}${before ? `&before=${before}` : ''}`,
     ),
+  /** Block (true) or unblock (false) a user; my devices get the refreshed one-to-one chat. */
+  blockUser: (userId: string, on: boolean) => request<{ blocked: boolean }>('POST', `/users/${userId}/block`, { on }),
   /** How many photos/videos, files, links and audio clips a conversation has (info panel tabs). */
   sharedCounts: (id: string) => request<SharedCounts>('GET', `/conversations/${id}/shared`),
   /** One shared kind, newest first; `before` pages back. */

@@ -147,10 +147,12 @@ export function ChatRow({
           backgroundColor: pressed ? colors.surfaceHigh : selected || card ? colors.surface : hovered ? colors.hover : 'transparent',
           borderWidth: 1,
           borderColor: selected ? colors.amberGlow : card ? colors.border : 'transparent',
+          // The open chat is marked by its leading edge drawn as one amber line.
+          borderStartWidth: selected ? 3 : 1,
+          borderStartColor: selected ? colors.amber : card ? colors.border : 'transparent',
+          // Desktop rows run the full width of the list, past the header's padding.
+          marginHorizontal: card ? 0 : -8,
         })}>
-        {selected && (
-          <View style={{ position: 'absolute', start: 0, top: 14, bottom: 14, width: 3, borderRadius: 2, backgroundColor: colors.amber }} />
-        )}
         <ConversationAvatar conversation={c} meId={user?.id} size={card ? 52 : 48} ringBg={selected ? colors.surface : colors.canvas} />
         <View style={{ flex: 1, gap: 4 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>

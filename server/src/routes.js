@@ -396,6 +396,7 @@ export function createRouter(realtime) {
     const [srcConv, targetConv] = await Promise.all([repo.getConversationRow(src.conversation_id), repo.getConversationRow(targetId)]);
     if (!targetConv) return res.status(404).json({ error: 'Conversation not found' });
     if (await postingBlocked(targetId, req.userId)) return res.status(403).json({ error: CHANNEL_READ_ONLY });
+    if (await repo.directBlocked(targetId, req.userId)) return res.status(403).json({ error: BLOCKED });
     if (srcConv?.secret || targetConv.secret) return res.status(400).json({ error: 'Forwarding is not available in secret chats' });
     let attachment = null;
     if (src.attachment_name) {
@@ -484,6 +485,17 @@ export function createRouter(realtime) {
     res.json(await repo.searchMessages(req.params.id, { q: req.query.q, before: req.query.before })),
   );
 
+  // Block (on: true) or unblock (on: false) a user; my devices get the refreshed one-to-one chat.
+  r.post('/users/:id/block', async (req, res) => {
+    const target = await repo.getUserRow(req.params.id);
+    if (!target || target.id === req.userId) return res.status(404).json({ error: 'User not found' });
+    const on = req.body?.on !== false;
+    await repo.setBlocked(req.userId, target.id, on);
+    const directId = await repo.directConversationId(req.userId, target.id);
+    if (directId) await realtime.notifyConversationTo(directId, req.userId);
+    res.json({ blocked: on });
+  });
+
   // Shared media, files, links and voice/audio for the info panel: counts, or one kind's list.
   r.get('/conversations/:id/shared', member, async (req, res) => {
     const type = String(req.query.type ?? '');
@@ -527,11 +539,14 @@ export function createRouter(realtime) {
     return !role || repo.ROLE_RANK[role] < repo.ROLE_RANK.admin;
   }
   const CHANNEL_READ_ONLY = 'Only channel admins can post here';
+  // Same answer whichever side blocked, so a blocked person can't tell they were blocked.
+  const BLOCKED = 'You can’t send messages to this person';
   /** Secret-chat files are encrypted and opened in memory on the devices, so they stay small. */
   const SECRET_FILE_MAX_MB = 50;
 
   r.post('/conversations/:id/messages', member, async (req, res) => {
     if (await postingBlocked(req.params.id, req.userId)) return res.status(403).json({ error: CHANNEL_READ_ONLY });
+    if (await repo.directBlocked(req.params.id, req.userId)) return res.status(403).json({ error: BLOCKED });
     const { body, error } = await messageText(req.params.id, req.body?.body);
     if (error) return res.status(error.status).json({ error: error.message });
     const message = await repo.addMessage(req.params.id, req.userId, { body, replyToId: req.body?.replyToId });
@@ -543,6 +558,10 @@ export function createRouter(realtime) {
     if (await postingBlocked(req.params.id, req.userId)) {
       if (req.file) await deleteStoredFile(req.file.filename);
       return res.status(403).json({ error: CHANNEL_READ_ONLY });
+    }
+    if (await repo.directBlocked(req.params.id, req.userId)) {
+      if (req.file) await deleteStoredFile(req.file.filename);
+      return res.status(403).json({ error: BLOCKED });
     }
     if (!req.file) return res.status(400).json({ error: 'Choose a file to upload' });
     // Secret chats: the file arrives already encrypted on the sender's device. Its name, type, size

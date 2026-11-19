@@ -109,7 +109,7 @@ export function ConversationInfo({ conversationId, onClose }: { conversationId: 
             active={conversation.pinned}
             onPress={() => chatStore.setPinned(conversation.id, !conversation.pinned)}
           />
-          {!isChannel && <Action icon="phone" label={t('Call')} onPress={() => startCall(conversation, false)} />}
+          {!isChannel && !conversation.blocked && <Action icon="phone" label={t('Call')} onPress={() => startCall(conversation, false)} />}
         </View>
 
         {/* Secret chats are encrypted per device, so the server can't list what was shared in them. */}
@@ -133,8 +133,70 @@ export function ConversationInfo({ conversationId, onClose }: { conversationId: 
         </View>
 
         {isGroup && <LeaveGroup conversation={conversation} meId={user?.id} />}
+        {peer && !conversation.isSaved && <BlockRow conversation={conversation} peer={peer} />}
       </ScrollView>
     </>
+  );
+}
+
+/** "Block @user" / "Unblock @user" for a one-to-one chat (Stitch Contact Info). */
+function BlockRow({ conversation, peer }: { conversation: Conversation; peer: User }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const blocked = !!conversation.blocked;
+  const toggle = async () => {
+    if (
+      !blocked &&
+      !(await confirm(
+        t('Block {name}?', { name: conversation.name }),
+        t('They won’t be able to message or call you here, and you won’t be able to message them until you unblock.'),
+        t('Block'),
+        t('Cancel'),
+      ))
+    )
+      return;
+    setBusy(true);
+    setError('');
+    try {
+      await api.blockUser(peer.id, !blocked);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : t('Something went wrong'));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <View style={{ gap: 6 }}>
+      <Pressable
+        onPress={() => void toggle()}
+        disabled={busy}
+        accessibilityRole="button"
+        accessibilityLabel={blocked ? t('Unblock @{username}', { username: peer.username }) : t('Block @{username}', { username: peer.username })}
+        style={({ hovered }: any) => ({
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 12,
+          paddingHorizontal: 14,
+          paddingVertical: 12,
+          borderRadius: radius.lg,
+          backgroundColor: hovered ? (blocked ? colors.surfaceHigh : colors.dangerTint) : 'transparent',
+          opacity: busy ? 0.6 : 1,
+        })}>
+        {busy ? (
+          <ActivityIndicator size="small" color={blocked ? colors.text : colors.danger} />
+        ) : (
+          <Icon name={blocked ? 'unlock' : 'slash'} size={18} color={blocked ? colors.text : colors.danger} />
+        )}
+        <T variant="labelLg" color={blocked ? colors.text : colors.danger}>
+          {blocked ? t('Unblock @{username}', { username: peer.username }) : t('Block @{username}', { username: peer.username })}
+        </T>
+      </Pressable>
+      {!!error && (
+        <T variant="bodySm" color={colors.danger}>
+          {error}
+        </T>
+      )}
+    </View>
   );
 }
 

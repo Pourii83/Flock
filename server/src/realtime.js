@@ -226,6 +226,7 @@ export function createRealtime(httpServer, corsOrigin) {
         }
         const conversation = await repo.getConversation(conversationId, me);
         if (conversation.isSaved) throw new Error('You can’t call yourself');
+        if (await repo.directBlocked(conversationId, me)) throw new Error('You can’t call this person');
         if (conversation.type === 'channel') throw new Error('Channels don’t have calls');
         const call = await repo.createCall(conversationId, me, video);
         const caller = repo.publicUser(await repo.getUserRow(me));
@@ -281,6 +282,10 @@ export function createRealtime(httpServer, corsOrigin) {
         const candidates = (await repo.getPublicUsers(Array.isArray(userIds) ? userIds : [])).filter(
           (target) => target.id !== me && !groupMembers.has(target.id) && !c.participants.has(target.id) && !c.invited.has(target.id),
         );
+        // Nobody is invited across a block, either way round.
+        for (const target of [...candidates]) {
+          if (await repo.eitherBlocked(me, target.id)) candidates.splice(candidates.indexOf(target), 1);
+        }
         const inviter = repo.publicUser(await repo.getUserRow(me));
         for (const target of candidates) {
           c.invited.add(target.id);
@@ -464,6 +469,10 @@ export function createRealtime(httpServer, corsOrigin) {
       for (const uid of await repo.memberIds(conversationId)) {
         io.to(userRoom(uid)).emit('conversation:new', await repo.getConversation(conversationId, uid));
       }
+    },
+    /** One member's view of a conversation changed (e.g. they blocked the other person). */
+    async notifyConversationTo(conversationId, userId) {
+      io.to(userRoom(userId)).emit('conversation:new', await repo.getConversation(conversationId, userId));
     },
     /** A member was removed or left: their devices drop the conversation. */
     notifyRemoved(conversationId, userId) {

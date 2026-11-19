@@ -393,7 +393,9 @@ export function ChatThread({
         </View>
       )}
       <TypingIndicator conversation={conversation} />
-      {canPost ? (
+      {conversation.blocked ? (
+        <BlockedBar conversation={conversation} />
+      ) : canPost ? (
         <Composer
           conversation={conversation}
           desktop={desktop}
@@ -440,6 +442,45 @@ export function ChatThread({
 }
 
 /** Where the composer would be in a channel you only read. */
+/** Replaces the composer in a one-to-one chat with someone I blocked. */
+function BlockedBar({ conversation }: { conversation: Conversation }) {
+  const insets = useSafeAreaInsets();
+  const { user } = useAuth();
+  const peer = conversation.members.find((m) => m.id !== user?.id);
+  const [busy, setBusy] = useState(false);
+  const unblock = async () => {
+    if (!peer) return;
+    setBusy(true);
+    try {
+      await api.blockUser(peer.id, false);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <View
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        flexWrap: 'wrap',
+        gap: 12,
+        paddingTop: 12,
+        paddingBottom: 12 + insets.bottom,
+        paddingHorizontal: 16,
+        backgroundColor: colors.surface,
+        borderTopWidth: 1,
+        borderTopColor: colors.border,
+      }}>
+      <Icon name="slash" size={16} color={colors.textMuted} />
+      <T variant="body" color={colors.textMuted}>
+        {t('You blocked {name}', { name: conversation.name })}
+      </T>
+      <Button title={t('Unblock')} size="sm" variant="ghost" onPress={() => void unblock()} loading={busy} />
+    </View>
+  );
+}
+
 function ReadOnlyBar() {
   const insets = useSafeAreaInsets();
   return (
@@ -595,7 +636,7 @@ function PinnedBanner({
           </T>
         </View>
       </Pressable>
-      <Tooltip label={t('Unpin')}>
+      <Tooltip label={t('Unpin')} style={{ alignSelf: 'center' }}>
         <IconButton name="x" label={t('Unpin')} onPress={onUnpin} size={30} iconSize={15} color={colors.amberText} />
       </Tooltip>
     </View>
@@ -857,7 +898,7 @@ function ThreadHeader({
         </Tooltip>
       )}
       {/* One call button: it starts a voice call; the camera is switched on from inside the call. */}
-      {!conversation.isSaved && conversation.type !== 'channel' && (
+      {!conversation.isSaved && conversation.type !== 'channel' && !conversation.blocked && (
         <Tooltip label={t('Call')}>
           <IconButton name="phone" label={t('Call')} onPress={() => startCall(conversation, false)} iconSize={20} />
         </Tooltip>

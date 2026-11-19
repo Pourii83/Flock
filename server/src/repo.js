@@ -184,7 +184,7 @@ async function loadConversations(meId, onlyId) {
   );
   if (convs.length === 0) return [];
   const ids = convs.map((c) => c.id);
-  const [memberRows, lastRows] = await Promise.all([
+  const [memberRows, lastRows, blockRows] = await Promise.all([
     query(
       `SELECT m.conversation_id, m.last_read_at AS member_read_at, m.role AS member_role, m.joined_at AS member_joined_at, u.*
        FROM members m JOIN users u ON u.id = m.user_id WHERE m.conversation_id = ANY($1::uuid[])
@@ -201,7 +201,9 @@ async function loadConversations(meId, onlyId) {
        ORDER BY m.conversation_id, m.created_at DESC`,
       [ids],
     ),
+    query('SELECT blocked_id FROM user_blocks WHERE blocker_id = $1', [meId]),
   ]);
+  const blockedByMe = new Set(blockRows.map((r) => r.blocked_id));
   return convs.map((c) => {
     const members = memberRows.filter((m) => m.conversation_id === c.id);
     const others = members.filter((m) => m.id !== meId);
@@ -234,6 +236,8 @@ async function loadConversations(meId, onlyId) {
         : null,
       avatarUrl: c.avatar_path ? `/api/avatars/${c.avatar_path}` : null,
       myRole: c.my_role,
+      // Direct chats: I blocked the other person (whether they blocked me is never revealed).
+      blocked: c.type === 'direct' && !c.saved && !!others[0] && blockedByMe.has(others[0].id),
       lastMessage: serializeMessage(last),
       unreadCount: Number(c.unread),
       pinned: c.pinned,
@@ -314,6 +318,54 @@ export async function setMark(userId, key, value) {
     [userId, key, value],
   );
   return row.value;
+}
+
+// ---------- blocks ----------
+
+/** Blocks (`on` true) or unblocks `blockedId` for `blockerId`. */
+export async function setBlocked(blockerId, blockedId, on) {
+  if (on) {
+    await query(
+      'INSERT INTO user_blocks (blocker_id, blocked_id, created_at) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING',
+      [blockerId, blockedId, now()],
+    );
+  } else {
+    await query('DELETE FROM user_blocks WHERE blocker_id = $1 AND blocked_id = $2', [blockerId, blockedId]);
+  }
+}
+
+/** True when either of the two users has blocked the other. */
+export async function eitherBlocked(a, b) {
+  return !!(await one(
+    'SELECT 1 FROM user_blocks WHERE (blocker_id = $1 AND blocked_id = $2) OR (blocker_id = $2 AND blocked_id = $1) LIMIT 1',
+    [a, b],
+  ));
+}
+
+/** In a one-to-one chat, true when `userId` and the other person are blocked either way. */
+export async function directBlocked(conversationId, userId) {
+  const row = await one(
+    `SELECT 1 FROM conversations c
+     JOIN members o ON o.conversation_id = c.id AND o.user_id <> $2
+     JOIN user_blocks b ON (b.blocker_id = $2 AND b.blocked_id = o.user_id) OR (b.blocker_id = o.user_id AND b.blocked_id = $2)
+     WHERE c.id = $1 AND c.type = 'direct'
+     LIMIT 1`,
+    [conversationId, userId],
+  );
+  return !!row;
+}
+
+/** The one-to-one conversation between two users, if there is one. */
+export async function directConversationId(a, b) {
+  const row = await one(
+    `SELECT c.id FROM conversations c
+     JOIN members ma ON ma.conversation_id = c.id AND ma.user_id = $1
+     JOIN members mb ON mb.conversation_id = c.id AND mb.user_id = $2
+     WHERE c.type = 'direct' AND NOT COALESCE(c.saved, FALSE)
+     LIMIT 1`,
+    [a, b],
+  );
+  return row?.id ?? null;
 }
 
 // ---------- messages ----------

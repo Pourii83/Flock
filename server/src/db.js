@@ -159,6 +159,15 @@ export async function migrate() {
       read_at BIGINT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS read_marks_conv_user ON read_marks (conversation_id, user_id, read_at);
+    -- Blocks: the blocker no longer gets messages, files or calls from the blocked user in their
+    -- one-to-one chat (and can't send any there either until they unblock). Groups are unaffected.
+    CREATE TABLE IF NOT EXISTS user_blocks (
+      blocker_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      blocked_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at BIGINT NOT NULL,
+      PRIMARY KEY (blocker_id, blocked_id)
+    );
+    CREATE INDEX IF NOT EXISTS user_blocks_blocked ON user_blocks (blocked_id);
     -- Per-user markers shared by all of a user's devices (e.g. the newest missed call they looked at).
     CREATE TABLE IF NOT EXISTS user_marks (
       user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
