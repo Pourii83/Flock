@@ -69,7 +69,7 @@ export default function NewChatScreen() {
           ]}
         />
       </View>
-      <SearchBar value={query} onChangeText={setQuery} placeholder={t('Search people by name or @username')} autoFocus />
+      <SearchBar value={query} onChangeText={setQuery} placeholder={t('Search by name or @username')} autoFocus />
 
       {mode === 'normal' && (
         <Pressable

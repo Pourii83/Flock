@@ -170,7 +170,7 @@ function PeopleList({ wide }: { wide: boolean }) {
       keyExtractor={(item) => (typeof item === 'string' ? item : item.id)}
       contentContainerStyle={{ padding: 16, gap: 2, paddingBottom: 24 }}
       ListHeaderComponent={
-        <SearchBar value={query} onChangeText={setQuery} placeholder={t('Search people by name or @username')} style={{ marginBottom: 16 }} />
+        <SearchBar value={query} onChangeText={setQuery} placeholder={t('Search by name or @username')} style={{ marginBottom: 16 }} />
       }
       renderItem={({ item }) =>
         typeof item === 'string' ? (

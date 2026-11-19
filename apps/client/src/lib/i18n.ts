@@ -188,7 +188,7 @@ const fa: Record<string, string> = {
 
   // ----- new chat -----
   Close: 'بستن',
-  'Search people by name or @username': 'جستجوی افراد با نام یا نام کاربری',
+  'Search by name or @username': 'جستجو با نام یا نام کاربری',
   'Group name (optional)': 'نام گروه (اختیاری)',
   'Create group with {n} people': 'ساخت گروه با {n} نفر',
   'Message {name}': 'پیام به {name}',

@@ -117,7 +117,7 @@ export function MemberPicker({
 
   return (
     <View style={{ flex: 1, gap: 12 }}>
-      <SearchBar value={query} onChangeText={setQuery} placeholder={t('Search people by name or @username')} autoFocus />
+      <SearchBar value={query} onChangeText={setQuery} placeholder={t('Search by name or @username')} autoFocus />
       {selected.length > 0 && (
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
           {selected.map((u) => (
