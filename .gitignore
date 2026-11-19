@@ -17,7 +17,13 @@ server/data/
 
 # server packages
 dist/
-CLAUDE.md
 
 # Vercel build output (scripts/build-pwa.sh)
 .vercel/
+
+# maintainer-only secrets and notes (never committed)
+.private/
+CLAUDE.local.md
+
+# Obsidian workspace state (docs/dev opens as a vault)
+.obsidian/
