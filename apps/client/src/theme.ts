@@ -198,7 +198,9 @@ export function applyTheme(next: ThemeMode) {
       sheet.id = 'flock-theme';
       document.head.appendChild(sheet);
     }
+    // The sideways filter row's bar (public/index.html) reads its colors from these variables.
     sheet.textContent = `html, body { background-color: ${colors.canvas}; }
+      :root { --flock-hscroll: ${colors.textDim}; --flock-hscroll-hover: ${colors.amber}; }
       ::-webkit-scrollbar-thumb { background: ${colors.surfaceHighest}; border-color: ${colors.canvas}; }`;
   }
   listeners.forEach((fn) => fn());

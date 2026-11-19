@@ -40,10 +40,19 @@
       ::-webkit-scrollbar { width: 10px; height: 10px; }
       ::-webkit-scrollbar-thumb { background: #1a2130; border-radius: 8px; border: 2px solid #0b0e14; }
       ::-webkit-scrollbar-track { background: transparent; }
-      /* Sideways rows (chat filters): the thin bar is always there but invisible, and shows on
-         hover, so the row doesn't move when it appears. */
-      [data-hscroll='hover'] { scrollbar-width: thin; scrollbar-color: transparent transparent; padding-bottom: 4px; }
-      [data-hscroll='hover']:hover { scrollbar-color: rgba(150, 160, 180, 0.5) transparent; }
+      ::-webkit-scrollbar-button, ::-webkit-scrollbar-corner { display: none; }
+      /* Sideways rows (chat filters): a thin pill bar, always there but invisible, that shows on
+         hover, so the row doesn't move when it appears. Chrome drops these styles for an element
+         that sets scrollbar-color/width, so those are kept for Firefox only. */
+      [data-hscroll='hover'] { padding-bottom: 4px; }
+      [data-hscroll='hover']::-webkit-scrollbar { height: 6px; }
+      [data-hscroll='hover']::-webkit-scrollbar-thumb { background: transparent; border: 0; border-radius: 3px; }
+      [data-hscroll='hover']:hover::-webkit-scrollbar-thumb { background: var(--flock-hscroll, #64748b); }
+      [data-hscroll='hover']::-webkit-scrollbar-thumb:hover { background: var(--flock-hscroll-hover, #ffb84d); }
+      @supports not selector(::-webkit-scrollbar) {
+        [data-hscroll='hover'] { scrollbar-width: thin; scrollbar-color: transparent transparent; }
+        [data-hscroll='hover']:hover { scrollbar-color: var(--flock-hscroll, #64748b) transparent; }
+      }
     </style>
     <script>
       // Register the PWA service worker for built apps (skipped on the Metro dev server).
