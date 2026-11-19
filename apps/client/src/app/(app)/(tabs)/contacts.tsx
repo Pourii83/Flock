@@ -7,7 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Avatar } from '@/components/avatar';
 import { EmptyStage } from '@/components/empty-state';
 import { DesktopTopBar, MobileHeader, PageTitle } from '@/components/shell';
-import { IconButton, SearchBar, SectionLabel, T, Tooltip } from '@/components/ui';
+import { Icon, IconButton, SearchBar, SectionLabel, T, Tooltip, type IconName } from '@/components/ui';
 import { useIsWide } from '@/hooks/use-layout';
 import { api } from '@/lib/api';
 import { lastSeenLabel } from '@/lib/format';
@@ -42,36 +42,88 @@ function PersonRow({ user, wide }: { user: User; wide: boolean }) {
   };
   const call = async (video: boolean) => startCall(await directWith(user), video);
 
+  // A narrow row keeps the name readable: the buttons move into a bar that a tap opens.
+  const [width, setWidth] = useState(0);
+  const [open, setOpen] = useState(false);
+  const compact = width > 0 && width < COMPACT_BELOW;
+
+  return (
+    <View
+      onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
+      style={{ borderRadius: radius.lg, backgroundColor: compact && open ? colors.surface : 'transparent', borderWidth: 1, borderColor: compact && open ? colors.border : 'transparent' }}>
+      <Pressable
+        onPress={compact ? () => setOpen((o) => !o) : message}
+        // Only the compact row is a button: the wide one holds its own buttons (no button inside a button).
+        {...(compact ? { accessibilityRole: 'button' as const, accessibilityLabel: person.displayName, accessibilityState: { expanded: open } } : {})}
+        style={({ hovered }: any) => ({
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 14,
+          padding: 12,
+          borderRadius: radius.lg,
+          backgroundColor: hovered && !(compact && open) ? colors.surface : 'transparent',
+        })}>
+        <Avatar user={person} size={compact ? 44 : 50} />
+        <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+          <T variant="labelLg" style={{ fontSize: 16 }} numberOfLines={1}>
+            {person.displayName}
+          </T>
+          <T variant="body" color={person.online ? colors.teal : colors.textMuted} numberOfLines={1}>
+            {person.title ? `${person.title} · ` : `@${person.username} · `}
+            {lastSeenLabel(person.online, person.lastSeen)}
+          </T>
+        </View>
+        {compact ? (
+          <Icon name={open ? 'chevron-up' : 'chevron-down'} size={18} color={colors.textMuted} />
+        ) : (
+          <>
+            <Tooltip label={t('Message')} style={{ alignSelf: 'center' }}>
+              <IconButton name="message-square" label={t('Message')} onPress={message} bg={colors.surface} />
+            </Tooltip>
+            <Tooltip label={t('Voice call')} style={{ alignSelf: 'center' }}>
+              <IconButton name="phone" label={t('Voice call')} onPress={() => call(false)} bg={colors.surface} color={colors.teal} />
+            </Tooltip>
+            <Tooltip label={t('Video call')} style={{ alignSelf: 'center' }}>
+              <IconButton name="video" label={t('Video call')} onPress={() => call(true)} bg={colors.surface} color={colors.amberText} />
+            </Tooltip>
+          </>
+        )}
+      </Pressable>
+      {compact && open && (
+        <View style={{ flexDirection: 'row', gap: 6, paddingHorizontal: 10, paddingBottom: 10 }}>
+          <RowAction icon="message-square" label={t('Message')} color={colors.text} onPress={message} />
+          <RowAction icon="phone" label={t('Voice')} color={colors.teal} onPress={() => call(false)} />
+          <RowAction icon="video" label={t('Video')} color={colors.amberText} onPress={() => call(true)} />
+        </View>
+      )}
+    </View>
+  );
+}
+
+/** Rows narrower than this show the name in full and keep their buttons behind a tap. */
+const COMPACT_BELOW = 380;
+
+/** One of the actions a tap on a narrow contact row reveals. */
+function RowAction({ icon, label, color, onPress }: { icon: IconName; label: string; color: string; onPress: () => void }) {
   return (
     <Pressable
-      onPress={message}
-      style={({ hovered }: any) => ({
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      onPress={onPress}
+      style={({ pressed, hovered }: any) => ({
+        flex: 1,
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 14,
-        padding: 12,
-        borderRadius: radius.lg,
-        backgroundColor: hovered ? colors.surface : 'transparent',
+        justifyContent: 'center',
+        gap: 6,
+        paddingVertical: 9,
+        borderRadius: radius.md + 2,
+        backgroundColor: pressed || hovered ? colors.surfaceHighest : colors.surfaceHigh,
       })}>
-      <Avatar user={person} size={50} />
-      <View style={{ flex: 1, gap: 2 }}>
-        <T variant="labelLg" style={{ fontSize: 16 }} numberOfLines={1}>
-          {person.displayName}
-        </T>
-        <T variant="body" color={person.online ? colors.teal : colors.textMuted} numberOfLines={1}>
-          {person.title ? `${person.title} · ` : `@${person.username} · `}
-          {lastSeenLabel(person.online, person.lastSeen)}
-        </T>
-      </View>
-      <Tooltip label={t('Message')} style={{ alignSelf: 'center' }}>
-        <IconButton name="message-square" label={t('Message')} onPress={message} bg={colors.surface} />
-      </Tooltip>
-      <Tooltip label={t('Voice call')} style={{ alignSelf: 'center' }}>
-        <IconButton name="phone" label={t('Voice call')} onPress={() => call(false)} bg={colors.surface} color={colors.teal} />
-      </Tooltip>
-      <Tooltip label={t('Video call')} style={{ alignSelf: 'center' }}>
-        <IconButton name="video" label={t('Video call')} onPress={() => call(true)} bg={colors.surface} color={colors.amberText} />
-      </Tooltip>
+      <Icon name={icon} size={16} color={color} />
+      <T variant="label" color={colors.text} numberOfLines={1}>
+        {label}
+      </T>
     </Pressable>
   );
 }
