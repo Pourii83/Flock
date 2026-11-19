@@ -174,6 +174,9 @@ export type ServerUsage = {
   };
 };
 
+export type SharedKind = 'media' | 'files' | 'links' | 'audio';
+export type SharedCounts = Record<SharedKind, number>;
+
 export const api = {
   login: (username: string, password: string) => request<AuthResponse>('POST', '/auth/login', { username, password }),
   register: (username: string, displayName: string, password: string) =>
@@ -242,6 +245,11 @@ export const api = {
       'GET',
       `/conversations/${id}/search?q=${encodeURIComponent(q)}${before ? `&before=${before}` : ''}`,
     ),
+  /** How many photos/videos, files, links and audio clips a conversation has (info panel tabs). */
+  sharedCounts: (id: string) => request<SharedCounts>('GET', `/conversations/${id}/shared`),
+  /** One shared kind, newest first; `before` pages back. */
+  shared: (id: string, type: SharedKind, before?: number) =>
+    request<Message[]>('GET', `/conversations/${id}/shared?type=${type}${before ? `&before=${before}` : ''}`),
   /** Pinned messages of one conversation, newest pin first. */
   pinnedMessages: (id: string) => request<Message[]>('GET', `/conversations/${id}/pinned`),
   sendMessage: (id: string, body: string, replyToId?: string) =>

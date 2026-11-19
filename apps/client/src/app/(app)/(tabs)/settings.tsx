@@ -1,6 +1,6 @@
 import Constants from 'expo-constants';
 import { router } from 'expo-router';
-import { useLayoutEffect, useRef, useState, type ComponentRef } from 'react';
+import { useLayoutEffect, useRef, useState, type ComponentRef, type ReactNode } from 'react';
 import { Platform, Pressable, ScrollView, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -102,18 +102,15 @@ function ServerSettings() {
   };
 
   return (
-    <>
-      <SectionLabel>{t('Server')}</SectionLabel>
-      <Card style={{ gap: 14, padding: 20 }}>
-        <ServerField field={field} hint={t('Changing the server signs you out so you can sign in there.')} />
-        {!!error && (
-          <T variant="body" color={colors.danger}>
-            {error}
-          </T>
-        )}
-        <Button title={t('Switch server')} icon="refresh-cw" variant="ghost" onPress={save} loading={busy} disabled={!field.changed} />
-      </Card>
-    </>
+    <View style={{ gap: 14 }}>
+      <ServerField field={field} hint={t('Changing the server signs you out so you can sign in there.')} />
+      {!!error && (
+        <T variant="body" color={colors.danger}>
+          {error}
+        </T>
+      )}
+      <Button title={t('Switch server')} icon="refresh-cw" variant="ghost" onPress={save} loading={busy} disabled={!field.changed} />
+    </View>
   );
 }
 
@@ -159,7 +156,7 @@ function AccentPicker() {
   };
 
   return (
-    <Card style={{ gap: 16, padding: 16 }}>
+    <View style={{ gap: 16 }}>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
         {ACCENT_PRESETS.map((preset) => {
           const selected = current === preset.hex.toUpperCase();
@@ -234,7 +231,7 @@ function AccentPicker() {
           {t('Use a hex color like #FFB84D')}
         </T>
       )}
-    </Card>
+    </View>
   );
 }
 
@@ -253,8 +250,10 @@ function NotificationSettings() {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 12,
-        paddingHorizontal: 16,
+        paddingHorizontal: 10,
+        marginHorizontal: -10,
         paddingVertical: 12,
+        borderRadius: radius.md,
         opacity: disabled ? 0.5 : 1,
         backgroundColor: hovered ? colors.surfaceHigh : 'transparent',
       })}>
@@ -278,9 +277,9 @@ function NotificationSettings() {
     </Pressable>
   );
   return (
-    <Card style={{ paddingVertical: 6 }}>
+    <View>
       {permission !== 'granted' && (
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 10 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10 }}>
           <Icon name="bell-off" size={16} color={permission === 'denied' ? colors.danger : colors.amberText} />
           <T variant="bodySm" color={colors.textMuted} style={{ flex: 1 }}>
             {permission === 'denied'
@@ -293,7 +292,56 @@ function NotificationSettings() {
       {row('messages', t('New messages'), t('Chats you haven’t opened. Muted chats stay quiet.'))}
       {row('meetings', t('Call and meeting chat'), t('Messages in a call’s chat while you are in another tab or app.'))}
       {row('preview', t('Show message text'), t('Off: notifications only say who wrote.'), !settings.messages && !settings.meetings)}
-    </Card>
+    </View>
+  );
+}
+
+type SectionKey = 'appearance' | 'language' | 'audio' | 'notifications' | 'server' | 'admin' | 'about';
+
+/** One settings card (Stitch): an amber icon tile, a title and a one-line description over its controls. */
+function SettingsSection({
+  icon,
+  title,
+  subtitle,
+  children,
+  section,
+  onY,
+}: {
+  icon: IconName;
+  title: string;
+  subtitle: string;
+  children: ReactNode;
+  section: SectionKey;
+  onY?: (section: SectionKey, y: number) => void;
+}) {
+  return (
+    <View
+      onLayout={(e) => onY?.(section, e.nativeEvent.layout.y)}
+      style={{ backgroundColor: colors.surface, borderRadius: radius.xl, borderWidth: 1, borderColor: colors.border, padding: 20, gap: 18 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+        <View style={{ width: 42, height: 42, borderRadius: 13, backgroundColor: colors.amberTint, alignItems: 'center', justifyContent: 'center' }}>
+          <Icon name={icon} size={20} color={colors.amberText} />
+        </View>
+        <View style={{ flex: 1, gap: 2 }}>
+          <T variant="headlineSm" style={{ fontSize: 18 }}>
+            {title}
+          </T>
+          <T variant="bodySm" color={colors.textMuted}>
+            {subtitle}
+          </T>
+        </View>
+      </View>
+      {children}
+    </View>
+  );
+}
+
+/** A labelled group inside a section (e.g. the accent color under Appearance). */
+function SubLabel({ children }: { children: ReactNode }) {
+  return (
+    <T variant="overline" color={colors.textMuted} style={{ textTransform: 'uppercase', marginBottom: -6 }}>
+      {children}
+    </T>
   );
 }
 
@@ -335,8 +383,29 @@ function SettingsBody() {
   const connected = useChat((s) => s.connected);
   const brand = useBranding();
   const [about, setAbout] = useState(false);
+  const wide = useIsWide();
+  // Desktop: a section menu beside the page jumps to each card (Stitch Settings).
+  const offsets = useRef<Partial<Record<SectionKey, number>>>({});
+  const [activeSection, setActiveSection] = useState<SectionKey>('appearance');
+  const recordY = (key: SectionKey, y: number) => {
+    offsets.current[key] = y;
+  };
+  const jump = (key: SectionKey) => {
+    setActiveSection(key);
+    const y = offsets.current[key];
+    if (y !== undefined) scrollRef.current?.scrollTo({ y: Math.max(0, y - 12), animated: true });
+  };
+  const sections: { key: SectionKey; icon: IconName; label: string; show: boolean }[] = [
+    { key: 'appearance', icon: 'droplet', label: t('Appearance'), show: true },
+    { key: 'language', icon: 'globe', label: t('Language'), show: true },
+    { key: 'audio', icon: 'mic', label: t('Calls & audio'), show: true },
+    { key: 'notifications', icon: 'bell', label: t('Notifications'), show: notificationsSupported },
+    { key: 'server', icon: 'server', label: t('Server'), show: isInstalledApp },
+    { key: 'admin', icon: 'sliders', label: t('Server admin'), show: !!user?.isAdmin },
+    { key: 'about', icon: 'info', label: t('About'), show: true },
+  ];
 
-  return (
+  const page = (
     <ScrollView
       ref={scrollRef}
       scrollEventThrottle={32}
@@ -358,7 +427,8 @@ function SettingsBody() {
       onLayout={(event) => {
         viewHeight.current = event.nativeEvent.layout.height;
       }}
-      contentContainerStyle={{ padding: 20, gap: 20, paddingBottom: 24, maxWidth: 720, width: '100%', alignSelf: 'center' }}>
+      style={wide ? { flex: 1 } : undefined}
+      contentContainerStyle={{ padding: 20, gap: 16, paddingBottom: 24, maxWidth: 760, width: '100%', alignSelf: wide ? 'flex-start' : 'center' }}>
       <Pressable
         onPress={() => router.navigate('/profile')}
         accessibilityRole="button"
@@ -370,7 +440,7 @@ function SettingsBody() {
           padding: 16,
           borderRadius: radius.xl,
           borderWidth: 1,
-          borderColor: colors.surfaceHigh,
+          borderColor: colors.border,
           backgroundColor: hovered ? colors.surfaceHigh : colors.surface,
         })}>
         <Avatar user={user ? { ...user, online: connected } : null} size={56} ringBg={colors.surface} />
@@ -385,49 +455,89 @@ function SettingsBody() {
         <Icon name="chevron-right" size={18} color={colors.textMuted} />
       </Pressable>
 
-      {isInstalledApp && <ServerSettings />}
+      <SettingsSection icon="droplet" title={t('Appearance')} subtitle={t('Theme and accent color for the whole app.')} section="appearance" onY={recordY}>
+        <ThemePicker />
+        <SubLabel>{t('Theme color')}</SubLabel>
+        <AccentPicker />
+      </SettingsSection>
+
+      <SettingsSection icon="globe" title={t('Language')} subtitle={t('English or Persian; Persian lays the app out right to left.')} section="language" onY={recordY}>
+        <LanguagePicker />
+      </SettingsSection>
+
+      <SettingsSection icon="mic" title={t('Calls & audio')} subtitle={t('Default noise cancellation for your microphone in calls.')} section="audio" onY={recordY}>
+        <NoisePicker />
+      </SettingsSection>
 
       {notificationsSupported && (
-        <>
-          <SectionLabel>{t('Notifications')}</SectionLabel>
+        <SettingsSection icon="bell" title={t('Notifications')} subtitle={t('What reaches you while Flock is in the background.')} section="notifications" onY={recordY}>
           <NotificationSettings />
-        </>
+        </SettingsSection>
       )}
 
-      <SectionLabel>{t('Noise cancellation')}</SectionLabel>
-      <NoisePicker />
+      {isInstalledApp && (
+        <SettingsSection icon="server" title={t('Server')} subtitle={t('The Flock server this app talks to.')} section="server" onY={recordY}>
+          <ServerSettings />
+        </SettingsSection>
+      )}
 
       {user?.isAdmin && (
-        <>
-          <SectionLabel>{t('Server admin')}</SectionLabel>
+        <SettingsSection icon="sliders" title={t('Server admin')} subtitle={t('Users, sign-up and upload limits for everyone on this server.')} section="admin" onY={recordY}>
           <Button title={t('App settings')} icon="sliders" variant="ghost" onPress={() => router.push('/admin')} />
-        </>
+        </SettingsSection>
       )}
 
-      <SectionLabel>{t('Appearance')}</SectionLabel>
-      <ThemePicker />
-
-      <SectionLabel>{t('Theme color')}</SectionLabel>
-      <AccentPicker />
-
-      <SectionLabel>{t('Language')}</SectionLabel>
-      <LanguagePicker />
-
-      <SectionLabel>{t('About')}</SectionLabel>
-      <Card style={{ paddingVertical: 8 }}>
-        <InfoRow icon="activity" label={t('Connection')} value={connected ? t('Live') : t('Reconnecting…')} />
-        <InfoRow icon="server" label={t('Server')} value={serverUrl.replace(/^https?:\/\//, '')} />
-        <InfoRow icon="smartphone" label={t('Platform')} value={Platform.OS === 'web' ? t('Web / Desktop') : Platform.OS} />
-        <InfoRow icon="info" label={t('Version')} value={Constants.expoConfig?.version ?? '—'} />
-        <View style={{ height: 1, backgroundColor: colors.hairline, marginVertical: 4 }} />
-        {/* The repository link lives in the About dialog only (user request). */}
-        <ActionRow icon="info" label={t('About {name}', { name: brand.appName })} onPress={() => setAbout(true)} />
-      </Card>
+      <SettingsSection icon="info" title={t('About')} subtitle={t('Connection, server and version.')} section="about" onY={recordY}>
+        <View>
+          <InfoRow icon="activity" label={t('Connection')} value={connected ? t('Live') : t('Reconnecting…')} />
+          <InfoRow icon="server" label={t('Server')} value={serverUrl.replace(/^https?:\/\//, '')} />
+          <InfoRow icon="smartphone" label={t('Platform')} value={Platform.OS === 'web' ? t('Web / Desktop') : Platform.OS} />
+          <InfoRow icon="info" label={t('Version')} value={Constants.expoConfig?.version ?? '—'} />
+          <View style={{ height: 1, backgroundColor: colors.border, marginVertical: 4 }} />
+          {/* The repository link lives in the About dialog only (user request). */}
+          <ActionRow icon="info" label={t('About {name}', { name: brand.appName })} onPress={() => setAbout(true)} />
+        </View>
+      </SettingsSection>
 
       <Button title={t('Sign out')} icon="log-out" variant="danger" onPress={logout} />
 
       <AppInfoDialog visible={about} onClose={() => setAbout(false)} />
     </ScrollView>
+  );
+
+  if (!wide) return page;
+  return (
+    <View style={{ flex: 1, flexDirection: 'row', alignSelf: 'center', width: '100%', maxWidth: 1040 }}>
+      <View style={{ width: 230, paddingStart: 20, paddingTop: 20, gap: 4 }}>
+        {sections
+          .filter((x) => x.show)
+          .map((x) => {
+            const active = x.key === activeSection;
+            return (
+              <Pressable
+                key={x.key}
+                accessibilityRole="button"
+                accessibilityState={{ selected: active }}
+                onPress={() => jump(x.key)}
+                style={({ hovered }: any) => ({
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 12,
+                  paddingHorizontal: 14,
+                  paddingVertical: 11,
+                  borderRadius: radius.lg,
+                  backgroundColor: active ? colors.amber : hovered ? colors.surfaceHigh : 'transparent',
+                })}>
+                <Icon name={x.icon} size={17} color={active ? colors.onAmber : colors.textMuted} />
+                <T variant="labelLg" color={active ? colors.onAmber : colors.text} numberOfLines={1}>
+                  {x.label}
+                </T>
+              </Pressable>
+            );
+          })}
+      </View>
+      {page}
+    </View>
   );
 }
 
@@ -447,7 +557,7 @@ export default function SettingsScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: colors.canvas }}>
       <DesktopTopBar />
-      <View style={{ paddingHorizontal: 20, paddingTop: 24, maxWidth: 720, width: '100%', alignSelf: 'center' }}>
+      <View style={{ paddingHorizontal: 20, paddingTop: 24, maxWidth: 1040, width: '100%', alignSelf: 'center' }}>
         <PageTitle title={t('Settings')} />
       </View>
       <SettingsBody />

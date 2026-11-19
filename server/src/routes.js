@@ -484,6 +484,13 @@ export function createRouter(realtime) {
     res.json(await repo.searchMessages(req.params.id, { q: req.query.q, before: req.query.before })),
   );
 
+  // Shared media, files, links and voice/audio for the info panel: counts, or one kind's list.
+  r.get('/conversations/:id/shared', member, async (req, res) => {
+    const type = String(req.query.type ?? '');
+    if (!type) return res.json(await repo.sharedCounts(req.params.id));
+    res.json(await repo.listShared(req.params.id, type, { before: req.query.before, limit: req.query.limit }));
+  });
+
   // The conversation's pinned messages, newest pin first.
   r.get('/conversations/:id/pinned', member, async (req, res) =>
     res.json(await repo.listPinnedMessages(req.params.id)),

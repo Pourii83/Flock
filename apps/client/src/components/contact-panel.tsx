@@ -16,6 +16,7 @@ import { useCalls } from '@/state/calls';
 import { chatStore, useConversation } from '@/state/chat-store';
 import { colors, radius } from '@/theme';
 import { Avatar, ConversationAvatar } from './avatar';
+import { SharedMedia } from './shared-media';
 import { Button, Field, Icon, IconButton, PushPin, T, type IconName } from './ui';
 
 const RANK: Record<GroupRole, number> = { member: 0, admin: 1, owner: 2 };
@@ -32,6 +33,8 @@ function Action({ icon, pin, label, onPress, active }: { icon?: IconName; pin?: 
         gap: 8,
         paddingVertical: 14,
         borderRadius: radius.lg,
+        borderWidth: 1,
+        borderColor: colors.border,
         backgroundColor: hovered ? colors.surfaceHigh : colors.surface,
       })}>
       {pin ? <PushPin size={20} color={active ? colors.amberText : colors.text} /> : <Icon name={icon ?? 'circle'} size={20} color={active ? colors.amberText : colors.text} />}
@@ -45,7 +48,7 @@ function Action({ icon, pin, label, onPress, active }: { icon?: IconName; pin?: 
 /** Desktop right-hand panel ("Contact Info" / "Group Info"). */
 export function ContactPanel({ conversationId, onClose }: { conversationId: string; onClose: () => void }) {
   return (
-    <View style={{ width: 360, backgroundColor: colors.rail, borderLeftWidth: 1, borderLeftColor: colors.surfaceHigh }}>
+    <View style={{ width: 360, backgroundColor: colors.rail, borderLeftWidth: 1, borderLeftColor: colors.border }}>
       <ConversationInfo conversationId={conversationId} onClose={onClose} />
     </View>
   );
@@ -56,6 +59,7 @@ export function ConversationInfo({ conversationId, onClose }: { conversationId: 
   const conversation = useConversation(conversationId);
   const { user } = useAuth();
   const { startCall } = useCalls();
+  const wide = useIsWide();
   if (!conversation) return null;
   const peer = conversation.type === 'direct' ? conversation.members.find((m) => m.id !== user?.id) : undefined;
   const isChannel = conversation.type === 'channel';
@@ -71,7 +75,7 @@ export function ConversationInfo({ conversationId, onClose }: { conversationId: 
         {isGroup ? (
           <GroupHeader conversation={conversation} />
         ) : (
-          <View style={{ backgroundColor: colors.surface, borderRadius: radius.xl, padding: 24, alignItems: 'center', gap: 8 }}>
+          <View style={{ backgroundColor: colors.surface, borderRadius: radius.xl, borderWidth: 1, borderColor: colors.border, padding: 24, alignItems: 'center', gap: 8 }}>
             <Avatar user={peer} size={96} ringBg={colors.surface} />
             <T variant="headline" style={{ fontSize: 26, marginTop: 8, textAlign: 'center' }}>
               {conversation.name}
@@ -108,10 +112,13 @@ export function ConversationInfo({ conversationId, onClose }: { conversationId: 
           {!isChannel && <Action icon="phone" label={t('Call')} onPress={() => startCall(conversation, false)} />}
         </View>
 
+        {/* Secret chats are encrypted per device, so the server can't list what was shared in them. */}
+        {!conversation.secret && <SharedMedia conversation={conversation} width={wide ? 360 : undefined} />}
+
         {/* Channel subscribers don't get a members list: they only see the owner and admins. */}
         {isGroup && !(isChannel && (conversation.myRole ?? 'member') === 'member') && <Members conversation={conversation} meId={user?.id} />}
 
-        <View style={{ flexDirection: 'row', gap: 10, padding: 16, borderRadius: radius.lg, backgroundColor: colors.surface }}>
+        <View style={{ flexDirection: 'row', gap: 10, padding: 16, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }}>
           <Icon name="shield" size={18} color={colors.teal} />
           <View style={{ flex: 1, gap: 4 }}>
             <T variant="labelLg" color={colors.teal}>

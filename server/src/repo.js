@@ -370,6 +370,39 @@ export async function searchMessages(conversationId, { q, before, limit = 50 } =
   return withReactions(rows.map(serializeMessage));
 }
 
+// What the info panel's Media / Files / Links / Audio tabs list. Expired files stay listed (the client
+// shows them as expired), voice messages count as audio.
+const SHARED_WHERE = {
+  media: `m.attachment_name IS NOT NULL AND (m.attachment_mime LIKE 'image/%' OR m.attachment_mime LIKE 'video/%')`,
+  audio: `m.attachment_name IS NOT NULL AND m.attachment_mime LIKE 'audio/%'`,
+  files: `m.attachment_name IS NOT NULL AND COALESCE(m.attachment_mime, '') NOT LIKE 'image/%' AND COALESCE(m.attachment_mime, '') NOT LIKE 'video/%' AND COALESCE(m.attachment_mime, '') NOT LIKE 'audio/%'`,
+  links: `m.kind = 'text' AND m.body ~* 'https?://'`,
+};
+
+/** How many of each shared kind a conversation has: { media, files, links, audio }. */
+export async function sharedCounts(conversationId) {
+  const row = await one(
+    `SELECT ${Object.entries(SHARED_WHERE).map(([k, w]) => `COUNT(*) FILTER (WHERE ${w}) AS ${k}`).join(', ')}
+     FROM messages m WHERE m.conversation_id = $1`,
+    [conversationId],
+  );
+  return Object.fromEntries(Object.keys(SHARED_WHERE).map((k) => [k, Number(row?.[k] ?? 0)]));
+}
+
+/** One shared kind of a conversation, newest first; `before` pages back. */
+export async function listShared(conversationId, type, { before, limit = 60 } = {}) {
+  const where = SHARED_WHERE[type];
+  if (!where) return [];
+  const beforeMs = Number(before);
+  const rows = await query(
+    `${MESSAGE_SELECT}
+     WHERE m.conversation_id = $1 AND m.created_at < $2 AND ${where}
+     ORDER BY m.created_at DESC LIMIT $3`,
+    [conversationId, Number.isFinite(beforeMs) && beforeMs > 0 ? beforeMs : Number.MAX_SAFE_INTEGER, Math.min(Number(limit) || 60, 100)],
+  );
+  return rows.map(serializeMessage);
+}
+
 /** Pinned messages of a conversation, newest pin first. */
 export async function listPinnedMessages(conversationId) {
   const rows = await query(
