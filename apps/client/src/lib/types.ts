@@ -112,6 +112,8 @@ export type Conversation = {
   lastMessage: Message | null;
   unreadCount: number;
   pinned: boolean;
+  /** Place among my pinned chats (smaller first); null when not pinned or never reordered. */
+  pinRank?: number | null;
   muted: boolean;
   othersReadAt: number;
   createdAt: number;

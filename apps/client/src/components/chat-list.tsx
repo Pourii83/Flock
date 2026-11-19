@@ -1,3 +1,4 @@
+import { compareConversations } from '@/lib/conversation-order';
 import { router } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentRef } from 'react';
 import { ActivityIndicator, FlatList, Platform, Pressable, ScrollView, View } from 'react-native';
@@ -33,7 +34,7 @@ function useFilteredConversations(query: string, filter: Filter) {
   const conversations = useMemo(() => {
     if (!Object.keys(draftTimes).length) return all;
     const at = (c: Conversation) => Math.max(c.updatedAt, draftTimes[c.id] ?? 0);
-    return [...all].sort((a, b) => Number(b.pinned) - Number(a.pinned) || at(b) - at(a));
+    return [...all].sort((a, b) => compareConversations(a, b, at));
   }, [all, draftTimes]);
   return useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -100,7 +101,12 @@ export function ChatRow({
   selected,
   onPress,
   card,
+  canMoveUp,
+  canMoveDown,
 }: {
+  /** Pinned chats: whether there's another pin above / below to swap with. */
+  canMoveUp?: boolean;
+  canMoveDown?: boolean;
   c: Conversation;
   selected?: boolean;
   onPress: () => void;
@@ -123,6 +129,9 @@ export function ChatRow({
   const items: ContextMenuItem[] = [
     { pin: true, label: c.pinned ? t('Unpin') : t('Pin'), onPress: () => void chatStore.setPinned(c.id, !c.pinned) },
     { icon: c.muted ? 'bell' : 'bell-off', label: c.muted ? t('Unmute') : t('Mute'), onPress: () => void chatStore.setMuted(c.id, !c.muted) },
+    // Pinned chats can be reordered: one place up or down among the pins.
+    ...(c.pinned && canMoveUp ? [{ icon: 'arrow-up' as const, label: t('Move up'), onPress: () => void chatStore.movePinned(c.id, -1) }] : []),
+    ...(c.pinned && canMoveDown ? [{ icon: 'arrow-down' as const, label: t('Move down'), onPress: () => void chatStore.movePinned(c.id, 1) }] : []),
     { icon: 'check-circle', label: t('Mark as read'), disabled: !unread, onPress: () => chatStore.markRead(c.id) },
   ];
 
@@ -212,6 +221,8 @@ export function ChatList({
   const groupCount = all.filter((c) => c.type === 'group').length;
   const channelCount = all.filter((c) => c.type === 'channel').length;
   const desktop = variant === 'desktop';
+  // My pins top to bottom (from all chats, not just the filtered ones), for the Move up/down actions.
+  const pinOrder = useMemo(() => all.filter((c) => c.pinned).sort((a, b) => compareConversations(a, b)).map((c) => c.id), [all]);
 
   const closeSearch = useCallback(() => {
     setSearchOpen(false);
@@ -317,7 +328,14 @@ export function ChatList({
         ListHeaderComponent={header}
         contentContainerStyle={{ padding: desktop ? 16 : 16, paddingTop: desktop ? 20 : 8, gap: desktop ? 2 : 8, paddingBottom: 24 }}
         renderItem={({ item }) => (
-          <ChatRow c={item} card={!desktop} selected={item.id === selectedId} onPress={() => onOpen(item)} />
+          <ChatRow
+            c={item}
+            card={!desktop}
+            selected={item.id === selectedId}
+            onPress={() => onOpen(item)}
+            canMoveUp={item.pinned && pinOrder.indexOf(item.id) > 0}
+            canMoveDown={item.pinned && pinOrder.indexOf(item.id) < pinOrder.length - 1}
+          />
         )}
         ListEmptyComponent={
           !loaded ? (

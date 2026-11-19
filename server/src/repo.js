@@ -171,7 +171,7 @@ function serializeMessage(row) {
 /** Conversations for `meId`, optionally restricted to one id. One round trip per query, no N+1. */
 async function loadConversations(meId, onlyId) {
   const convs = await query(
-    `SELECT c.*, me.last_read_at, me.pinned, me.muted, me.role AS my_role,
+    `SELECT c.*, me.last_read_at, me.pinned, me.pin_rank, me.muted, me.role AS my_role,
        ki.public_key AS secret_initiator_key, ki.user_id AS secret_initiator_user, kr.public_key AS secret_recipient_key,
        (SELECT COUNT(*) FROM messages x
           WHERE x.conversation_id = c.id AND x.created_at > me.last_read_at AND x.sender_id != $1) AS unread
@@ -241,6 +241,8 @@ async function loadConversations(meId, onlyId) {
       lastMessage: serializeMessage(last),
       unreadCount: Number(c.unread),
       pinned: c.pinned,
+      // Position among my pinned chats (smaller first); null when not pinned or never reordered.
+      pinRank: c.pinned && c.pin_rank != null ? Number(c.pin_rank) : null,
       muted: c.muted,
       // Read receipts: in a direct chat, how far the other person read; in a group or channel, the
       // furthest any other member read (a message counts as seen once anyone saw it, like Telegram).
@@ -253,17 +255,50 @@ async function loadConversations(meId, onlyId) {
 
 export const getConversation = async (id, meId) => (isUuid(id) ? (await loadConversations(meId, id))[0] ?? null : null);
 
+/** Pinned first, in my chosen order (ranked ones before unranked); then the rest by last activity. */
+export function compareConversations(a, b) {
+  if (a.pinned !== b.pinned) return b.pinned - a.pinned;
+  if (a.pinned) {
+    const ra = a.pinRank ?? Number.MAX_SAFE_INTEGER;
+    const rb = b.pinRank ?? Number.MAX_SAFE_INTEGER;
+    if (ra !== rb) return ra - rb;
+  }
+  return b.updatedAt - a.updatedAt;
+}
+
 export async function listConversations(meId) {
   const list = await loadConversations(meId);
-  return list.sort((a, b) => b.pinned - a.pinned || b.updatedAt - a.updatedAt);
+  return list.sort(compareConversations);
 }
 
 export async function updateMembership(conversationId, meId, { pinned, muted }) {
+  // Pinning puts the chat on top of my pins; unpinning forgets its place.
   await query(
-    `UPDATE members SET pinned = COALESCE($3, pinned), muted = COALESCE($4, muted)
+    `UPDATE members SET
+       pin_rank = CASE
+         WHEN $3::boolean IS TRUE AND NOT pinned
+           THEN (SELECT COALESCE(MIN(o.pin_rank), 0) - 1 FROM members o WHERE o.user_id = $2 AND o.pinned)
+         WHEN $3::boolean IS FALSE THEN NULL
+         ELSE pin_rank END,
+       pinned = COALESCE($3, pinned),
+       muted = COALESCE($4, muted)
      WHERE conversation_id = $1 AND user_id = $2`,
     [conversationId, meId, pinned ?? null, muted ?? null],
   );
+}
+
+/** Saves the order of my pinned chats (ids top to bottom); ids that aren't my pins are ignored. */
+export async function setPinOrder(meId, ids) {
+  const list = (Array.isArray(ids) ? ids : []).filter(isUuid).slice(0, 500);
+  if (!list.length) return [];
+  const rows = await query(
+    `UPDATE members m SET pin_rank = o.ord
+     FROM unnest($2::uuid[]) WITH ORDINALITY AS o(id, ord)
+     WHERE m.user_id = $1 AND m.conversation_id = o.id AND m.pinned
+     RETURNING m.conversation_id`,
+    [meId, list],
+  );
+  return rows.map((r) => r.conversation_id);
 }
 
 export async function markRead(conversationId, meId) {

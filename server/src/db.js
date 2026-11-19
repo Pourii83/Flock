@@ -159,6 +159,9 @@ export async function migrate() {
       read_at BIGINT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS read_marks_conv_user ON read_marks (conversation_id, user_id, read_at);
+    -- Order of a member's pinned chats: smaller first; a new pin goes on top. NULL when not pinned
+    -- (and for pins made before ordering existed, which then sort by last activity after the ranked ones).
+    ALTER TABLE members ADD COLUMN IF NOT EXISTS pin_rank BIGINT;
     -- Blocks: the blocker no longer gets messages, files or calls from the blocked user in their
     -- one-to-one chat (and can't send any there either until they unblock). Groups are unaffected.
     CREATE TABLE IF NOT EXISTS user_blocks (

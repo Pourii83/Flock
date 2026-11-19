@@ -1,3 +1,4 @@
+import { compareConversations } from '@/lib/conversation-order';
 import { useSyncExternalStore } from 'react';
 import { io, type Socket } from 'socket.io-client';
 import type { DocumentPickerAsset } from 'expo-document-picker';
@@ -49,8 +50,7 @@ const initialState = (): State => ({
   guest: null,
 });
 
-const sortConversations = (list: Conversation[]) =>
-  [...list].sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt - a.updatedAt);
+const sortConversations = (list: Conversation[]) => [...list].sort((a, b) => compareConversations(a, b));
 
 /**
  * Single source of truth for chats: REST for history, Socket.IO for live updates.
@@ -278,8 +278,33 @@ class ChatStore {
   }
 
   async setPinned(id: string, pinned: boolean) {
-    this.patchConversation(id, () => ({ pinned }));
-    await api.updateConversation(id, { pinned }).catch(() => this.patchConversation(id, () => ({ pinned: !pinned })));
+    // Like the server: a new pin goes on top, an unpinned chat forgets its place.
+    const top = Math.min(0, ...this.state.conversations.filter((c) => c.pinned && c.pinRank != null).map((c) => c.pinRank as number));
+    const before = this.state.conversations.find((c) => c.id === id);
+    this.patchConversation(id, () => ({ pinned, pinRank: pinned ? top - 1 : null }));
+    await api
+      .updateConversation(id, { pinned })
+      .catch(() => this.patchConversation(id, () => ({ pinned: !pinned, pinRank: before?.pinRank ?? null })));
+  }
+
+  /** Moves a pinned chat one place up (-1) or down (+1) among my pins. */
+  async movePinned(id: string, step: -1 | 1) {
+    const pins = this.state.conversations.filter((c) => c.pinned).sort((a, b) => compareConversations(a, b));
+    const from = pins.findIndex((c) => c.id === id);
+    const to = from + step;
+    if (from < 0 || to < 0 || to >= pins.length) return;
+    const order = pins.map((c) => c.id);
+    [order[from], order[to]] = [order[to]!, order[from]!];
+    const previous = new Map(pins.map((c) => [c.id, c.pinRank ?? null]));
+    const rank = new Map(order.map((cid, i) => [cid, i + 1]));
+    this.set((s) => ({
+      conversations: sortConversations(s.conversations.map((c) => (rank.has(c.id) ? { ...c, pinRank: rank.get(c.id)! } : c))),
+    }));
+    await api.setPinOrder(order).catch(() =>
+      this.set((s) => ({
+        conversations: sortConversations(s.conversations.map((c) => (previous.has(c.id) ? { ...c, pinRank: previous.get(c.id)! } : c))),
+      })),
+    );
   }
 
   async setMuted(id: string, muted: boolean) {

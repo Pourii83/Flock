@@ -465,6 +465,13 @@ export function createRouter(realtime) {
     }
   });
 
+  // Reorder my pinned chats: { ids } top to bottom. My other devices get the new places.
+  r.put('/conversations/pin-order', async (req, res) => {
+    const changed = await repo.setPinOrder(req.userId, req.body?.ids);
+    for (const id of changed) await realtime.notifyConversationTo(id, req.userId);
+    res.json({ ok: true, updated: changed.length });
+  });
+
   r.get('/conversations/:id', member, async (req, res) => res.json(await repo.getConversation(req.params.id, req.userId)));
 
   r.patch('/conversations/:id', member, async (req, res) => {

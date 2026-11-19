@@ -90,10 +90,15 @@ function PersonRow({ user, wide }: { user: User; wide: boolean }) {
         )}
       </Pressable>
       {compact && open && (
-        <View style={{ flexDirection: 'row', gap: 6, paddingHorizontal: 10, paddingBottom: 10 }}>
-          <RowAction icon="message-square" label={t('Message')} color={colors.text} onPress={message} />
-          <RowAction icon="phone" label={t('Voice')} color={colors.teal} onPress={() => call(false)} />
-          <RowAction icon="video" label={t('Video')} color={colors.amberText} onPress={() => call(true)} />
+        // Message on its own line, the two calls side by side under it, so no label gets cut.
+        <View style={{ gap: 6, paddingHorizontal: 10, paddingBottom: 10 }}>
+          <View style={{ flexDirection: 'row' }}>
+            <RowAction icon="message-square" label={t('Message')} color={colors.text} onPress={message} />
+          </View>
+          <View style={{ flexDirection: 'row', gap: 6 }}>
+            <RowAction icon="phone" label={t('Voice')} color={colors.teal} onPress={() => call(false)} />
+            <RowAction icon="video" label={t('Video')} color={colors.amberText} onPress={() => call(true)} />
+          </View>
         </View>
       )}
     </View>

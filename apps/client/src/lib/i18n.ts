@@ -557,6 +557,8 @@ const fa: Record<string, string> = {
   'Could not download file': 'دانلود فایل ممکن نشد',
   'Original quality': 'کیفیت اصلی',
   Download: 'دانلود',
+  'Move up': 'بردن به بالا',
+  'Move down': 'بردن به پایین',
   '0 to 365': '۰ تا ۳۶۵',
   '0 turns this off: files are never deleted and stay on the server for good. Applies to files sent from now on; files already sent keep their date.': 'با ۰ این قابلیت خاموش می‌شود: فایل‌ها هیچ‌وقت پاک نمی‌شوند و برای همیشه روی سرور می‌مانند. برای فایل‌هایی است که از این به بعد فرستاده می‌شوند؛ فایل‌های قبلی همان تاریخ خودشان را دارند.',
   Chat: 'گفتگو',
