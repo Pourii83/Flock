@@ -14,12 +14,15 @@ export function ModalFrame({
   onClose,
   onBack,
   children,
+  maxWidth = 520,
 }: {
   title: string;
   subtitle?: string;
   onClose: () => void;
   onBack?: () => void;
   children: ReactNode;
+  /** Wide screens: the dialog's width cap (wider pages such as the admin panel pass more). */
+  maxWidth?: number;
 }) {
   const wide = useIsWide();
   const content = (
@@ -50,9 +53,9 @@ export function ModalFrame({
           style={
             {
               width: '100%',
-              maxWidth: 520,
-              height: '82%',
-              maxHeight: 740,
+              maxWidth,
+              height: maxWidth > 520 ? '90%' : '82%',
+              maxHeight: maxWidth > 520 ? 980 : 740,
               backgroundColor: colors.rail,
               borderRadius: radius.xl,
               borderWidth: 1,
