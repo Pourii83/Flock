@@ -34,7 +34,8 @@ const FIELDS = {
   allowRegistration: [process.env.ALLOW_REGISTRATION !== '0', (v) => (typeof v === 'boolean' ? v : undefined)],
   allowGuestMeetings: [true, (v) => (typeof v === 'boolean' ? v : undefined)],
   maxUploadMb: [envInt('MAX_UPLOAD_MB', 100), (v) => (Number.isInteger(v) && v >= 1 && v <= 4096 ? v : undefined)],
-  fileRetentionDays: [envInt('FILE_RETENTION_DAYS', 7), (v) => (Number.isInteger(v) && v >= 1 && v <= 365 ? v : undefined)],
+  // 0 = never delete: files sent while it is 0 stay on the server until their message is deleted.
+  fileRetentionDays: [envInt('FILE_RETENTION_DAYS', 7), (v) => (Number.isInteger(v) && v >= 0 && v <= 365 ? v : undefined)],
   // Branding: the app's name. The project link is fixed (MAIN_REPO_URL).
   appName: [cleanAppName(process.env.APP_NAME) ?? 'Flock', cleanAppName],
   // Where this server looks for updates; '' = the main repository.

@@ -151,8 +151,8 @@ function serializeMessage(row) {
           mimeType: row.attachment_mime || 'application/octet-stream',
           size: Number(row.attachment_size || 0),
           expiresAt: row.attachment_expires_at,
-          expired: !row.attachment_path || row.attachment_expires_at <= now(),
-          url: row.attachment_path && row.attachment_expires_at > now() ? `/api/files/${row.id}` : null,
+          expired: !fileLive(row),
+          url: fileLive(row) ? `/api/files/${row.id}` : null,
           ...(row.attachment_waveform ? { waveform: row.attachment_waveform } : {}),
           ...(row.attachment_duration_ms ? { duration: row.attachment_duration_ms / 1000 } : {}),
         }
@@ -367,6 +367,9 @@ export async function directConversationId(a, b) {
   );
   return row?.id ?? null;
 }
+
+/** A stored file is still there: it has a path and either no expiry (kept forever) or a future one. */
+export const fileLive = (row) => !!row?.attachment_path && (row.attachment_expires_at == null || Number(row.attachment_expires_at) > now());
 
 // ---------- messages ----------
 

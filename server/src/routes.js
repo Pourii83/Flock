@@ -118,7 +118,7 @@ export function createRouter(realtime) {
   /** Streams a stored attachment (Range requests work). */
   async function sendAttachment(res, attachment) {
     if (!attachment) return res.status(404).json({ error: 'File not found' });
-    if (!attachment.attachment_path || attachment.attachment_expires_at <= Date.now()) {
+    if (!repo.fileLive(attachment)) {
       if (attachment.attachment_path) await deleteStoredFile(attachment.attachment_path);
       return res.status(410).json({ error: 'File expired' });
     }
@@ -326,7 +326,7 @@ export function createRouter(realtime) {
     const sender = await repo.getUserRow(src.sender_id);
     let attachment = null;
     if (src.attachment_name) {
-      const live = src.attachment_path && src.attachment_expires_at > Date.now();
+      const live = repo.fileLive(src);
       const copy = live ? await copyStoredFile(src.attachment_path) : null;
       if (!copy) return res.status(410).json({ error: 'File expired' });
       attachment = { name: src.attachment_name, mimeType: src.attachment_mime, size: src.attachment_size, path: copy, expiresAt: src.attachment_expires_at, waveform: src.attachment_waveform, durationMs: src.attachment_duration_ms };
@@ -400,7 +400,7 @@ export function createRouter(realtime) {
     if (srcConv?.secret || targetConv.secret) return res.status(400).json({ error: 'Forwarding is not available in secret chats' });
     let attachment = null;
     if (src.attachment_name) {
-      const live = src.attachment_path && src.attachment_expires_at > Date.now();
+      const live = repo.fileLive(src);
       const copy = live ? await copyStoredFile(src.attachment_path) : null;
       if (!copy) return res.status(410).json({ error: 'File expired' });
       attachment = { name: src.attachment_name, mimeType: src.attachment_mime, size: src.attachment_size, path: copy, expiresAt: src.attachment_expires_at, waveform: src.attachment_waveform, durationMs: src.attachment_duration_ms };
@@ -597,7 +597,8 @@ export function createRouter(realtime) {
           durationMs: !sealed && Number.isInteger(Number(req.body?.durationMs)) && Number(req.body.durationMs) > 0 && Number(req.body.durationMs) <= 6 * 3600_000 ? Number(req.body.durationMs) : null,
           size: req.file.size,
           path: req.file.filename,
-          expiresAt: Date.now() + retention * 24 * 60 * 60 * 1000,
+          // 0 days: no expiry, the hourly cleanup never removes it.
+          expiresAt: retention > 0 ? Date.now() + retention * 24 * 60 * 60 * 1000 : null,
         },
       });
       await realtime.notifyMessage(message);

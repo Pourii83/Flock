@@ -335,7 +335,8 @@ function SettingsForm() {
     uploadMb >= 1 &&
     uploadMb <= 4096 &&
     Number.isInteger(retentionDays) &&
-    retentionDays >= 1 &&
+    retention !== '' &&
+    retentionDays >= 0 &&
     retentionDays <= 365 &&
     nameValid &&
     mirrorValid;
@@ -422,15 +423,20 @@ function SettingsForm() {
         </T>
       </View>
 
-      <Field
-        label={t('Keep sent files for (days)')}
-        icon="clock"
-        keyboardType="number-pad"
-        value={retention}
-        onChangeText={(v) => setRetention(v.replace(/[^0-9]/g, ''))}
-        maxLength={3}
-        error={Number.isInteger(retentionDays) && retentionDays >= 1 && retentionDays <= 365 ? null : t('1 to 365')}
-      />
+      <View style={{ gap: 8 }}>
+        <Field
+          label={t('Keep sent files for (days)')}
+          icon="clock"
+          keyboardType="number-pad"
+          value={retention}
+          onChangeText={(v) => setRetention(v.replace(/[^0-9]/g, ''))}
+          maxLength={3}
+          error={retention !== '' && Number.isInteger(retentionDays) && retentionDays >= 0 && retentionDays <= 365 ? null : t('0 to 365')}
+        />
+        <T variant="bodySm" color={retention !== '' && retentionDays === 0 ? colors.amberText : colors.textMuted}>
+          {t('0 turns this off: files are never deleted and stay on the server for good. Applies to files sent from now on; files already sent keep their date.')}
+        </T>
+      </View>
 
       <Toggle
         label={t('Open sign-up')}
