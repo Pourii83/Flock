@@ -117,11 +117,14 @@ function RowAction({ icon, label, color, onPress }: { icon: IconName; label: str
         justifyContent: 'center',
         gap: 6,
         paddingVertical: 9,
+        // Room inside the edges so a long label ("Message") never pushes the icon against the side.
+        paddingHorizontal: 10,
+        minWidth: 0,
         borderRadius: radius.md + 2,
         backgroundColor: pressed || hovered ? colors.surfaceHighest : colors.surfaceHigh,
       })}>
       <Icon name={icon} size={16} color={color} />
-      <T variant="label" color={colors.text} numberOfLines={1}>
+      <T variant="label" color={colors.text} numberOfLines={1} style={{ flexShrink: 1 }}>
         {label}
       </T>
     </Pressable>
