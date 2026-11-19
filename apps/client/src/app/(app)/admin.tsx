@@ -12,7 +12,7 @@ import { colors, radius } from '@/theme';
 
 /** The panel's numbers refresh on their own this often (paused while the tab is in the background). */
 const REFRESH_MS = 3_000;
-/** CPU samples kept for the little history chart (a minute and a half at 3 s). */
+/** CPU and memory samples kept for the little history charts (a minute and a half at 3 s). */
 const HISTORY = 30;
 /** Quick picks for the upload limit (Stitch "Cluster Policies"); any other value goes in the field. */
 const UPLOAD_PRESETS = [100, 250, 500, 1024];
@@ -35,10 +35,13 @@ function duration(seconds: number) {
   return d ? t('{d}d {h}h', { d: num(d), h: num(h) }) : h ? t('{h}h {m}m', { h: num(h), m: num(m) }) : t('{m}m', { m: num(m) });
 }
 
+const memoryPercent = (u: ServerUsage) => (u.memory.total ? Math.round(((u.memory.total - u.memory.free) / u.memory.total) * 1000) / 10 : 0);
+
 /** Polls the server usage on a timer, keeps a short CPU history, and pauses while the page is hidden. */
 function useLiveUsage() {
   const [usage, setUsage] = useState<ServerUsage | null>(null);
   const [cpu, setCpu] = useState<number[]>([]);
+  const [mem, setMem] = useState<number[]>([]);
   const [error, setError] = useState('');
   const [updatedAt, setUpdatedAt] = useState(0);
   const inFlight = useRef(false);
@@ -53,6 +56,7 @@ function useLiveUsage() {
         (u) => {
           setUsage(u);
           setCpu((prev) => [...prev, u.cpu.percent].slice(-HISTORY));
+          setMem((prev) => [...prev, memoryPercent(u)].slice(-HISTORY));
           setUpdatedAt(Date.now());
           setError('');
         },
@@ -77,7 +81,7 @@ function useLiveUsage() {
     };
   }, [load]);
 
-  return { usage, cpu, error, updatedAt };
+  return { usage, cpu, mem, error, updatedAt };
 }
 
 /** Admin only: server-wide settings and live server telemetry (Stitch "Server Administration"). */
@@ -100,7 +104,7 @@ export default function AdminScreen() {
 }
 
 function Dashboard({ twoColumns }: { twoColumns: boolean }) {
-  const { usage, cpu, error, updatedAt } = useLiveUsage();
+  const { usage, cpu, mem, error, updatedAt } = useLiveUsage();
   // Ticks once a second so "updated 2s ago" stays true between refreshes.
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -151,7 +155,7 @@ function Dashboard({ twoColumns }: { twoColumns: boolean }) {
 
       <View style={{ flexDirection: twoColumns ? 'row' : 'column', gap: 16, alignItems: 'flex-start' }}>
         <View style={{ flex: twoColumns ? 1.4 : undefined, alignSelf: 'stretch', gap: 16 }}>
-          <Resources usage={usage} cpu={cpu} />
+          <Resources usage={usage} cpu={cpu} mem={mem} />
         </View>
         <View style={{ flex: twoColumns ? 1 : undefined, alignSelf: 'stretch' }}>
           <SettingsForm />
@@ -205,30 +209,24 @@ function Kpi({ icon, label, value, detail, live }: { icon: IconName; label: stri
   );
 }
 
-function Resources({ usage, cpu }: { usage: ServerUsage; cpu: number[] }) {
+function Resources({ usage, cpu, mem }: { usage: ServerUsage; cpu: number[]; mem: number[] }) {
   const memUsed = usage.memory.total - usage.memory.free;
   const diskUsed = usage.disk ? usage.disk.total - usage.disk.free : 0;
   return (
     <Panel icon="activity" title={t('Server resources')} subtitle={t('Refreshes on its own every few seconds')}>
-      <View style={{ gap: 10, padding: 14, borderRadius: radius.lg, backgroundColor: colors.canvas, borderWidth: 1, borderColor: colors.border }}>
-        <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8 }}>
-          <Icon name="cpu" size={15} color={colors.textMuted} />
-          <T variant="label" color={colors.textMuted} style={{ flex: 1 }}>
-            {t('CPU')}
-          </T>
-          <T variant="headlineSm" style={{ fontVariant: ['tabular-nums'] }}>{`${num(usage.cpu.percent)}%`}</T>
-        </View>
-        <Sparkline values={cpu} />
-        <T variant="bodySm" color={colors.textMuted}>
-          {t('{n} cores · load {load}', { n: num(usage.cpu.cores), load: usage.cpu.load.map((l) => l.toFixed(2)).join(' / ') })}
-        </T>
-      </View>
-      <Meter
+      <ChartCard
+        icon="cpu"
+        label={t('CPU')}
+        percent={usage.cpu.percent}
+        values={cpu}
+        detail={t('{n} cores · load {load}', { n: num(usage.cpu.cores), load: usage.cpu.load.map((l) => l.toFixed(2)).join(' / ') })}
+      />
+      <ChartCard
         icon="layers"
         label={t('Memory')}
-        value={`${bytes(memUsed)} / ${bytes(usage.memory.total)}`}
-        detail={t('Flock uses {size}', { size: bytes(usage.memory.flock) })}
-        ratio={memUsed / usage.memory.total}
+        percent={memoryPercent(usage)}
+        values={mem}
+        detail={`${bytes(memUsed)} / ${bytes(usage.memory.total)} · ${t('Flock uses {size}', { size: bytes(usage.memory.flock) })}`}
       />
       {usage.disk && (
         <Meter
@@ -249,7 +247,26 @@ function Resources({ usage, cpu }: { usage: ServerUsage; cpu: number[] }) {
   );
 }
 
-/** CPU history as thin bars, newest on the right; amber above 75%, red above 90%. */
+/** A live percentage with its recent history (CPU, memory). */
+function ChartCard({ icon, label, percent, values, detail }: { icon: IconName; label: string; percent: number; values: number[]; detail: string }) {
+  return (
+    <View style={{ gap: 10, padding: 14, borderRadius: radius.lg, backgroundColor: colors.canvas, borderWidth: 1, borderColor: colors.border }}>
+      <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8 }}>
+        <Icon name={icon} size={15} color={colors.textMuted} />
+        <T variant="label" color={colors.textMuted} style={{ flex: 1 }}>
+          {label}
+        </T>
+        <T variant="headlineSm" style={{ fontVariant: ['tabular-nums'] }}>{`${num(percent)}%`}</T>
+      </View>
+      <Sparkline values={values} />
+      <T variant="bodySm" color={colors.textMuted}>
+        {detail}
+      </T>
+    </View>
+  );
+}
+
+/** Percentage history as thin bars, newest on the right; amber above 75%, red above 90%. */
 function Sparkline({ values }: { values: number[] }) {
   const bars = [...Array(Math.max(0, HISTORY - values.length)).fill(null), ...values];
   return (
