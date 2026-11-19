@@ -4,9 +4,10 @@ import { ActivityIndicator, Animated, Easing, Modal, Platform, Pressable, useWin
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useIsWide } from '@/hooks/use-layout';
-import { attachmentSource, openAttachment } from '@/lib/attachments';
+import { attachmentSource, copyImageAttachment, openAttachment, openAttachmentInTab } from '@/lib/attachments';
 import { t } from '@/lib/i18n';
 import { colors } from '@/theme';
+import { ContextMenu, type ContextMenuItem } from './context-menu';
 import { MediaVideo } from './media-video';
 import { IconButton, T } from './ui';
 
@@ -28,6 +29,7 @@ export function MediaViewer({ media, onClose }: { media: ViewerMedia | null; onC
   const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState<{ url: string; text: string } | null>(null);
   const [pop] = useState(() => new Animated.Value(0));
+  const [menuPoint, setMenuPoint] = useState<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     if (!media) return;
@@ -64,13 +66,38 @@ export function MediaViewer({ media, onClose }: { media: ViewerMedia | null; onC
   };
 
   const isVideo = !!media?.mimeType.startsWith('video/');
+
+  const run = (action: (url: string) => Promise<void>) => {
+    if (!media) return;
+    const url = media.url;
+    setError(null);
+    action(url).catch((e) => setError({ url, text: e instanceof Error ? e.message : t('Something went wrong') }));
+  };
+  // Right-click inside the viewer is about the photo/video, not the message behind it. The viewer
+  // sits in a portal, so without stopping it here the event would bubble (through the React tree)
+  // up to the message bubble and open the message menu instead.
+  const onContextMenu = (e: any) => {
+    e.preventDefault?.();
+    e.stopPropagation?.();
+    setMenuPoint({ x: e.clientX ?? e.nativeEvent?.pageX ?? 0, y: e.clientY ?? e.nativeEvent?.pageY ?? 0 });
+  };
+  const menuItems: ContextMenuItem[] = [
+    { icon: 'download', label: t('Download'), onPress: () => void download() },
+    ...(!isVideo && Platform.OS === 'web' ? [{ icon: 'copy' as const, label: t('Copy image'), onPress: () => run(copyImageAttachment) }] : []),
+    ...(Platform.OS === 'web' ? [{ icon: 'external-link' as const, label: t('Open in new tab'), onPress: () => run(openAttachmentInTab) }] : []),
+    { icon: 'x', label: t('Close viewer'), onPress: onClose },
+  ];
   const box = media && loaded?.url === media.url ? fit(loaded.width, loaded.height) : null;
   const errorText = media && error?.url === media.url ? error.text : '';
   const scale = pop.interpolate({ inputRange: [0, 1], outputRange: [0.92, 1] });
 
   return (
     <Modal visible={!!media} transparent animationType="fade" onRequestClose={onClose} statusBarTranslucent>
-      <Pressable onPress={onClose} accessibilityLabel={t('Close')} style={{ flex: 1, backgroundColor: 'rgba(5,7,11,0.86)', cursor: 'auto' } as any}>
+      <Pressable
+        onPress={onClose}
+        accessibilityLabel={t('Close')}
+        {...(Platform.OS === 'web' ? ({ onContextMenu } as object) : {})}
+        style={{ flex: 1, backgroundColor: 'rgba(5,7,11,0.86)', cursor: 'auto' } as any}>
         <View style={{ position: 'absolute', top: insets.top, left: 0, right: 0, height: BAR, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, zIndex: 2 }}>
           <T variant="labelLg" color="#fff" numberOfLines={1} style={{ flex: 1 }}>
             {media?.name}
@@ -111,6 +138,7 @@ export function MediaViewer({ media, onClose }: { media: ViewerMedia | null; onC
           )}
         </View>
       </Pressable>
+      <ContextMenu point={media ? menuPoint : null} items={menuItems} onClose={() => setMenuPoint(null)} />
     </Modal>
   );
 }

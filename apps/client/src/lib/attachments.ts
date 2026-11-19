@@ -46,3 +46,41 @@ export async function openAttachment(url: string, name: string, mimeType: string
   await Sharing.shareAsync(file.uri, { mimeType, dialogTitle: name });
 }
 
+
+/** Web: the attachment as a blob URL this tab can show or open (the server needs the auth header). */
+async function attachmentBlob(url: string) {
+  const response = await fetch(isLocal(url) ? url : absoluteUrl(url), isLocal(url) ? undefined : { headers: getAuthHeaders() });
+  if (!response.ok) throw new Error(response.status === 410 ? t('File expired') : t('Could not download file'));
+  return response.blob();
+}
+
+/** Web: opens the attachment in a new browser tab. */
+export async function openAttachmentInTab(url: string) {
+  // Open the tab synchronously (inside the click) so the popup blocker lets it through.
+  const tab = window.open('', '_blank');
+  try {
+    const objectUrl = URL.createObjectURL(await attachmentBlob(url));
+    if (tab) tab.location.href = objectUrl;
+    else window.open(objectUrl, '_blank');
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+  } catch (error) {
+    tab?.close();
+    throw error;
+  }
+}
+
+/** Web: puts the image on the clipboard (as PNG — the one image type every browser accepts there). */
+export async function copyImageAttachment(url: string) {
+  if (typeof ClipboardItem === 'undefined' || !navigator.clipboard?.write) throw new Error(t('Could not copy the image'));
+  // Safari wants the ClipboardItem created inside the click, so it gets a promise of the blob.
+  const png = attachmentBlob(url).then(async (blob) => {
+    if (blob.type === 'image/png') return blob;
+    const bitmap = await createImageBitmap(blob);
+    const canvas = document.createElement('canvas');
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    canvas.getContext('2d')?.drawImage(bitmap, 0, 0);
+    return new Promise<Blob>((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error(t('Could not copy the image')))), 'image/png'));
+  });
+  await navigator.clipboard.write([new ClipboardItem({ 'image/png': png })]);
+}

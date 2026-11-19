@@ -627,9 +627,9 @@ function ActiveCall() {
   // A chevron on the camera button lists the other cameras (web/desktop with more than one).
   const canSwitchCameras = Platform.OS === 'web' && call.videoDevices.length > 1;
   // Phones keep the essentials in the dock and the rest behind "More". Their buttons shrink a little
-  // so six of them plus the hang-up button still fit on a small screen.
+  // so five of them plus the hang-up button still fit on a small screen.
   // With the camera on, phones also get the front/back toggle right in the dock.
-  const dockSize = wide ? 54 : Math.max(34, Math.min(46, Math.floor((windowWidth - 125) / (canFlip ? 7 : 6))));
+  const dockSize = wide ? 54 : Math.max(34, Math.min(46, Math.floor((windowWidth - 125) / (canFlip ? 6 : 5))));
   const raisedCount = (call.raised ? 1 : 0) + call.raisedBy.length;
   const raisedText =
     raisedCount > 1
@@ -637,20 +637,14 @@ function ActiveCall() {
       : call.raised
         ? t('You raised your hand')
         : t('{name} raised a hand', { name: call.remotes.find((r) => call.raisedBy.includes(r.userId))?.user?.displayName ?? t('Someone') });
-  // Phones keep the essentials in the dock and the rest behind "More".
+  // Phones keep the essentials in the dock and the rest behind "More". Reactions and the speaker
+  // (mute + devices) already sit in the dock, so they are not repeated here; the call chat lives here.
   const moreItems: MenuItem[] = [
     ...(canPip ? [{ icon: 'minimize-2' as const, label: t('Picture in picture'), onPress: () => (nativePipSupported ? void enterNativePip() : void enterPip(pipStream)) }] : []),
     { icon: 'monitor', label: call.sharingScreen ? t('Stop sharing') : t('Share screen'), active: call.sharingScreen, onPress: () => void toggleScreenShare() },
-    { icon: 'smile', label: t('Reactions'), active: panel === 'reactions', onPress: () => setPanel('reactions') },
+    { icon: 'message-square', label: t('Call chat'), badge: call.chatUnread, onPress: () => setPanel('chat') },
     ...(call.isGroup ? [{ hand: true, label: call.raised ? t('Lower hand') : t('Raise hand'), active: call.raised, onPress: toggleRaiseHand }] : []),
     ...(camOn ? [{ icon: selfHidden ? ('eye' as const) : ('eye-off' as const), label: selfHidden ? t('Show my video') : t('Hide my video'), onPress: () => setSelfHidden((h) => !h) }] : []),
-    {
-      icon: call.speakerMuted ? ('volume-x' as const) : ('volume-2' as const),
-      label: call.speakerMuted ? t('Unmute call audio') : t('Mute call audio'),
-      active: call.speakerMuted,
-      onPress: toggleSpeakerMute,
-    },
-    { icon: 'headphones', label: t('Audio devices'), onPress: () => setPanel('audio') },
     { icon: 'sliders', label: t('Call quality'), onPress: () => setPanel('quality') },
     ...(canInvite ? [{ icon: 'user-plus' as const, label: t('Invite to call'), onPress: () => setPanel('invite') }] : []),
     ...(call.room ? [{ icon: 'link' as const, label: t('Copy meeting link'), onPress: () => void copyMeetingLink() }] : []),
@@ -847,7 +841,9 @@ function ActiveCall() {
                 <DockButton icon="smile" active={panel === 'reactions'} onPress={() => openAt(measureReact, 'reactions')} label={t('Reactions')} size={dockSize} />
               </View>
               {wide && call.isGroup && <DockButton hand active={call.raised} onPress={toggleRaiseHand} label={call.raised ? t('Lower hand') : t('Raise hand')} size={dockSize} />}
-              <DockButton icon="message-square" active={panel === 'chat'} onPress={() => toggle('chat')} label={t('Call chat')} badge={panel === 'chat' ? 0 : call.chatUnread} size={dockSize} />
+              {wide && (
+                <DockButton icon="message-square" active={panel === 'chat'} onPress={() => toggle('chat')} label={t('Call chat')} badge={panel === 'chat' ? 0 : call.chatUnread} size={dockSize} />
+              )}
               {wide ? (
                 <>
                   {camOn && (
@@ -861,7 +857,7 @@ function ActiveCall() {
                   {!!call.room && <DockButton icon={linkCopied ? 'check' : 'link'} active={linkCopied} onPress={() => void copyMeetingLink()} label={t('Copy meeting link')} size={dockSize} />}
                 </>
               ) : (
-                <DockButton icon="more-horizontal" active={panel === 'more' || call.sharingScreen} onPress={() => toggle('more')} label={t('More options')} size={dockSize} />
+                <DockButton icon="more-horizontal" active={panel === 'more' || call.sharingScreen} onPress={() => toggle('more')} label={t('More options')} badge={panel === 'chat' ? 0 : call.chatUnread} size={dockSize} />
               )}
             </View>
             <Tooltip label={t('Hang up')}>
@@ -1443,7 +1439,7 @@ function MicPanel({ onClose, bottom, anchorX, stageWidth }: { onClose: () => voi
   );
 }
 
-type MenuItem = { icon?: IconName; hand?: boolean; label: string; active?: boolean; onPress: () => void };
+type MenuItem = { icon?: IconName; hand?: boolean; label: string; active?: boolean; badge?: number; onPress: () => void };
 
 /** Phone overflow menu for the controls that don't need to be one tap away. */
 function MoreSheet({ items, onClose, bottom }: { items: MenuItem[]; onClose: () => void; bottom: number }) {
@@ -1481,6 +1477,7 @@ function MoreSheet({ items, onClose, bottom }: { items: MenuItem[]; onClose: () 
               <T variant="labelLg" color={item.active ? colors.amberText : colors.text} style={{ flex: 1 }}>
                 {item.label}
               </T>
+              {!!item.badge && <UnreadBadge count={item.badge} />}
             </Pressable>
           </Tooltip>
         ))}
