@@ -639,19 +639,19 @@ function ActiveCall() {
       : call.raised
         ? t('You raised your hand')
         : t('{name} raised a hand', { name: call.remotes.find((r) => call.raisedBy.includes(r.userId))?.user?.displayName ?? t('Someone') });
-  // Phones keep the essentials in the dock and the rest behind "More". Reactions and the speaker
-  // (mute + devices) already sit in the dock, so they are not repeated here; the reactions live here.
+  // Phones (Stitch "Call Controls & Options"): the dock holds mic, speaker, camera, chat and hang-up,
+  // with raise hand and screen sharing on its second row; everything else is behind "More", whose
+  // sheet opens with a row of quick reactions.
   const moreItems: MenuItem[] = [
     ...(canPip ? [{ icon: 'minimize-2' as const, label: t('Picture in picture'), onPress: () => (nativePipSupported ? void enterNativePip() : void enterPip(pipStream)) }] : []),
-    { icon: 'monitor', label: call.sharingScreen ? t('Stop sharing') : t('Share screen'), active: call.sharingScreen, onPress: () => void toggleScreenShare() },
-    { icon: 'smile', label: t('Reactions'), active: panel === 'reactions', onPress: () => setPanel('reactions') },
-    ...(call.isGroup ? [{ hand: true, label: call.raised ? t('Lower hand') : t('Raise hand'), active: call.raised, onPress: toggleRaiseHand }] : []),
     ...(camOn ? [{ icon: selfHidden ? ('eye' as const) : ('eye-off' as const), label: selfHidden ? t('Show my video') : t('Hide my video'), onPress: () => setSelfHidden((h) => !h) }] : []),
     { icon: 'sliders', label: t('Call quality'), onPress: () => setPanel('quality') },
     ...(canInvite ? [{ icon: 'user-plus' as const, label: t('Invite to call'), onPress: () => setPanel('invite') }] : []),
     ...(call.room ? [{ icon: 'link' as const, label: t('Copy meeting link'), onPress: () => void copyMeetingLink() }] : []),
-    { icon: 'minimize-2', label: t('Minimize call'), onPress: () => setMinimized(true) },
+    { icon: 'minimize-2', label: t('Minimize call'), onPress: () => setMinimized(true), full: true },
   ];
+  // Phone dock: five equal columns across the panel.
+  const tileSize = Math.max(40, Math.min(52, Math.floor((Math.min(windowWidth, 520) - 16 - 20) / 5) - 14));
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.canvas }} onLayout={(e) => setStage({ width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height })}>
@@ -817,6 +817,60 @@ function ActiveCall() {
               )}
             </View>
           )}
+          {!wide ? (
+            <View style={[styles.glass, { borderRadius: radius.xl, padding: 10, gap: 10, width: '100%', maxWidth: 520 }]}>
+              <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
+                <DockTile label={call.micMuted ? t('Unmute') : t('Mute')} on={!call.micMuted}>
+                  <View ref={micRef} collapsable={false}>
+                    <MicButton muted={call.micMuted} speaking={!!call.localSpeaking} panelOpen={panel === 'mic'} onToggle={toggleMic} onOpenPanel={() => openAt(measureMic, 'mic')} size={tileSize} />
+                  </View>
+                </DockTile>
+                <DockTile label={t('Speaker')} on={!call.speakerMuted}>
+                  <View ref={outRef} collapsable={false}>
+                    <OutputButton muted={call.speakerMuted} panelOpen={panel === 'audio'} onToggleMute={toggleSpeakerMute} onOpenPanel={() => openAt(measureOut, 'audio')} size={tileSize} />
+                  </View>
+                </DockTile>
+                <DockTile label={t('Video')} on={!call.cameraOff}>
+                  <View ref={camRef} collapsable={false}>
+                    <CameraButton
+                      off={call.cameraOff}
+                      panelOpen={panel === 'cameras'}
+                      onToggle={toggleCamera}
+                      onOpenPanel={() => openAt(measureCam, 'cameras')}
+                      canSwitch={canSwitchCameras}
+                      size={tileSize}
+                    />
+                  </View>
+                </DockTile>
+                <DockTile label={t('Chat')} on={panel === 'chat'}>
+                  <DockButton icon="message-square" active={panel === 'chat'} onPress={() => toggle('chat')} label={t('Call chat')} badge={panel === 'chat' ? 0 : call.chatUnread} size={tileSize} />
+                </DockTile>
+                <DockTile label={t('Leave')} danger>
+                  <Pressable
+                    accessibilityLabel={t('Hang up')}
+                    onPress={hangUp}
+                    style={({ pressed }) => ({
+                      width: tileSize,
+                      height: tileSize,
+                      borderRadius: tileSize / 2,
+                      backgroundColor: pressed ? '#B91C1C' : colors.danger,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      transform: [{ scale: pressed ? 0.94 : 1 }],
+                    })}>
+                    <Icon name="phone-off" size={Math.round(tileSize * 0.41)} color="#FFFFFF" />
+                  </Pressable>
+                </DockTile>
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                {call.isGroup && <DockPill hand label={call.raised ? t('Lower hand') : t('Raise hand')} active={call.raised} onPress={toggleRaiseHand} />}
+                <DockPill icon="monitor" label={call.sharingScreen ? t('Stop sharing') : t('Share screen')} active={call.sharingScreen} onPress={() => void toggleScreenShare()} />
+                {canFlip && !selfViewShown && <DockPill icon="refresh-ccw" label={t('Flip')} onPress={flipCamera} />}
+                <View style={{ flex: 1 }} />
+                <DockButton icon="more-horizontal" active={panel === 'more'} onPress={() => toggle('more')} label={t('More options')} size={40} />
+              </View>
+            </View>
+          ) : (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: wide ? 14 : 8, maxWidth: '100%' }}>
             <View style={[styles.glass, { flexDirection: 'row', alignItems: 'center', gap: wide ? 8 : 5, padding: wide ? 8 : 5, flexShrink: 1 }]}>
               <View ref={micRef} collapsable={false}>
@@ -882,6 +936,7 @@ function ActiveCall() {
               </Pressable>
             </Tooltip>
           </View>
+          )}
         </View>
       </SafeAreaView>
 
@@ -948,7 +1003,17 @@ function ActiveCall() {
         />
       )}
       {panel === 'mic' && <MicPanel onClose={() => setPanel(null)} bottom={dockHeight + insets.bottom} anchorX={micX} stageWidth={stage.width} />}
-      {panel === 'more' && <MoreSheet items={moreItems} onClose={() => setPanel(null)} bottom={dockHeight + insets.bottom} />}
+      {panel === 'more' && (
+        <MoreSheet
+          items={moreItems}
+          onClose={() => setPanel(null)}
+          bottom={dockHeight + insets.bottom}
+          onReact={(emoji) => {
+            sendReaction(emoji);
+            setPanel(null);
+          }}
+        />
+      )}
     </View>
   );
 }
@@ -1461,48 +1526,110 @@ function MicPanel({ onClose, bottom, anchorX, stageWidth }: { onClose: () => voi
   );
 }
 
-type MenuItem = { icon?: IconName; hand?: boolean; label: string; active?: boolean; badge?: number; onPress: () => void };
+type MenuItem = { icon?: IconName; hand?: boolean; label: string; active?: boolean; badge?: number; onPress: () => void; /** Spans both columns. */ full?: boolean };
 
-/** Phone overflow menu for the controls that don't need to be one tap away. */
-function MoreSheet({ items, onClose, bottom }: { items: MenuItem[]; onClose: () => void; bottom: number }) {
+/** One column of the phone dock: a round control with its name underneath. */
+function DockTile({ label, on, danger, children }: { label: string; on?: boolean; danger?: boolean; children: ReactNode }) {
+  return (
+    <View style={{ flex: 1, alignItems: 'center', gap: 6 }}>
+      {children}
+      <T variant="labelSm" color={danger ? colors.danger : on ? colors.amberText : colors.textMuted} numberOfLines={1}>
+        {label}
+      </T>
+    </View>
+  );
+}
+
+/** A labelled pill on the phone dock's second row (raise hand, share screen, flip). */
+function DockPill({ icon, hand, label, active, onPress }: { icon?: IconName; hand?: boolean; label: string; active?: boolean; onPress: () => void }) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      onPress={onPress}
+      style={({ pressed }) => ({
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 7,
+        height: 38,
+        paddingHorizontal: 14,
+        borderRadius: radius.pill,
+        backgroundColor: active ? colors.amberGlow : pressed ? colors.surfaceHighest : colors.surfaceHigh,
+      })}>
+      {hand ? <HandIcon size={16} color={active ? colors.amberText : colors.text} /> : <Icon name={icon as IconName} size={16} color={active ? colors.amberText : colors.text} />}
+      <T variant="label" color={active ? colors.amberText : colors.text} numberOfLines={1}>
+        {label}
+      </T>
+    </Pressable>
+  );
+}
+
+/** Phone overflow sheet (Stitch): quick reactions on top, then the other controls as two-column tiles. */
+function MoreSheet({ items, onClose, bottom, onReact }: { items: MenuItem[]; onClose: () => void; bottom: number; onReact: (emoji: string) => void }) {
   return (
     <Popover onClose={onClose} bottom={bottom}>
-      <View style={{ gap: 2 }}>
-        {items.map((item) => (
-          <Tooltip key={item.label} label={item.label} style={{ alignSelf: 'stretch' }}>
+      <View style={{ gap: 12 }}>
+        <T variant="overline" color={colors.textMuted} style={{ textTransform: 'uppercase', paddingHorizontal: 2 }}>
+          {t('Quick reaction')}
+        </T>
+        <View style={{ flexDirection: 'row', gap: 6, padding: 6, borderRadius: radius.lg, backgroundColor: colors.canvas }}>
+          {REACTIONS.map((e) => (
             <Pressable
+              key={e}
+              accessibilityLabel={t('React with {emoji}', { emoji: e })}
+              onPress={() => onReact(e)}
+              style={({ pressed, hovered }: any) => ({
+                flex: 1,
+                alignItems: 'center',
+                paddingVertical: 9,
+                borderRadius: radius.md + 2,
+                backgroundColor: pressed || hovered ? colors.surfaceHighest : colors.surfaceHigh,
+                transform: [{ scale: pressed ? 1.12 : 1 }],
+              })}>
+              <T style={{ fontSize: 22, lineHeight: 28 }}>{e}</T>
+            </Pressable>
+          ))}
+        </View>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+          {items.map((item) => (
+            <Pressable
+              key={item.label}
               accessibilityLabel={item.label}
               onPress={() => {
                 onClose();
                 item.onPress();
               }}
               style={({ pressed, hovered }: any) => ({
+                width: item.full ? '100%' : '48.5%',
+                flexGrow: 1,
                 flexDirection: 'row',
                 alignItems: 'center',
-                gap: 14,
-                minHeight: 52,
-                paddingHorizontal: 10,
+                gap: 12,
+                minHeight: 60,
+                paddingHorizontal: 12,
                 borderRadius: radius.lg,
-                backgroundColor: item.active ? colors.amberTint : pressed || hovered ? colors.surfaceHighest : 'transparent',
+                borderWidth: 1,
+                borderColor: item.active ? colors.amber : colors.border,
+                backgroundColor: item.active ? colors.amberTint : pressed || hovered ? colors.surfaceHighest : colors.surfaceHigh,
               })}>
               <View
                 style={{
-                  width: 38,
-                  height: 38,
-                  borderRadius: 19,
-                  backgroundColor: item.active ? colors.amberGlow : colors.surfaceHigh,
+                  width: 36,
+                  height: 36,
+                  borderRadius: 18,
+                  backgroundColor: item.active ? colors.amberGlow : colors.surface,
                   alignItems: 'center',
                   justifyContent: 'center',
                 }}>
-                {item.hand ? <HandIcon size={18} color={item.active ? colors.amberText : colors.text} /> : <Icon name={item.icon as IconName} size={18} color={item.active ? colors.amberText : colors.text} />}
+                {item.hand ? <HandIcon size={17} color={item.active ? colors.amberText : colors.text} /> : <Icon name={item.icon as IconName} size={17} color={item.active ? colors.amberText : colors.text} />}
               </View>
-              <T variant="labelLg" color={item.active ? colors.amberText : colors.text} style={{ flex: 1 }}>
+              <T variant="label" color={item.active ? colors.amberText : colors.text} numberOfLines={2} style={{ flex: 1 }}>
                 {item.label}
               </T>
               {!!item.badge && <UnreadBadge count={item.badge} />}
             </Pressable>
-          </Tooltip>
-        ))}
+          ))}
+        </View>
       </View>
     </Popover>
   );
