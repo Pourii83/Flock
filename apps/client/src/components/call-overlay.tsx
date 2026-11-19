@@ -604,6 +604,8 @@ function ActiveCall() {
   const toggleFullWidth = () => setFullWidthSharer((current) => (current === shownScreen ? null : shownScreen));
   // One-to-one video: their camera fills the screen and mine floats in a corner.
   const fullBleed = !shownScreen && !!single && hasVideo(single) && !single.screen;
+  // The front/back toggle sits on that floating preview; without it, it stays in the dock.
+  const selfViewShown = fullBleed && camOn && !selfHidden;
   // With the controls hidden, the stage takes the room they leave.
   // Clear the status pill and tags (they can wrap to a second line), with a little air below them.
   const padTop = controlsHidden ? insets.top + 12 : insets.top + headerHeight + 6;
@@ -628,8 +630,8 @@ function ActiveCall() {
   const canSwitchCameras = Platform.OS === 'web' && call.videoDevices.length > 1;
   // Phones keep the essentials in the dock and the rest behind "More". Their buttons shrink a little
   // so five of them plus the hang-up button still fit on a small screen.
-  // With the camera on, phones also get the front/back toggle right in the dock.
-  const dockSize = wide ? 54 : Math.max(34, Math.min(46, Math.floor((windowWidth - 125) / (canFlip ? 6 : 5))));
+  // The front/back toggle joins the dock only when my floating preview (which carries it) isn't shown.
+  const dockSize = wide ? 54 : Math.max(34, Math.min(46, Math.floor((windowWidth - 125) / (canFlip && !selfViewShown ? 6 : 5))));
   const raisedCount = (call.raised ? 1 : 0) + call.raisedBy.length;
   const raisedText =
     raisedCount > 1
@@ -638,11 +640,11 @@ function ActiveCall() {
         ? t('You raised your hand')
         : t('{name} raised a hand', { name: call.remotes.find((r) => call.raisedBy.includes(r.userId))?.user?.displayName ?? t('Someone') });
   // Phones keep the essentials in the dock and the rest behind "More". Reactions and the speaker
-  // (mute + devices) already sit in the dock, so they are not repeated here; the call chat lives here.
+  // (mute + devices) already sit in the dock, so they are not repeated here; the reactions live here.
   const moreItems: MenuItem[] = [
     ...(canPip ? [{ icon: 'minimize-2' as const, label: t('Picture in picture'), onPress: () => (nativePipSupported ? void enterNativePip() : void enterPip(pipStream)) }] : []),
     { icon: 'monitor', label: call.sharingScreen ? t('Stop sharing') : t('Share screen'), active: call.sharingScreen, onPress: () => void toggleScreenShare() },
-    { icon: 'message-square', label: t('Call chat'), badge: call.chatUnread, onPress: () => setPanel('chat') },
+    { icon: 'smile', label: t('Reactions'), active: panel === 'reactions', onPress: () => setPanel('reactions') },
     ...(call.isGroup ? [{ hand: true, label: call.raised ? t('Lower hand') : t('Raise hand'), active: call.raised, onPress: toggleRaiseHand }] : []),
     ...(camOn ? [{ icon: selfHidden ? ('eye' as const) : ('eye-off' as const), label: selfHidden ? t('Show my video') : t('Hide my video'), onPress: () => setSelfHidden((h) => !h) }] : []),
     { icon: 'sliders', label: t('Call quality'), onPress: () => setPanel('quality') },
@@ -833,17 +835,17 @@ function ActiveCall() {
                   size={dockSize}
                 />
               </View>
-              {canFlip && <DockButton icon="refresh-ccw" active={false} onPress={flipCamera} label={t('Switch camera')} size={dockSize} />}
+              {canFlip && !selfViewShown && <DockButton icon="refresh-ccw" active={false} onPress={flipCamera} label={t('Switch camera')} size={dockSize} />}
               {wide && (
                 <DockButton icon="monitor" active={call.sharingScreen} onPress={() => void toggleScreenShare()} label={call.sharingScreen ? t('Stop sharing') : t('Share screen')} size={dockSize} />
               )}
-              <View ref={reactRef} collapsable={false}>
-                <DockButton icon="smile" active={panel === 'reactions'} onPress={() => openAt(measureReact, 'reactions')} label={t('Reactions')} size={dockSize} />
-              </View>
-              {wide && call.isGroup && <DockButton hand active={call.raised} onPress={toggleRaiseHand} label={call.raised ? t('Lower hand') : t('Raise hand')} size={dockSize} />}
               {wide && (
-                <DockButton icon="message-square" active={panel === 'chat'} onPress={() => toggle('chat')} label={t('Call chat')} badge={panel === 'chat' ? 0 : call.chatUnread} size={dockSize} />
+                <View ref={reactRef} collapsable={false}>
+                  <DockButton icon="smile" active={panel === 'reactions'} onPress={() => openAt(measureReact, 'reactions')} label={t('Reactions')} size={dockSize} />
+                </View>
               )}
+              {wide && call.isGroup && <DockButton hand active={call.raised} onPress={toggleRaiseHand} label={call.raised ? t('Lower hand') : t('Raise hand')} size={dockSize} />}
+              <DockButton icon="message-square" active={panel === 'chat'} onPress={() => toggle('chat')} label={t('Call chat')} badge={panel === 'chat' ? 0 : call.chatUnread} size={dockSize} />
               {wide ? (
                 <>
                   {camOn && (
@@ -857,7 +859,7 @@ function ActiveCall() {
                   {!!call.room && <DockButton icon={linkCopied ? 'check' : 'link'} active={linkCopied} onPress={() => void copyMeetingLink()} label={t('Copy meeting link')} size={dockSize} />}
                 </>
               ) : (
-                <DockButton icon="more-horizontal" active={panel === 'more' || call.sharingScreen} onPress={() => toggle('more')} label={t('More options')} badge={panel === 'chat' ? 0 : call.chatUnread} size={dockSize} />
+                <DockButton icon="more-horizontal" active={panel === 'more' || call.sharingScreen} onPress={() => toggle('more')} label={t('More options')} size={dockSize} />
               )}
             </View>
             <Tooltip label={t('Hang up')}>
@@ -883,7 +885,7 @@ function ActiveCall() {
         </View>
       </SafeAreaView>
 
-      {fullBleed && camOn && !selfHidden && (
+      {selfViewShown && (
         <SelfView
           stage={stage}
           topReserve={controlsHidden ? insets.top + 16 : insets.top + (wide ? 16 : 108)}
@@ -894,6 +896,26 @@ function ActiveCall() {
           <T variant="label" style={{ position: 'absolute', start: 10, bottom: 8 }}>
             {t('You')}
           </T>
+          {canFlip && (
+            <View style={{ position: 'absolute', left: 0, right: 0, bottom: 6, alignItems: 'center' }} pointerEvents="box-none">
+              <Tooltip label={t('Switch camera')}>
+                <Pressable
+                  accessibilityLabel={t('Switch camera')}
+                  onPress={flipCamera}
+                  hitSlop={6}
+                  style={({ pressed, hovered }: any) => ({
+                    width: 32,
+                    height: 32,
+                    borderRadius: 16,
+                    backgroundColor: pressed || hovered ? 'rgba(0,0,0,0.75)' : 'rgba(0,0,0,0.5)',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  })}>
+                  <Icon name="refresh-ccw" size={16} color="#fff" />
+                </Pressable>
+              </Tooltip>
+            </View>
+          )}
           <View style={{ position: 'absolute', end: 8, bottom: 8 }}>
             <LevelMeter stream={call.localStream} speaking={!!call.localSpeaking} silent={call.micMuted} version={call.mediaVersion} height={24} />
           </View>
