@@ -24,7 +24,7 @@ async function directWith(user: User) {
   return c;
 }
 
-function PersonRow({ user, wide }: { user: User; wide: boolean }) {
+function PersonRow({ user, wide, open, onToggle }: { user: User; wide: boolean; /** Narrow rows: this one's actions are showing. */ open: boolean; onToggle: () => void }) {
   const { startCall } = useCalls();
   // Presence for people we already chat with comes live from the store.
   const live = useChat((s) => {
@@ -44,7 +44,6 @@ function PersonRow({ user, wide }: { user: User; wide: boolean }) {
 
   // A narrow row keeps the name readable: the buttons move into a bar that a tap opens.
   const [width, setWidth] = useState(0);
-  const [open, setOpen] = useState(false);
   const compact = width > 0 && width < COMPACT_BELOW;
 
   return (
@@ -52,7 +51,7 @@ function PersonRow({ user, wide }: { user: User; wide: boolean }) {
       onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
       style={{ borderRadius: radius.lg, backgroundColor: compact && open ? colors.surface : 'transparent', borderWidth: 1, borderColor: compact && open ? colors.border : 'transparent' }}>
       <Pressable
-        onPress={compact ? () => setOpen((o) => !o) : message}
+        onPress={compact ? onToggle : message}
         // Only the compact row is a button: the wide one holds its own buttons (no button inside a button).
         {...(compact ? { accessibilityRole: 'button' as const, accessibilityLabel: person.displayName, accessibilityState: { expanded: open } } : {})}
         style={({ hovered }: any) => ({
@@ -140,6 +139,8 @@ function PeopleList({ wide }: { wide: boolean }) {
   const [query, setQuery] = useState('');
   const [people, setPeople] = useState<User[] | null>(null);
   const [reload, setReload] = useState(0);
+  // Narrow rows: only one shows its actions at a time.
+  const [openId, setOpenId] = useState<string | null>(null);
 
   useFocusEffect(useCallback(() => setReload((n) => n + 1), []));
 
@@ -167,6 +168,7 @@ function PeopleList({ wide }: { wide: boolean }) {
   return (
     <FlatList
       data={sections}
+      extraData={openId}
       keyExtractor={(item) => (typeof item === 'string' ? item : item.id)}
       contentContainerStyle={{ padding: 16, gap: 2, paddingBottom: 24 }}
       ListHeaderComponent={
@@ -178,7 +180,7 @@ function PeopleList({ wide }: { wide: boolean }) {
             <SectionLabel>{item}</SectionLabel>
           </View>
         ) : (
-          <PersonRow user={item} wide={wide} />
+          <PersonRow user={item} wide={wide} open={openId === item.id} onToggle={() => setOpenId((id) => (id === item.id ? null : item.id))} />
         )
       }
       ListEmptyComponent={
