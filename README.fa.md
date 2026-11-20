@@ -54,7 +54,7 @@ sudo flockctl
 
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/Pourii83/Flock)
 
-دکمه‌ی Render سرور Flock و دیتابیس PostgreSQL آن را از [`render.yaml`](render.yaml) می‌سازد. در Railway یک سرویس از همین ریپو بسازید، پوشه‌ی ریشه‌اش را `server` بگذارید (با [`server/railway.json`](server/railway.json) بیلد می‌شود)، یک دیتابیس PostgreSQL اضافه کنید و `DATABASE_URL` و `JWT_SECRET` را تنظیم کنید. در هر دو حالت فقط سرور را دارید: از اپ‌ها یا وب‌اپ با وارد کردن آدرسش به آن وصل شوید. در پلن‌های رایگان فایل‌های آپلودشده با هر دیپلوی پاک می‌شوند و تماس‌ها فقط STUN عمومی دارند.
+با یک کلیک سرور و دیتابیسش ساخته می‌شود. در پلن‌های رایگان فایل‌های آپلودشده با هر دیپلوی پاک می‌شوند.
 
 ## مستندات
 
