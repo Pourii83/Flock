@@ -190,6 +190,10 @@ export const api = {
   adminSettings: () => request<AppSettings>('GET', '/admin/settings'),
   updateAdminSettings: (patch: Partial<AppSettings>) => request<AppSettings>('PATCH', '/admin/settings', patch),
   adminUsage: () => request<ServerUsage>('GET', '/admin/usage'),
+  /** Admin-only: makes an account (works even when sign-up is closed). */
+  adminCreateUser: (body: { username: string; displayName: string; password: string; mustChangePassword: boolean }) =>
+    request<{ user: User; mustChangePassword: boolean }>('POST', '/admin/users', body),
+  changePassword: (currentPassword: string, newPassword: string) => request<User>('POST', '/me/password', { currentPassword, newPassword }),
   /** Admin-only: latest GitHub release vs the installed server release. */
   serverUpdate: () => request<ServerUpdateInfo>('GET', '/admin/server-update'),
   startServerUpdate: (tag: string) => request<{ ok: boolean; started?: boolean; error?: string }>('POST', '/admin/server-update', { tag }),

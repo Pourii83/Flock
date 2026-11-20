@@ -1,21 +1,37 @@
-import { router, useFocusEffect } from 'expo-router';
-import { SidebarPane } from '@/components/sidebar-pane';
-import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, FlatList, Pressable, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { router, useFocusEffect } from "expo-router";
+import { SidebarPane } from "@/components/sidebar-pane";
+import { useCallback, useEffect, useState } from "react";
+import {
+  ActivityIndicator,
+  Animated,
+  Easing,
+  FlatList,
+  Pressable,
+  StyleSheet,
+  View,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
-import { Avatar } from '@/components/avatar';
-import { EmptyStage } from '@/components/empty-state';
-import { DesktopTopBar, MobileHeader, PageTitle } from '@/components/shell';
-import { Icon, IconButton, SearchBar, SectionLabel, T, Tooltip, type IconName } from '@/components/ui';
-import { useIsWide } from '@/hooks/use-layout';
-import { api } from '@/lib/api';
-import { lastSeenLabel } from '@/lib/format';
-import type { User } from '@/lib/types';
-import { useCalls } from '@/state/calls';
-import { chatStore, useChat } from '@/state/chat-store';
-import { colors, radius } from '@/theme';
-import { t, num } from '@/lib/i18n';
+import { Avatar } from "@/components/avatar";
+import { EmptyStage } from "@/components/empty-state";
+import { DesktopTopBar, MobileHeader, PageTitle } from "@/components/shell";
+import {
+  Icon,
+  IconButton,
+  SearchBar,
+  SectionLabel,
+  T,
+  Tooltip,
+  type IconName,
+} from "@/components/ui";
+import { useIsWide } from "@/hooks/use-layout";
+import { api } from "@/lib/api";
+import { lastSeenLabel } from "@/lib/format";
+import type { User } from "@/lib/types";
+import { useCalls } from "@/state/calls";
+import { chatStore, useChat } from "@/state/chat-store";
+import { colors, radius } from "@/theme";
+import { t, num } from "@/lib/i18n";
 
 /** Opens (or creates) the DM with a user and returns the conversation. */
 async function directWith(user: User) {
@@ -24,7 +40,17 @@ async function directWith(user: User) {
   return c;
 }
 
-function PersonRow({ user, wide, open, onToggle }: { user: User; wide: boolean; /** Narrow rows: this one's actions are showing. */ open: boolean; onToggle: () => void }) {
+function PersonRow({
+  user,
+  wide,
+  open,
+  onToggle,
+}: {
+  user: User;
+  wide: boolean;
+  /** Narrow rows: this one's actions are showing. */ open: boolean;
+  onToggle: () => void;
+}) {
   const { startCall } = useCalls();
   // Presence for people we already chat with comes live from the store.
   const live = useChat((s) => {
@@ -37,68 +63,188 @@ function PersonRow({ user, wide, open, onToggle }: { user: User; wide: boolean; 
   const person = live ?? user;
   const message = async () => {
     const c = await directWith(user);
-    if (wide) router.navigate({ pathname: '/', params: { c: c.id } });
+    if (wide) router.navigate({ pathname: "/", params: { c: c.id } });
     else router.push(`/chat/${c.id}`);
   };
-  const call = async (video: boolean) => startCall(await directWith(user), video);
+  const call = async (video: boolean) =>
+    startCall(await directWith(user), video);
 
   // A narrow row keeps the name readable: the buttons move into a bar that a tap opens.
   const [width, setWidth] = useState(0);
   const compact = width > 0 && width < COMPACT_BELOW;
 
+  // The bar slides open and closed: it stays mounted while closing, then leaves (so its buttons
+  // can't be reached by Tab while hidden).
+  const [progress] = useState(() => new Animated.Value(open ? 1 : 0));
+  const [barHeight, setBarHeight] = useState(0);
+  const [closing, setClosing] = useState(false);
+  const [wasOpen, setWasOpen] = useState(open);
+  if (wasOpen !== open) {
+    setWasOpen(open);
+    setClosing(!open);
+  }
+  useEffect(() => {
+    const anim = Animated.timing(progress, {
+      toValue: open ? 1 : 0,
+      duration: open ? 220 : 180,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    });
+    anim.start(({ finished }) => {
+      if (finished && !open) setClosing(false);
+    });
+    return () => anim.stop();
+  }, [open, progress]);
+  const barShown = compact && (open || closing);
+
   return (
     <View
       onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
-      style={{ borderRadius: radius.lg, backgroundColor: compact && open ? colors.surface : 'transparent', borderWidth: 1, borderColor: compact && open ? colors.border : 'transparent' }}>
+      style={{ borderRadius: radius.lg }}
+    >
+      {compact && (
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            StyleSheet.absoluteFill,
+            {
+              borderRadius: radius.lg,
+              backgroundColor: colors.surface,
+              borderWidth: 1,
+              borderColor: colors.border,
+              opacity: progress,
+            },
+          ]}
+        />
+      )}
       <Pressable
         onPress={compact ? onToggle : message}
         // Only the compact row is a button: the wide one holds its own buttons (no button inside a button).
-        {...(compact ? { accessibilityRole: 'button' as const, accessibilityLabel: person.displayName, accessibilityState: { expanded: open } } : {})}
+        {...(compact
+          ? {
+              accessibilityRole: "button" as const,
+              accessibilityLabel: person.displayName,
+              accessibilityState: { expanded: open },
+            }
+          : {})}
         style={({ hovered }: any) => ({
-          flexDirection: 'row',
-          alignItems: 'center',
+          flexDirection: "row",
+          alignItems: "center",
           gap: 14,
           padding: 12,
           borderRadius: radius.lg,
-          backgroundColor: hovered && !(compact && open) ? colors.surface : 'transparent',
-        })}>
+          backgroundColor:
+            hovered && !barShown ? colors.surface : "transparent",
+        })}
+      >
         <Avatar user={person} size={compact ? 44 : 50} />
         <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
           <T variant="labelLg" style={{ fontSize: 16 }} numberOfLines={1}>
             {person.displayName}
           </T>
-          <T variant="body" color={person.online ? colors.teal : colors.textMuted} numberOfLines={1}>
+          <T
+            variant="body"
+            color={person.online ? colors.teal : colors.textMuted}
+            numberOfLines={1}
+          >
             {person.title ? `${person.title} · ` : `@${person.username} · `}
             {lastSeenLabel(person.online, person.lastSeen)}
           </T>
         </View>
         {compact ? (
-          <Icon name={open ? 'chevron-up' : 'chevron-down'} size={18} color={colors.textMuted} />
+          <Animated.View
+            style={{
+              transform: [
+                {
+                  rotate: progress.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: ["0deg", "180deg"],
+                  }),
+                },
+              ],
+            }}
+          >
+            <Icon name="chevron-down" size={18} color={colors.textMuted} />
+          </Animated.View>
         ) : (
           <>
-            <Tooltip label={t('Message')} style={{ alignSelf: 'center' }}>
-              <IconButton name="message-square" label={t('Message')} onPress={message} bg={colors.surface} />
+            <Tooltip label={t("Message")} style={{ alignSelf: "center" }}>
+              <IconButton
+                name="message-square"
+                label={t("Message")}
+                onPress={message}
+                bg={colors.surface}
+              />
             </Tooltip>
-            <Tooltip label={t('Voice call')} style={{ alignSelf: 'center' }}>
-              <IconButton name="phone" label={t('Voice call')} onPress={() => call(false)} bg={colors.surface} color={colors.teal} />
+            <Tooltip label={t("Voice call")} style={{ alignSelf: "center" }}>
+              <IconButton
+                name="phone"
+                label={t("Voice call")}
+                onPress={() => call(false)}
+                bg={colors.surface}
+                color={colors.teal}
+              />
             </Tooltip>
-            <Tooltip label={t('Video call')} style={{ alignSelf: 'center' }}>
-              <IconButton name="video" label={t('Video call')} onPress={() => call(true)} bg={colors.surface} color={colors.amberText} />
+            <Tooltip label={t("Video call")} style={{ alignSelf: "center" }}>
+              <IconButton
+                name="video"
+                label={t("Video call")}
+                onPress={() => call(true)}
+                bg={colors.surface}
+                color={colors.amberText}
+              />
             </Tooltip>
           </>
         )}
       </Pressable>
-      {compact && open && (
-        // Message on its own line, the two calls side by side under it, so no label gets cut.
-        <View style={{ gap: 6, paddingHorizontal: 10, paddingBottom: 10 }}>
-          <View style={{ flexDirection: 'row' }}>
-            <RowAction icon="message-square" label={t('Message')} color={colors.text} onPress={message} />
+      {barShown && (
+        <Animated.View
+          style={{
+            height: progress.interpolate({
+              inputRange: [0, 1],
+              outputRange: [0, barHeight],
+            }),
+            opacity: progress,
+            overflow: "hidden",
+          }}
+        >
+          {/* Message on its own line, the two calls side by side under it, so no label gets cut. */}
+          <View
+            onLayout={(e) => setBarHeight(e.nativeEvent.layout.height)}
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              right: 0,
+              gap: 6,
+              paddingHorizontal: 10,
+              paddingBottom: 10,
+            }}
+          >
+            <View style={{ flexDirection: "row" }}>
+              <RowAction
+                icon="message-square"
+                label={t("Message")}
+                color={colors.text}
+                onPress={message}
+              />
+            </View>
+            <View style={{ flexDirection: "row", gap: 6 }}>
+              <RowAction
+                icon="phone"
+                label={t("Voice")}
+                color={colors.teal}
+                onPress={() => call(false)}
+              />
+              <RowAction
+                icon="video"
+                label={t("Video")}
+                color={colors.amberText}
+                onPress={() => call(true)}
+              />
+            </View>
           </View>
-          <View style={{ flexDirection: 'row', gap: 6 }}>
-            <RowAction icon="phone" label={t('Voice')} color={colors.teal} onPress={() => call(false)} />
-            <RowAction icon="video" label={t('Video')} color={colors.amberText} onPress={() => call(true)} />
-          </View>
-        </View>
+        </Animated.View>
       )}
     </View>
   );
@@ -108,7 +254,17 @@ function PersonRow({ user, wide, open, onToggle }: { user: User; wide: boolean; 
 const COMPACT_BELOW = 380;
 
 /** One of the actions a tap on a narrow contact row reveals. */
-function RowAction({ icon, label, color, onPress }: { icon: IconName; label: string; color: string; onPress: () => void }) {
+function RowAction({
+  icon,
+  label,
+  color,
+  onPress,
+}: {
+  icon: IconName;
+  label: string;
+  color: string;
+  onPress: () => void;
+}) {
   return (
     <Pressable
       accessibilityRole="button"
@@ -116,19 +272,26 @@ function RowAction({ icon, label, color, onPress }: { icon: IconName; label: str
       onPress={onPress}
       style={({ pressed, hovered }: any) => ({
         flex: 1,
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "center",
         gap: 6,
         paddingVertical: 9,
         // Room inside the edges so a long label ("Message") never pushes the icon against the side.
         paddingHorizontal: 10,
         minWidth: 0,
         borderRadius: radius.md + 2,
-        backgroundColor: pressed || hovered ? colors.surfaceHighest : colors.surfaceHigh,
-      })}>
+        backgroundColor:
+          pressed || hovered ? colors.surfaceHighest : colors.surfaceHigh,
+      })}
+    >
       <Icon name={icon} size={16} color={color} />
-      <T variant="label" color={colors.text} numberOfLines={1} style={{ flexShrink: 1 }}>
+      <T
+        variant="label"
+        color={colors.text}
+        numberOfLines={1}
+        style={{ flexShrink: 1 }}
+      >
         {label}
       </T>
     </Pressable>
@@ -136,7 +299,7 @@ function RowAction({ icon, label, color, onPress }: { icon: IconName; label: str
 }
 
 function PeopleList({ wide }: { wide: boolean }) {
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState("");
   const [people, setPeople] = useState<User[] | null>(null);
   const [reload, setReload] = useState(0);
   // Narrow rows: only one shows its actions at a time.
@@ -161,34 +324,58 @@ function PeopleList({ wide }: { wide: boolean }) {
   const online = people?.filter((p) => p.online) ?? [];
   const rest = people?.filter((p) => !p.online) ?? [];
   const sections: (User | string)[] = [
-    ...(online.length ? [t('Online — {n}', { n: num(online.length) }), ...online] : []),
-    ...(rest.length ? [t('Contacts — {n}', { n: num(rest.length) }), ...rest] : []),
+    ...(online.length
+      ? [t("Online — {n}", { n: num(online.length) }), ...online]
+      : []),
+    ...(rest.length
+      ? [t("Contacts — {n}", { n: num(rest.length) }), ...rest]
+      : []),
   ];
 
   return (
     <FlatList
       data={sections}
       extraData={openId}
-      keyExtractor={(item) => (typeof item === 'string' ? item : item.id)}
+      keyExtractor={(item) => (typeof item === "string" ? item : item.id)}
       contentContainerStyle={{ padding: 16, gap: 2, paddingBottom: 24 }}
       ListHeaderComponent={
-        <SearchBar value={query} onChangeText={setQuery} placeholder={t('Search by name or @username')} style={{ marginBottom: 16 }} />
+        <SearchBar
+          value={query}
+          onChangeText={setQuery}
+          placeholder={t("Search by name or @username")}
+          style={{ marginBottom: 16 }}
+        />
       }
       renderItem={({ item }) =>
-        typeof item === 'string' ? (
+        typeof item === "string" ? (
           <View style={{ paddingTop: 12, paddingBottom: 6 }}>
             <SectionLabel>{item}</SectionLabel>
           </View>
         ) : (
-          <PersonRow user={item} wide={wide} open={openId === item.id} onToggle={() => setOpenId((id) => (id === item.id ? null : item.id))} />
+          <PersonRow
+            user={item}
+            wide={wide}
+            open={openId === item.id}
+            onToggle={() =>
+              setOpenId((id) => (id === item.id ? null : item.id))
+            }
+          />
         )
       }
       ListEmptyComponent={
         people === null ? (
           <ActivityIndicator color={colors.amberText} />
         ) : (
-          <T variant="body" color={colors.textMuted} style={{ textAlign: 'center', marginTop: 24 }}>
-            {query ? t('Nobody found.') : t('People you chat or call with show up here. Start a new chat to find someone.')}
+          <T
+            variant="body"
+            color={colors.textMuted}
+            style={{ textAlign: "center", marginTop: 24 }}
+          >
+            {query
+              ? t("Nobody found.")
+              : t(
+                  "People you chat or call with show up here. Start a new chat to find someone.",
+                )}
           </T>
         )
       }
@@ -201,10 +388,13 @@ export default function ContactsScreen() {
 
   if (!wide) {
     return (
-      <SafeAreaView edges={['top']} style={{ flex: 1, backgroundColor: colors.canvas }}>
+      <SafeAreaView
+        edges={["top"]}
+        style={{ flex: 1, backgroundColor: colors.canvas }}
+      >
         <MobileHeader />
         <View style={{ paddingHorizontal: 20, paddingTop: 4 }}>
-          <PageTitle title={t('Contacts')} />
+          <PageTitle title={t("Contacts")} />
         </View>
         <PeopleList wide={false} />
       </SafeAreaView>
@@ -214,17 +404,19 @@ export default function ContactsScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: colors.canvas }}>
       <DesktopTopBar />
-      <View style={{ flex: 1, flexDirection: 'row' }}>
+      <View style={{ flex: 1, flexDirection: "row" }}>
         <SidebarPane>
           <View style={{ paddingHorizontal: 20, paddingTop: 20 }}>
-            <PageTitle title={t('Contacts')} />
+            <PageTitle title={t("Contacts")} />
           </View>
           <PeopleList wide />
         </SidebarPane>
         <EmptyStage
-          title={t('Your flock, all in one place')}
-          body={t('People you chat or call with show up here. Message them, or jump straight into a voice or video call.')}
-          onNewChat={() => router.push('/new-chat')}
+          title={t("Your flock, all in one place")}
+          body={t(
+            "People you chat or call with show up here. Message them, or jump straight into a voice or video call.",
+          )}
+          onNewChat={() => router.push("/new-chat")}
         />
       </View>
     </View>

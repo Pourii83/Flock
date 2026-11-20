@@ -119,10 +119,12 @@ export function createRealtime(httpServer, corsOrigin) {
     await publishState(callId, c);
   }
 
-  io.use((socket, next) => {
+  io.use(async (socket, next) => {
     const token = socket.handshake.auth?.token;
     const userId = verifyToken(token);
     if (userId) {
+      // Nothing live until an admin-made account has picked its own password.
+      if (await repo.mustChangePassword(userId).catch(() => false)) return next(new Error('password change required'));
       socket.data.userId = userId;
       return next();
     }

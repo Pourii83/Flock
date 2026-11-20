@@ -22,6 +22,8 @@ type AuthState = {
   updateProfile: (patch: Partial<Pick<User, 'displayName' | 'bio' | 'title' | 'username'>>) => Promise<void>;
   /** Uploads a base64 JPEG as the profile photo, or removes it when null. */
   setAvatar: (base64: string | null) => Promise<void>;
+  /** A new password; also how an admin-made account clears "change password after first sign-in". */
+  changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
   /** Switches to another Flock server; the current session belongs to the old one, so it signs out. */
   changeServer: (url: string) => Promise<void>;
 };
@@ -41,7 +43,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await setItem(USER_KEY, nextToken && nextUser ? JSON.stringify(nextUser) : null);
     setToken(nextToken);
     setUser(nextUser);
-    if (nextToken && nextUser) {
+    // An account that must pick a new password first gets no chats, socket or notifications yet.
+    if (nextToken && nextUser && !nextUser.mustChangePassword) {
       chatStore.start(nextToken, nextUser);
       // Background notifications for this device (if the user allowed them).
       void syncPush();
@@ -123,6 +126,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(next);
         chatStore.updateUser(next);
         await setItem(USER_KEY, JSON.stringify(next));
+      },
+      changePassword: async (currentPassword, newPassword) => {
+        const next = await api.changePassword(currentPassword, newPassword);
+        if (token) await applySession(token, next);
       },
       changeServer: async (url) => {
         await applySession(null, null);

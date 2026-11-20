@@ -11,6 +11,8 @@ export type User = {
   lastSeen: number | null;
   /** Only on my own account: I'm the server admin. */
   isAdmin?: boolean;
+  /** Made by the admin with "change password after first sign-in": nothing else works until then. */
+  mustChangePassword?: boolean;
 };
 
 /** A meeting room: a link that works without an account, until it expires or its owner closes it. */

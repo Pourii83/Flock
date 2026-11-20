@@ -83,6 +83,8 @@ export async function migrate() {
 
     -- The server's admin account(s), created by the installer (create-admin.js).
     ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FALSE;
+    -- Accounts the admin made with "change password after first sign-in": nothing else works until they do.
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT FALSE;
     -- Server-wide settings changed by the admin in the app (see settings.js).
     CREATE TABLE IF NOT EXISTS app_settings (
       key TEXT PRIMARY KEY,

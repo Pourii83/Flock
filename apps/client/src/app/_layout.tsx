@@ -101,8 +101,11 @@ function RootStack() {
   return (
     <View style={{ flex: 1, opacity: shown ? 1 : 0 }}>
       <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.canvas } }}>
-        <Stack.Protected guard={!!user}>
+        <Stack.Protected guard={!!user && !user.mustChangePassword}>
           <Stack.Screen name="(app)" />
+        </Stack.Protected>
+        <Stack.Protected guard={!!user?.mustChangePassword}>
+          <Stack.Screen name="change-password" />
         </Stack.Protected>
         <Stack.Protected guard={!user}>
           <Stack.Screen name="login" />

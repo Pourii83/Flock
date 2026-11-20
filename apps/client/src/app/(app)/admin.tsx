@@ -1,3 +1,5 @@
+import * as Clipboard from 'expo-clipboard';
+import * as ExpoCrypto from 'expo-crypto';
 import { router } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, ScrollView, Switch, View, useWindowDimensions } from 'react-native';
@@ -156,6 +158,7 @@ function Dashboard({ twoColumns }: { twoColumns: boolean }) {
       <View style={{ flexDirection: twoColumns ? 'row' : 'column', gap: 16, alignItems: 'flex-start' }}>
         <View style={{ flex: twoColumns ? 1.4 : undefined, alignSelf: 'stretch', gap: 16 }}>
           <Resources usage={usage} cpu={cpu} mem={mem} />
+          <CreateUser />
         </View>
         <View style={{ flex: twoColumns ? 1 : undefined, alignSelf: 'stretch' }}>
           <SettingsForm />
@@ -505,6 +508,112 @@ function SettingsForm() {
         </T>
       )}
       <Button title={t('Save changes')} icon="check" onPress={save} loading={busy} disabled={!dirty || !valid} />
+    </Panel>
+  );
+}
+
+/** A readable random password for a new account (no look-alike characters). */
+function randomPassword() {
+  const chars = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  return Array.from(ExpoCrypto.getRandomBytes(12), (v) => chars[v % chars.length]).join('');
+}
+
+const USERNAME_RE = /^[a-zA-Z0-9_.]{3,24}$/;
+
+/** The admin makes an account for someone (works even with sign-up closed). */
+function CreateUser() {
+  const [displayName, setDisplayName] = useState('');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [mustChange, setMustChange] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [created, setCreated] = useState<{ username: string; password: string; mustChange: boolean } | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const name = username.trim();
+  const usernameOk = USERNAME_RE.test(name);
+  const passwordOk = password.length >= 6;
+
+  const create = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await api.adminCreateUser({ username: name, displayName: displayName.trim(), password, mustChangePassword: mustChange });
+      setCreated({ username: res.user.username, password, mustChange: res.mustChangePassword });
+      setCopied(false);
+      setDisplayName('');
+      setUsername('');
+      setPassword('');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const copy = async () => {
+    if (!created) return;
+    await Clipboard.setStringAsync(`${t('Username')}: ${created.username}
+${t('Password')}: ${created.password}`).catch(() => {});
+    setCopied(true);
+  };
+
+  return (
+    <Panel icon="user-plus" title={t('Create a user')} subtitle={t('Make an account for someone, even while sign-up is closed')}>
+      <Field label={t('Display name')} icon="user" value={displayName} onChangeText={setDisplayName} maxLength={60} placeholder={t('Optional')} />
+      <Field
+        label={t('Username')}
+        icon="at-sign"
+        value={username}
+        onChangeText={setUsername}
+        autoCapitalize="none"
+        autoCorrect={false}
+        maxLength={24}
+        error={name && !usernameOk ? t('Username must be 3–24 letters, numbers, _ or .') : null}
+      />
+      <Field
+        label={t('Password')}
+        icon="lock"
+        value={password}
+        onChangeText={setPassword}
+        autoCapitalize="none"
+        autoCorrect={false}
+        autoComplete="off"
+        maxLength={200}
+        error={password && !passwordOk ? t('Password must be at least 6 characters') : null}
+        right={
+          <Pressable onPress={() => setPassword(randomPassword())} hitSlop={8} accessibilityLabel={t('Generate a password')}>
+            <Icon name="refresh-cw" size={17} color={colors.amberText} />
+          </Pressable>
+        }
+      />
+      <Toggle
+        label={t('Change password after first sign-in')}
+        hint={t('The person has to pick their own password before they can use the app.')}
+        value={mustChange}
+        onChange={setMustChange}
+      />
+      {error && (
+        <T variant="body" color={colors.danger}>
+          {error}
+        </T>
+      )}
+      {created && (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, borderRadius: radius.lg, backgroundColor: colors.tealTint }}>
+          <Icon name="check-circle" size={18} color={colors.teal} />
+          <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+            <T variant="labelLg" color={colors.teal} numberOfLines={1}>
+              {t('@{username} is ready', { username: created.username })}
+            </T>
+            <T variant="bodySm" color={colors.textMuted}>
+              {created.mustChange ? t('Send them the username and password; they choose a new password on first sign-in.') : t('Send them the username and password.')}
+            </T>
+          </View>
+          <Button title={copied ? t('Copied') : t('Copy')} icon={copied ? 'check' : 'copy'} variant="ghost" size="sm" onPress={copy} />
+        </View>
+      )}
+      <Button title={t('Create user')} icon="user-plus" onPress={create} loading={busy} disabled={!usernameOk || !passwordOk} />
     </Panel>
   );
 }

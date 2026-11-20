@@ -42,6 +42,7 @@ export function createRouter(realtime) {
     if (!USERNAME_RE.test(username))
       return res.status(400).json({ error: 'Username must be 3–24 letters, numbers, _ or .' });
     if (String(password).length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    if (String(password).length > 200) return res.status(400).json({ error: 'Password is too long' });
     if (await repo.getUserByUsername(username)) return res.status(409).json({ error: 'That username is taken' });
     const user = await repo.createUser({
       username,
@@ -141,6 +142,27 @@ export function createRouter(realtime) {
 
   r.use(requireAuth);
 
+  // An account made by the admin with "change password after first sign-in" can only read itself
+  // and set a new password until it does.
+  r.use(async (req, res, next) => {
+    const open = (req.method === 'GET' && req.path === '/me') || (req.method === 'POST' && req.path === '/me/password');
+    if (open || !(await repo.mustChangePassword(req.userId))) return next();
+    res.status(403).json({ error: 'Choose a new password first', code: 'PASSWORD_CHANGE_REQUIRED' });
+  });
+
+  r.post('/me/password', async (req, res) => {
+    const { currentPassword = '', newPassword = '' } = req.body || {};
+    const user = await repo.getUserRow(req.userId);
+    if (!user) return res.status(401).json({ error: 'Account no longer exists' });
+    if (!(await checkPassword(String(currentPassword), user.password_hash)))
+      return res.status(400).json({ error: 'Current password is wrong' });
+    const next = String(newPassword);
+    if (next.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    if (next.length > 200) return res.status(400).json({ error: 'Password is too long' });
+    if (next === String(currentPassword)) return res.status(400).json({ error: 'Choose a password different from the current one' });
+    res.json(repo.selfUser(await repo.setPassword(req.userId, await hashPassword(next))));
+  });
+
   // ---------- admin: app settings and server usage ----------
 
   const admin = async (req, res, next) => {
@@ -157,6 +179,31 @@ export function createRouter(realtime) {
     } catch (e) {
       res.status(400).json({ error: e.message });
     }
+  });
+
+  // The admin makes an account (works even when sign-up is closed); optionally the person must pick
+  // their own password on first sign-in.
+  r.post('/admin/users', admin, async (req, res) => {
+    const { username = '', displayName = '', password = '', mustChangePassword = true } = req.body || {};
+    if (typeof username !== 'string' || !USERNAME_RE.test(username))
+      return res.status(400).json({ error: 'Username must be 3–24 letters, numbers, _ or .' });
+    const pw = String(password);
+    if (pw.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    if (pw.length > 200) return res.status(400).json({ error: 'Password is too long' });
+    if (await repo.getUserByUsername(username)) return res.status(409).json({ error: 'That username is taken' });
+    let user;
+    try {
+      user = await repo.createUser({
+        username,
+        displayName: String(displayName).trim().slice(0, 60) || username,
+        passwordHash: await hashPassword(pw),
+        mustChangePassword: !!mustChangePassword,
+      });
+    } catch (e) {
+      if (e?.code === '23505') return res.status(409).json({ error: 'That username is taken' });
+      throw e;
+    }
+    res.status(201).json({ user: repo.publicUser(user), mustChangePassword: !!user.must_change_password });
   });
 
   r.get('/admin/usage', admin, async (_req, res) => res.json(await serverUsage(realtime.liveStats())));

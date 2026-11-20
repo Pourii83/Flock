@@ -20,19 +20,27 @@ export function publicUser(row) {
 }
 
 /** The signed-in user's own view of their account (adds what only they should know). */
-export const selfUser = (row) => (row ? { ...publicUser(row), isAdmin: !!row.is_admin } : null);
+export const selfUser = (row) =>
+  row ? { ...publicUser(row), isAdmin: !!row.is_admin, mustChangePassword: !!row.must_change_password } : null;
 
 export const getUserRow = (id) => (isUuid(id) ? one('SELECT * FROM users WHERE id = $1', [id]) : null);
 export const getUserByUsername = (username) =>
   one('SELECT * FROM users WHERE lower(username) = lower($1)', [username]);
 
-export async function createUser({ username, displayName, passwordHash }) {
+export async function createUser({ username, displayName, passwordHash, mustChangePassword = false }) {
   return one(
-    `INSERT INTO users (id, username, display_name, password_hash, avatar_color, created_at)
-     VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-    [newId(), username, displayName, passwordHash, randomAvatarColor(), now()],
+    `INSERT INTO users (id, username, display_name, password_hash, avatar_color, created_at, must_change_password)
+     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+    [newId(), username, displayName, passwordHash, randomAvatarColor(), now(), !!mustChangePassword],
   );
 }
+
+/** A new password; clears the "change it after first sign-in" flag. */
+export const setPassword = (id, passwordHash) =>
+  one('UPDATE users SET password_hash = $2, must_change_password = FALSE WHERE id = $1 RETURNING *', [id, passwordHash]);
+
+export const mustChangePassword = async (id) =>
+  !!(await one('SELECT must_change_password FROM users WHERE id = $1', [id]))?.must_change_password;
 
 export async function updateUser(id, { displayName, bio, title, username }) {
   return one(
