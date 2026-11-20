@@ -85,6 +85,8 @@ export async function migrate() {
     ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FALSE;
     -- Accounts the admin made with "change password after first sign-in": nothing else works until they do.
     ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT FALSE;
+    -- Tokens issued before this time (unix seconds) are refused: a password change signs other devices out.
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS sessions_valid_after BIGINT NOT NULL DEFAULT 0;
     -- Server-wide settings changed by the admin in the app (see settings.js).
     CREATE TABLE IF NOT EXISTS app_settings (
       key TEXT PRIMARY KEY,
@@ -161,6 +163,9 @@ export async function migrate() {
       read_at BIGINT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS read_marks_conv_user ON read_marks (conversation_id, user_id, read_at);
+    -- Read times of people no longer in the chat (left or removed before this was cleaned up on removal).
+    DELETE FROM read_marks r
+     WHERE NOT EXISTS (SELECT 1 FROM members m WHERE m.conversation_id = r.conversation_id AND m.user_id = r.user_id);
     -- Order of a member's pinned chats: smaller first; a new pin goes on top. NULL when not pinned
     -- (and for pins made before ordering existed, which then sort by last activity after the ranked ones).
     ALTER TABLE members ADD COLUMN IF NOT EXISTS pin_rank BIGINT;

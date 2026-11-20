@@ -97,7 +97,13 @@ class ChatStore {
       api.marks().then((marks) => this.set((s) => ({ marks: mergeMarks(s.marks, marks) })), () => {});
     });
     socket.on('mark', ({ key, value }: { key: string; value: number }) => this.set((s) => ({ marks: mergeMarks(s.marks, { [key]: value }) })));
-    socket.on('disconnect', () => this.set({ connected: false }));
+    socket.on('disconnect', (reason) => {
+      this.set({ connected: false });
+      // The server cut this session (its password was changed elsewhere): the socket won't come back
+      // by itself. Asking who I am then gets 401, which signs this device out. Waits a moment so a
+      // device that changed the password itself has its fresh token by then.
+      if (reason === 'io server disconnect') setTimeout(() => void api.me().catch(() => {}), 2000);
+    });
     socket.on('message:new', (m: Message) => this.receiveMessage(m));
     socket.on('message:updated', (payload: { conversationId?: string; message?: Message } | Message) =>
       this.updateMessage((payload as { message?: Message }).message ?? (payload as Message)),

@@ -23,7 +23,7 @@
 #   --email ADDR      email for Let's Encrypt expiry notices (optional)
 #   --turn            also install a TURN relay (coturn) so calls work across different networks
 #   --upload-mb N     largest file people can send, in MB (default 100)
-#   --retention-days N  keep sent files this many days (default 7)
+#   --retention-days N  keep sent files this many days (default 7; 0 = keep forever)
 #   --admin NAME      admin account to create (default: admin; asked when interactive)
 #   --no-admin        don't create an admin account
 #   --github-mirror URL  prefix for github.com downloads (proxy style); empty = default
@@ -473,7 +473,7 @@ if [ "$FIRST_INSTALL" = 1 ] && [ "$TTY" = 1 ]; then
     else ask_num PORT "Port for Flock" "$PORT" 1 65535; fi
   fi
   ask_num UPLOAD_MB "Largest file people can send, in MB" "$UPLOAD_MB" 1 4096
-  ask_num RETENTION "Keep sent files for how many days" "$RETENTION" 1 365
+  ask_num RETENTION "Keep sent files for how many days (0 = forever)" "$RETENTION" 0 365
   ask_yn OPEN_SIGNUP "Let anyone who reaches the server sign up?" y
   if ! passed turn; then
     ask_yn WITH_TURN "Install a TURN relay (coturn) so calls work between different networks? Needs ports 3478, 5349 and 49160-49200/udp open" y
@@ -488,7 +488,7 @@ if [ "$FIRST_INSTALL" = 1 ] && [ "$TTY" = 1 ]; then
   fi
 fi
 [[ "$UPLOAD_MB" =~ ^[0-9]+$ ]] && [ "$UPLOAD_MB" -ge 1 ] && [ "$UPLOAD_MB" -le 4096 ] || die "--upload-mb must be 1–4096"
-[[ "$RETENTION" =~ ^[0-9]+$ ]] && [ "$RETENTION" -ge 1 ] && [ "$RETENTION" -le 365 ] || die "--retention-days must be 1–365"
+[[ "$RETENTION" =~ ^[0-9]+$ ]] && [ "$RETENTION" -le 365 ] || die "--retention-days must be 0–365 (0 = keep forever)"
 
 # The admin account: on a first install (or when --admin is given), created at the very end.
 CREATE_ADMIN=0
@@ -525,7 +525,7 @@ if [ "$FIRST_INSTALL" = 1 ] && [ "$TTY" = 1 ]; then
     else echo "   Install from: GitHub, release $VERSION"; fi
     echo "   Address:      $([ -n "$DOMAIN" ] && echo "https://$DOMAIN" || echo "http://<server-ip>:$PORT")"
     [ -n "$DOMAIN" ] && echo "   Cert email:   ${EMAIL:-none}"
-    echo "   Uploads:      up to $UPLOAD_MB MB, kept $RETENTION days"
+    echo "   Uploads:      up to $UPLOAD_MB MB, kept $([ "$RETENTION" = 0 ] && echo forever || echo "$RETENTION days")"
     echo "   Open sign-up: $(yn "$OPEN_SIGNUP")"
     echo "   TURN relay:   $(yn "$WITH_TURN")"
     if [ -n "$DB_URL" ]; then echo "   Database:     existing, $(printf '%s' "$DB_URL" | sed -E 's#(://[^:/@]+):[^@]*@#\1:***@#')"
@@ -733,8 +733,11 @@ server {
     listen 80;
     listen [::]:80;
     server_name $DOMAIN;
-    # Largest upload plus room for multipart headers (raise it if you raise the limit in the app).
-    client_max_body_size $(( $(grep -E '^MAX_UPLOAD_MB=' "$ENV_FILE" | cut -d= -f2 || echo 100) + 5 ))m;
+    # The upload limit is enforced by Flock itself (the admin can change it in the app, up to 4096 MB),
+    # so Nginx only caps at that ceiling and streams uploads through instead of buffering them first:
+    # an oversize upload is cut off by Flock as soon as it passes the limit.
+    client_max_body_size 4101m;
+    proxy_request_buffering off;
 
     location / {
         proxy_pass http://127.0.0.1:$PORT;

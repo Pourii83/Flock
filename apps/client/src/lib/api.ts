@@ -193,7 +193,8 @@ export const api = {
   /** Admin-only: makes an account (works even when sign-up is closed). */
   adminCreateUser: (body: { username: string; displayName: string; password: string; mustChangePassword: boolean }) =>
     request<{ user: User; mustChangePassword: boolean }>('POST', '/admin/users', body),
-  changePassword: (currentPassword: string, newPassword: string) => request<User>('POST', '/me/password', { currentPassword, newPassword }),
+  /** Signs out the account's other devices; this one continues with the returned token. */
+  changePassword: (currentPassword: string, newPassword: string) => request<AuthResponse>('POST', '/me/password', { currentPassword, newPassword }),
   /** Admin-only: latest GitHub release vs the installed server release. */
   serverUpdate: () => request<ServerUpdateInfo>('GET', '/admin/server-update'),
   startServerUpdate: (tag: string) => request<{ ok: boolean; started?: boolean; error?: string }>('POST', '/admin/server-update', { tag }),

@@ -22,6 +22,7 @@ const CORS_ORIGIN = rawOrigins.includes('*') ? '*' : rawOrigins;
 
 await migrate();
 await loadSettings();
+await repo.closeInterruptedCalls();
 // Background notifications; the server runs without them if this fails.
 await initPush().catch((error) => console.warn('[flock] push notifications unavailable:', error?.message ?? error));
 

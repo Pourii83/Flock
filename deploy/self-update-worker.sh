@@ -32,7 +32,13 @@ REPO="$REQUESTED_REPO"
 [ -n "$REPO" ] || REPO="$(grep -E '^FLOCK_REPO=' /etc/flock/flock.env 2>/dev/null | tail -1 | cut -d= -f2- | tr -d "\"' " || true)"
 [[ "$REPO" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]] || REPO=Pourii83/Flock
 BASE="https://github.com/$REPO/releases/download/$TAG"
-ASSET=flock-server-linux-x64.tar.gz
+# The package built for this machine (releases ship x64 and arm64).
+case "$(uname -m)" in
+  x86_64 | amd64) ARCH=x64 ;;
+  aarch64 | arm64) ARCH=arm64 ;;
+  *) echo "Unsupported CPU architecture: $(uname -m)"; exit 2 ;;
+esac
+ASSET=flock-server-linux-$ARCH.tar.gz
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 

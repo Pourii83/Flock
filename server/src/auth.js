@@ -2,6 +2,8 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import crypto from 'node:crypto';
 
+import { isUuid, one, query } from './db.js';
+
 const SECRET = process.env.JWT_SECRET || crypto.randomBytes(32).toString('hex');
 if (!process.env.JWT_SECRET) {
   console.warn('[flock] JWT_SECRET not set — using a random secret; sessions reset on restart.');
@@ -51,9 +53,45 @@ export function verifyGuestToken(token) {
   }
 }
 
-export function requireAuth(req, res, next) {
+/**
+ * Sessions are revocable: a token issued before the account's `sessions_valid_after` (unix seconds,
+ * moved forward by a password change) no longer works. Cached per user; this one process is the only
+ * writer of that column.
+ */
+const validAfter = new Map(); // userId -> seconds, or null for an account that doesn't exist
+
+async function sessionsValidAfter(userId) {
+  if (!validAfter.has(userId)) {
+    const row = isUuid(userId) ? await one('SELECT sessions_valid_after FROM users WHERE id = $1', [userId]) : null;
+    validAfter.set(userId, row ? Number(row.sessions_valid_after) : null);
+  }
+  return validAfter.get(userId);
+}
+
+/** The signed-in user a token belongs to, if it is still a live session. */
+export async function verifySession(token) {
+  let payload;
+  try {
+    payload = jwt.verify(token, SECRET);
+  } catch {
+    return null;
+  }
+  if (payload.guest || !payload.sub) return null;
+  const after = await sessionsValidAfter(payload.sub);
+  if (after == null) return null;
+  return (payload.iat ?? 0) >= after ? payload.sub : null;
+}
+
+/** Signs out every device of this account (a token made afterwards, in the same request, still works). */
+export async function revokeSessions(userId) {
+  const seconds = Math.floor(Date.now() / 1000);
+  await query('UPDATE users SET sessions_valid_after = $2 WHERE id = $1', [userId, seconds]);
+  validAfter.set(userId, seconds);
+}
+
+export async function requireAuth(req, res, next) {
   const header = req.headers.authorization || '';
-  const userId = verifyToken(header.replace(/^Bearer /, ''));
+  const userId = await verifySession(header.replace(/^Bearer /, '')).catch(() => null);
   if (!userId) return res.status(401).json({ error: 'Not signed in' });
   req.userId = userId;
   next();

@@ -77,7 +77,9 @@ export async function contactUsers(meId, q) {
      WHERE u.id IN (
          SELECT other.user_id FROM members mine
          JOIN members other ON other.conversation_id = mine.conversation_id AND other.user_id != mine.user_id
-         WHERE mine.user_id = $1)
+         JOIN conversations c ON c.id = mine.conversation_id
+         -- Channel subscribers don't see each other (same rule as the member list).
+         WHERE mine.user_id = $1 AND (c.type <> 'channel' OR mine.role <> 'member' OR other.role <> 'member'))
        AND ($2 = '' OR u.username ILIKE $3 OR u.display_name ILIKE $3)
      ORDER BY lower(u.display_name) LIMIT 300`,
     [meId, term, `%${likeEscape(term)}%`],
@@ -416,12 +418,18 @@ export const fileLive = (row) => !!row?.attachment_path && (row.attachment_expir
 
 // ---------- messages ----------
 
+/** A client-given page size as a whole number in 1..max (junk, zero or negative → the default). */
+const pageSize = (value, fallback, max) => {
+  const n = Math.trunc(Number(value));
+  return n > 0 ? Math.min(n, max) : fallback;
+};
+
 export async function listMessages(conversationId, { before, limit = 50 } = {}) {
   const rows = await query(
     `${MESSAGE_SELECT}
      WHERE m.conversation_id = $1 AND m.created_at < $2
      ORDER BY m.created_at DESC LIMIT $3`,
-    [conversationId, Number(before) > 0 ? Number(before) : Number.MAX_SAFE_INTEGER, Math.min(Number(limit) || 50, 200)],
+    [conversationId, Number(before) > 0 ? Number(before) : Number.MAX_SAFE_INTEGER, pageSize(limit, 50, 200)],
   );
   return withReactions(rows.reverse().map(serializeMessage));
 }
@@ -463,7 +471,7 @@ export async function searchMessages(conversationId, { q, before, limit = 50 } =
      WHERE m.conversation_id = $1 AND m.created_at < $2 AND m.kind IN ('text', 'file')
        AND (m.body ILIKE $3 OR m.attachment_name ILIKE $3)
      ORDER BY m.created_at DESC LIMIT $4`,
-    [conversationId, Number.isFinite(beforeMs) && beforeMs > 0 ? beforeMs : Number.MAX_SAFE_INTEGER, `%${likeEscape(term)}%`, Math.min(Number(limit) || 50, 50)],
+    [conversationId, Number.isFinite(beforeMs) && beforeMs > 0 ? beforeMs : Number.MAX_SAFE_INTEGER, `%${likeEscape(term)}%`, pageSize(limit, 50, 50)],
   );
   return withReactions(rows.map(serializeMessage));
 }
@@ -496,7 +504,7 @@ export async function listShared(conversationId, type, { before, limit = 60 } = 
     `${MESSAGE_SELECT}
      WHERE m.conversation_id = $1 AND m.created_at < $2 AND ${where}
      ORDER BY m.created_at DESC LIMIT $3`,
-    [conversationId, Number.isFinite(beforeMs) && beforeMs > 0 ? beforeMs : Number.MAX_SAFE_INTEGER, Math.min(Number(limit) || 60, 100)],
+    [conversationId, Number.isFinite(beforeMs) && beforeMs > 0 ? beforeMs : Number.MAX_SAFE_INTEGER, pageSize(limit, 60, 100)],
   );
   return rows.map(serializeMessage);
 }
@@ -661,6 +669,18 @@ export function setCallStatus(id, status) {
   return one('UPDATE calls SET status = $2, ended_at = $3 WHERE id = $1 RETURNING *', [id, status, now()]);
 }
 
+/**
+ * At startup: calls live only in memory, so any call still 'ringing' or 'active' was cut by the
+ * restart. Close them so they show up in the call history.
+ */
+export const closeInterruptedCalls = () =>
+  query(
+    `UPDATE calls SET status = CASE WHEN status = 'active' THEN 'completed' ELSE 'missed' END,
+       ended_at = COALESCE(ended_at, $1)
+     WHERE status IN ('ringing', 'active')`,
+    [now()],
+  );
+
 export async function listCalls(meId) {
   const rows = await query(
     `SELECT c.* FROM calls c JOIN members m ON m.conversation_id = c.conversation_id AND m.user_id = $1
@@ -748,8 +768,11 @@ export async function addMembers(conversationId, userIds) {
   return rows;
 }
 
-export const removeMember = (conversationId, userId) =>
-  query('DELETE FROM members WHERE conversation_id = $1 AND user_id = $2', [conversationId, userId]);
+export async function removeMember(conversationId, userId) {
+  await query('DELETE FROM members WHERE conversation_id = $1 AND user_id = $2', [conversationId, userId]);
+  // Their read times only served "seen by" for this chat.
+  await query('DELETE FROM read_marks WHERE conversation_id = $1 AND user_id = $2', [conversationId, userId]);
+}
 
 export const setRole = (conversationId, userId, role) =>
   query('UPDATE members SET role = $3 WHERE conversation_id = $1 AND user_id = $2', [conversationId, userId, role]);

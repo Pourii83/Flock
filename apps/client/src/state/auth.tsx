@@ -131,7 +131,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       },
       changePassword: async (currentPassword, newPassword) => {
         const next = await api.changePassword(currentPassword, newPassword);
-        if (token) await applySession(token, next);
+        await applySession(next.token, next.user);
       },
       changeServer: async (url) => {
         await applySession(null, null);

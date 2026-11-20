@@ -1,5 +1,6 @@
 import { Server } from 'socket.io';
-import { verifyGuestToken, verifyToken } from './auth.js';
+import { verifyGuestToken, verifySession } from './auth.js';
+import { allow, callsPerUser, SLOW_DOWN } from './ratelimit.js';
 import * as presence from './presence.js';
 import * as repo from './repo.js';
 import { pushCall, pushMessage } from './push.js';
@@ -121,7 +122,7 @@ export function createRealtime(httpServer, corsOrigin) {
 
   io.use(async (socket, next) => {
     const token = socket.handshake.auth?.token;
-    const userId = verifyToken(token);
+    const userId = await verifySession(token);
     if (userId) {
       // Nothing live until an admin-made account has picked its own password.
       if (await repo.mustChangePassword(userId).catch(() => false)) return next(new Error('password change required'));
@@ -230,6 +231,7 @@ export function createRealtime(httpServer, corsOrigin) {
         if (conversation.isSaved) throw new Error('You can’t call yourself');
         if (await repo.directBlocked(conversationId, me)) throw new Error('You can’t call this person');
         if (conversation.type === 'channel') throw new Error('Channels don’t have calls');
+        if (!allow(callsPerUser, me)) throw new Error(SLOW_DOWN);
         const call = await repo.createCall(conversationId, me, video);
         const caller = repo.publicUser(await repo.getUserRow(me));
         const others = conversation.members.map((m) => m.id).filter((id) => id !== me);
@@ -385,6 +387,9 @@ export function createRealtime(httpServer, corsOrigin) {
         if (!c || !c.participants.has(me)) throw new Error('call is no longer available');
         clearTimeout(c.away?.get(me));
         c.away?.delete(me);
+        // Another device of mine still holding the call (e.g. it never noticed the drop) hands it over.
+        const previous = c.participants.get(me);
+        if (previous && previous !== socket.id) io.to(previous).emit('call:ended', { callId, status: 'moved', by: me });
         c.participants.set(me, socket.id);
         return { participants: [...c.participants.keys()].filter((id) => id !== me) };
       }),
@@ -479,6 +484,21 @@ export function createRealtime(httpServer, corsOrigin) {
     /** A member was removed or left: their devices drop the conversation. */
     notifyRemoved(conversationId, userId) {
       io.to(userRoom(userId)).emit('conversation:removed', { conversationId });
+      // Out of the chat means out of its call too: no more ringing, signaling or late joining.
+      for (const [callId, c] of live) {
+        if (c.conversationId !== conversationId) continue;
+        c.invited?.delete(userId);
+        c.ringing?.delete(userId);
+        const sid = c.participants.get(userId);
+        if (sid) {
+          io.to(sid).emit('call:ended', { callId, status: 'removed', by: userId });
+          leaveCall(callId, userId, sid).catch(console.error);
+        }
+      }
+    },
+    /** The account's sessions were revoked: drop its live connections (they reconnect with a valid token or not at all). */
+    signOutDevices(userId) {
+      io.in(userRoom(userId)).disconnectSockets(true);
     },
     async broadcastUser(user) {
       for (const uid of await contactsOf(user.id)) io.to(userRoom(uid)).emit('user:updated', user);

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import crypto from 'node:crypto';
-import { loginFailsPerIp, loginFailsPerUser, registerPerIp, rejectIfBlocked } from './ratelimit.js';
-import { checkPassword, hashPassword, requireAuth, signFileLink, signGuestToken, signToken, verifyFileLink, verifyGuestToken, verifyToken } from './auth.js';
+import { allow, icePerIdentity, loginFailsPerIp, loginFailsPerUser, messagesPerUser, registerPerIp, rejectIfBlocked, roomsPerUser, throttle, uploadsPerUser, writesPerUser } from './ratelimit.js';
+import { checkPassword, hashPassword, requireAuth, revokeSessions, signFileLink, signGuestToken, signToken, verifyFileLink, verifyGuestToken, verifySession } from './auth.js';
 import { deleteAvatar, saveAvatar } from './avatars.js';
 import { copyStoredFile, deleteStoredFile, receiveFile, safeMimeType, storedFilePath } from './files.js';
 import { getSettings, MAIN_REPO_URL, updateSettings } from './settings.js';
@@ -95,10 +95,11 @@ export function createRouter(realtime) {
   // ICE servers for WebRTC: open to signed-in users and to meeting guests (they need the TURN relay
   // too, otherwise two guests behind NAT or a relay-only setup can never connect). TURN credentials
   // are short-lived (TURN REST API, coturn "use-auth-secret"), so the shared secret never reaches clients.
-  r.get('/ice', (req, res) => {
+  r.get('/ice', async (req, res) => {
     const bearer = (req.headers.authorization || '').replace(/^Bearer /, '');
-    const identity = verifyToken(bearer) ?? verifyGuestToken(bearer)?.guestId;
+    const identity = (await verifySession(bearer).catch(() => null)) ?? verifyGuestToken(bearer)?.guestId;
     if (!identity) return res.status(401).json({ error: 'Not signed in' });
+    if (!allow(icePerIdentity, identity, res)) return;
     const iceServers = [{ urls: process.env.STUN_URLS?.split(',') ?? ['stun:stun.l.google.com:19302'] }];
     // TURN_EXTRA_URLS: other relays sharing the secret (e.g. eturnal on another server), tried first.
     const turnUrls = [process.env.TURN_EXTRA_URLS, process.env.TURN_URLS]
@@ -150,6 +151,8 @@ export function createRouter(realtime) {
     res.status(403).json({ error: 'Choose a new password first', code: 'PASSWORD_CHANGE_REQUIRED' });
   });
 
+  r.use((req, res, next) => (req.method === 'GET' || req.method === 'HEAD' ? next() : throttle(writesPerUser)(req, res, next)));
+
   r.post('/me/password', async (req, res) => {
     const { currentPassword = '', newPassword = '' } = req.body || {};
     const user = await repo.getUserRow(req.userId);
@@ -160,7 +163,11 @@ export function createRouter(realtime) {
     if (next.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
     if (next.length > 200) return res.status(400).json({ error: 'Password is too long' });
     if (next === String(currentPassword)) return res.status(400).json({ error: 'Choose a password different from the current one' });
-    res.json(repo.selfUser(await repo.setPassword(req.userId, await hashPassword(next))));
+    const updated = await repo.setPassword(req.userId, await hashPassword(next));
+    // Every other device (and any stolen token) is signed out; this one continues with a fresh token.
+    await revokeSessions(req.userId);
+    realtime.signOutDevices(req.userId);
+    res.json({ user: repo.selfUser(updated), token: signToken(req.userId) });
   });
 
   // ---------- admin: app settings and server usage ----------
@@ -220,7 +227,7 @@ export function createRouter(realtime) {
 
   r.get('/rooms', async (req, res) => res.json(await repo.listOpenRooms(req.userId)));
 
-  r.post('/rooms', async (req, res) => {
+  r.post('/rooms', throttle(roomsPerUser), async (req, res) => {
     const title = String(req.body?.title ?? '').trim().slice(0, 80);
     const minutes = req.body?.expiresInMinutes;
     // null = open until the owner closes it.
@@ -598,7 +605,7 @@ export function createRouter(realtime) {
   /** Secret-chat files are encrypted and opened in memory on the devices, so they stay small. */
   const SECRET_FILE_MAX_MB = 50;
 
-  r.post('/conversations/:id/messages', member, async (req, res) => {
+  r.post('/conversations/:id/messages', member, throttle(messagesPerUser), async (req, res) => {
     if (await postingBlocked(req.params.id, req.userId)) return res.status(403).json({ error: CHANNEL_READ_ONLY });
     if (await repo.directBlocked(req.params.id, req.userId)) return res.status(403).json({ error: BLOCKED });
     const { body, error } = await messageText(req.params.id, req.body?.body);
@@ -608,7 +615,7 @@ export function createRouter(realtime) {
     res.status(201).json(message);
   });
 
-  r.post('/conversations/:id/files', member, receiveFile, async (req, res) => {
+  r.post('/conversations/:id/files', member, throttle(messagesPerUser), throttle(uploadsPerUser), receiveFile, async (req, res) => {
     if (await postingBlocked(req.params.id, req.userId)) {
       if (req.file) await deleteStoredFile(req.file.filename);
       return res.status(403).json({ error: CHANNEL_READ_ONLY });
