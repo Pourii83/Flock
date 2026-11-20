@@ -4,7 +4,8 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { AVATAR_DIR } from './avatars.js';
-import { migrate, pool } from './db.js';
+import { hashPassword } from './auth.js';
+import { migrate, one, pool, query } from './db.js';
 import { loadSettings } from './settings.js';
 import { deleteStoredFile } from './files.js';
 import { createRealtime } from './realtime.js';
@@ -24,6 +25,31 @@ const CORS_ORIGIN = rawOrigins.includes('*') ? '*' : rawOrigins;
 await migrate();
 await loadSettings();
 await repo.closeInterruptedCalls();
+
+// One-click cloud deploys have no shell to run create-admin.js: ADMIN_USERNAME and ADMIN_PASSWORD
+// (asked for by the Railway/Render deploy form) create the admin on first start. Only while the
+// server has no admin yet, so changing or leaving the variables later never resets anything.
+{
+  const username = process.env.ADMIN_USERNAME?.trim() || 'admin';
+  const password = process.env.ADMIN_PASSWORD ?? '';
+  if (password) {
+    const hasAdmin = await one('SELECT 1 FROM users WHERE is_admin LIMIT 1');
+    if (hasAdmin) {
+      // Nothing to do: the server already has its admin.
+    } else if (!/^[a-zA-Z0-9_.]{3,24}$/.test(username) || password.length < 8) {
+      console.warn('[flock] ADMIN_USERNAME must be 3–24 letters, numbers, _ or . and ADMIN_PASSWORD at least 8 characters; no admin created.');
+    } else {
+      // Never promote an existing account: someone else could have signed up with that name.
+      if (await repo.getUserByUsername(username)) {
+        console.warn(`[flock] ADMIN_USERNAME '${username}' is already taken by a normal account; no admin created.`);
+      } else {
+        const user = await repo.createUser({ username, displayName: username, passwordHash: await hashPassword(password) });
+        await query('UPDATE users SET is_admin = TRUE WHERE id = $1', [user.id]);
+        console.log(`[flock] admin '${username}' created from ADMIN_USERNAME/ADMIN_PASSWORD`);
+      }
+    }
+  }
+}
 // Background notifications; the server runs without them if this fails.
 await initPush().catch((error) => console.warn('[flock] push notifications unavailable:', error?.message ?? error));
 

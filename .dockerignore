@@ -1,0 +1,16 @@
+# Context for the root (cloud) Dockerfile: only the client and server sources are needed.
+**/node_modules
+**/.expo
+**/dist
+**/.env
+**/.env.*
+.git
+.vercel
+data
+server/data
+apps/client/android
+apps/client/ios
+docs
+site
+scripts
+deploy
