@@ -54,7 +54,7 @@ sudo flockctl
 
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/Pourii83/Flock)
 
-با یک کلیک سرور و دیتابیسش ساخته می‌شود. در پلن‌های رایگان فایل‌های آپلودشده با هر دیپلوی پاک می‌شوند.
+با یک کلیک سرور و دیتابیسش ساخته می‌شود. Railway و جزئیات: [میزبانی ابری](https://docs.flock.beer/fa/install/cloud/).
 
 ## مستندات
 
