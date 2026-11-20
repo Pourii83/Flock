@@ -73,10 +73,12 @@ async function enterFullscreenVideo(stream: MediaStream) {
   }
 }
 
-/** A <video> for the stream: the one already on screen, or a hidden one made just for the PiP window. */
+/**
+ * A hidden <video> made just for the PiP window. Never the one on screen: while a video is in PiP
+ * the page shows "Playing in picture-in-picture" in its place, and if that element stayed in PiP
+ * (a request that finished after the user came back) the call's tile was stuck until it remounted.
+ */
 function videoFor(stream: MediaStream): PipVideo {
-  const shown = Array.from(document.querySelectorAll('video')).find((v) => v.srcObject === stream);
-  if (shown) return shown as PipVideo;
   let hidden = document.getElementById('flock-pip-video') as PipVideo | null;
   if (!hidden) {
     hidden = document.createElement('video') as PipVideo;
@@ -84,6 +86,12 @@ function videoFor(stream: MediaStream): PipVideo {
     hidden.muted = true; // the call's audio already plays elsewhere
     hidden.playsInline = true;
     hidden.style.cssText = 'position:fixed;width:1px;height:1px;opacity:0;pointer-events:none;bottom:0;left:0';
+    // The window closed (back to the tab, or its X): stop decoding the stream in the background.
+    hidden.addEventListener('leavepictureinpicture', () => {
+      const v = hidden!;
+      v.pause();
+      v.srcObject = null;
+    });
     document.body.appendChild(hidden);
   }
   if (hidden.srcObject !== stream) hidden.srcObject = stream;
@@ -91,8 +99,11 @@ function videoFor(stream: MediaStream): PipVideo {
   return hidden;
 }
 
-/** Opens the floating window for this stream. Resolves false if the browser refused. */
-export async function enterPip(stream: MediaStream | null): Promise<boolean> {
+/**
+ * Opens the floating window for this stream. Resolves false if the browser refused.
+ * `auto`: opened because the user left the tab; if they are back before it opened, close it again.
+ */
+export async function enterPip(stream: MediaStream | null, { auto = false }: { auto?: boolean } = {}): Promise<boolean> {
   if (!stream || !stream.getVideoTracks().length) return false;
   if (pipFullscreenOnly) return enterFullscreenVideo(stream);
   if (!pipSupported) return false;
@@ -101,6 +112,10 @@ export async function enterPip(stream: MediaStream | null): Promise<boolean> {
     if (document.pictureInPictureElement === video) return true;
     if (video.readyState < 1) await new Promise((r) => video.addEventListener('loadedmetadata', r, { once: true }));
     await video.requestPictureInPicture?.();
+    if (auto && document.visibilityState === 'visible') {
+      exitPip();
+      return false;
+    }
     return true;
   } catch {
     return false;
@@ -129,13 +144,13 @@ export function useAutoPip(stream: MediaStream | null, active: boolean) {
     const session = (navigator as Navigator & { mediaSession?: MediaSession }).mediaSession;
     let registered = false;
     try {
-      session?.setActionHandler('enterpictureinpicture' as MediaSessionAction, () => void enterPip(stream));
+      session?.setActionHandler('enterpictureinpicture' as MediaSessionAction, () => void enterPip(stream, { auto: true }));
       registered = true;
     } catch {
       // Older browsers don't know this action.
     }
     const onVisibility = () => {
-      if (document.visibilityState === 'hidden') void enterPip(stream);
+      if (document.visibilityState === 'hidden') void enterPip(stream, { auto: true });
       else exitPip();
     };
     document.addEventListener('visibilitychange', onVisibility);
