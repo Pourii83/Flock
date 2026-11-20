@@ -1,31 +1,38 @@
-Channels and invite links, a calmer call screen on phones, and a round of polish across the app.
+Push notifications, a redesigned look, one-click cloud hosting and two rounds of feedback from people using Flock every day.
 
-> **Upgrading:** run the installer again or install the new package (config and database are kept). Phones need this APK and the Windows app needs this installer for the new client code. The server migrates its database by itself on start.
+> **Upgrading:** run the installer again or install the new package (config and database are kept). Phones need this APK and the Windows app needs this installer for the new client code. The server migrates its database by itself on start. Changing your password now signs your other devices out.
 
-### 📣 Channels
-- **New channel** from the "+" menu: a broadcast chat where only the owner and admins can post, pin and forward. Everyone else reads and reacts.
-- Subscribers don't see each other: they only see the owner and admins, plus the subscriber count.
-- Channels have their own filter in the chat list, a megaphone badge on the avatar, and no call button. Groups now use their first letter as a picture, with a small two-people badge.
+### 🔔 Notifications and voice
+- **Push notifications** reach phones and browsers even when Flock is closed (Web Push).
+- Voice messages show a **waveform** that fills smoothly while playing. Hold to record on phones.
+- **One voice player** on the web keeps playing while you move between chats, with ±10 s, mute and a 0.5×–2.5× speed slider.
 
-### 🔗 Invite links for groups and channels
-- Admins and the owner can create an invite link in the info panel and copy it. People open it, see the group or channel, and join in one tap. Opened while signed out, it waits until you have signed in.
-- Only the owner can **revoke** the link or replace it with a new one, any time. A revoked link stops working immediately.
+### 💬 Chat
+- **Block** someone in a one-to-one chat.
+- **Group and channel owners can delete other people's messages**, after a warning naming the sender.
+- Files in **secret chats**, encrypted on the device. Files are captioned right in the message box.
+- Selection mode shows a tick on every picked message. An arrow takes you back to the newest messages.
+- Chat preview on Alt+click (web) and long-press (phones), with pin, mute and mark as read. Pinned chats can be reordered.
+- Shared media, files and links in chat info, with "Show in chat" on every item.
 
-### 🎥 Video, calls and phones
-- Video attachments show a real preview frame in the size of the video, and play by streaming (seeking works, nothing is downloaded up front). The file name is no longer repeated under photos and videos without a caption.
-- Video calls on Android use the whole screen: the status bar and navigation buttons hide, and swiping from an edge shows them over the app. (Needs this APK.)
-- Your own preview in a call is positioned with a real layout position, which fixes it staying blank on some Samsung phones after dragging was added.
-- Meeting links work for two guests: guests now get the TURN relay too.
-- The mic, speaker and call-quality menus open right above their own buttons.
+### 📞 Calls
+- On phones, calls float in **picture-in-picture** when you leave the app (Android) and use a labelled control dock.
+- The in-call chat pins to the side on wide screens. Delete calls from your own history.
+- Meeting links show how many people are inside and warn before closing a busy room.
+- Coming back from another tab no longer leaves a shared screen stuck on "Playing in picture-in-picture".
 
 ### 🎨 Look and feel
-- Pick any theme color with a color wheel, besides the presets and a hex code. Changing color, theme or language keeps you where you were in Settings instead of flashing the home screen.
-- The chat list column can be resized by dragging its edge (300–520 px) and Calls and Contacts share its width. Less empty space under lists, and titles, segment buttons and the "+" menu no longer get clipped in Persian.
-- Persian placeholders in the message box read right-to-left.
-- The project link always points to the main repository; the admin setting is now an **update mirror**, used only for checking and downloading updates.
+- A design refresh across the app: Settings as section cards, a new admin panel with live CPU and memory charts.
+- Contacts on narrow screens keep names readable and open actions on tap, smoothly, one row at a time.
+- Dark accent colors stay readable, including icons on accent buttons.
+- The update notice checks again when you reconnect, come back to the app or get back online.
 
-### 🛠 Server
-- Admin self-update runs through a root systemd path unit, so it works under the service's hardening, and refuses a package without a verified checksum.
-- Calls tab badges count only calls you haven't looked at yet.
+### 🛡 Admin and security
+- The admin can **create users**, optionally forcing a new password on first sign-in, and sees the installed program's size.
+- Rate limits for messages, uploads, meeting links, calls and TURN credentials. Sessions are revoked when the password changes.
+- Channel subscribers no longer see each other in Contacts. Removing a member also takes them out of the chat's call.
+- File retention can be 0 (keep forever). The upload limit set in the panel is the only limit (Nginx no longer caps it).
 
-**Full Changelog**: https://github.com/Pourii83/Flock/compare/v1.10.1...v1.11.0
+### ☁️ Hosting
+- **One-click deploy on Railway and Render**: the server and the web app on one address, with the admin account asked for while deploying.
+- Self-update on arm64 servers downloads the arm64 package.
