@@ -104,6 +104,17 @@ const fa: Record<string, string> = {
   // ----- server errors -----
   'Wrong username or password': 'نام کاربری یا رمز عبور اشتباه است',
   'Too many attempts. Please wait a few minutes and try again.': 'تلاش‌ها بیش از حد شد. چند دقیقه صبر کنید و دوباره امتحان کنید.',
+  'Open call chat': 'باز کردن چت تماس',
+  'Microphone test': 'تست میکروفون',
+  'Test mic': 'تست میکروفون',
+  'Stop': 'توقف',
+  'Default microphone': 'میکروفون پیش‌فرض',
+  'Check that Flock hears you before a call.': 'قبل از تماس ببینید Flock صدایتان را می‌شنود یا نه.',
+  'Hearing you': 'صدایتان می‌رسد',
+  'Say something — the bars should move.': 'چیزی بگویید؛ نوارها باید تکان بخورند.',
+  'Flock isn’t allowed to use the microphone. Allow it in the browser’s site settings.': 'Flock اجازهٔ استفاده از میکروفون را ندارد. در تنظیمات سایت مرورگر اجازه بدهید.',
+  'No microphone found.': 'میکروفونی پیدا نشد.',
+  'Couldn’t open the microphone.': 'میکروفون باز نشد.',
   'Delete someone else’s message': 'حذف پیام شخص دیگر',
   'this member': 'این عضو',
   'This message was sent by {name}. As the owner you can delete it for everyone, including {name}. This can’t be undone.':

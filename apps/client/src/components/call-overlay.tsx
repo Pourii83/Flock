@@ -14,7 +14,7 @@ import { enterPip, exitPip, pipAvailable, useAutoPip } from '@/lib/pip';
 import { enterNativePip, nativePipSupported, useInNativePip, useNativeAutoPip } from '@/lib/native-pip';
 import { getNoisePreference, strongNoiseSupported } from '@/lib/noise';
 import { setCallChatSounds, setReactionSounds, useCallSoundSettings } from '@/lib/call-sounds';
-import { REACTION_MS, STREAM_PRESETS, useCalls, type CallReaction, type CallRemote, type NetQuality, type StreamFps, type StreamQuality, type VoiceBitrate } from '@/state/calls';
+import { REACTION_MS, STREAM_PRESETS, useCalls, type CallChatMessage, type CallReaction, type CallRemote, type NetQuality, type StreamFps, type StreamQuality, type VoiceBitrate } from '@/state/calls';
 import { useConversation } from '@/state/chat-store';
 import { colors, onThemeChange, radius } from '@/theme';
 import { Avatar, ConversationAvatar } from './avatar';
@@ -494,6 +494,67 @@ function Notice({ text }: { text: string }) {
         {text}
       </T>
     </View>
+  );
+}
+
+const TOAST_MS = 4500;
+
+/**
+ * Messages that arrive in the call chat while it is closed: a short card above the controls that
+ * fades out by itself (tap opens the chat). Up to three at a time, newest at the bottom.
+ */
+function ChatToasts({ messages, hidden, bottom, onOpen }: { messages: CallChatMessage[]; hidden: boolean; bottom: number; onOpen: () => void }) {
+  const [seen, setSeen] = useState(messages.length);
+  const [toasts, setToasts] = useState<CallChatMessage[]>([]);
+  // New messages are picked up while rendering (not in an effect), so nothing renders twice.
+  if (messages.length !== seen) {
+    setSeen(messages.length);
+    const fresh = messages.length > seen ? messages.slice(seen).filter((m) => !m.mine) : [];
+    if (!hidden && fresh.length) setToasts((list) => [...list, ...fresh].slice(-3));
+  }
+  if (hidden && toasts.length) setToasts([]);
+  if (!toasts.length) return null;
+  return (
+    <View pointerEvents="box-none" style={{ position: 'absolute', start: 12, end: 12, bottom, alignItems: 'center', gap: 8, zIndex: 30 }}>
+      {toasts.map((m) => (
+        <ChatToast key={m.id} message={m} onOpen={onOpen} onDone={() => setToasts((list) => list.filter((x) => x.id !== m.id))} />
+      ))}
+    </View>
+  );
+}
+
+function ChatToast({ message, onOpen, onDone }: { message: CallChatMessage; onOpen: () => void; onDone: () => void }) {
+  const [fade] = useState(() => new Animated.Value(0));
+  useEffect(() => {
+    Animated.timing(fade, { toValue: 1, duration: 180, easing: Easing.out(Easing.cubic), useNativeDriver: Platform.OS !== 'web' }).start();
+    const timer = setTimeout(() => {
+      Animated.timing(fade, { toValue: 0, duration: 400, easing: Easing.in(Easing.cubic), useNativeDriver: Platform.OS !== 'web' }).start(({ finished }) => finished && onDone());
+    }, TOAST_MS);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per toast
+  }, []);
+  return (
+    <Animated.View style={{ opacity: fade, transform: [{ translateY: fade.interpolate({ inputRange: [0, 1], outputRange: [8, 0] }) }], maxWidth: 420, width: '100%' }}>
+      <Pressable
+        onPress={onOpen}
+        accessibilityRole="button"
+        accessibilityLabel={t('Open call chat')}
+        style={[styles.glass, { flexDirection: 'row', alignItems: 'flex-start', gap: 10, paddingHorizontal: 14, paddingVertical: 10 }]}>
+        <View style={{ marginTop: 2 }}>
+          <Icon name="message-square" size={16} color={colors.amberText} />
+        </View>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          {!!message.author && (
+            <T variant="label" color={colors.amberText} numberOfLines={1}>
+              {message.author}
+            </T>
+          )}
+          <T variant="body" numberOfLines={2}>
+            {message.text}
+          </T>
+        </View>
+      </Pressable>
+    </Animated.View>
   );
 }
 
@@ -992,6 +1053,9 @@ function ActiveCall() {
           )}
         </SelfView>
       )}
+
+      {/* New chat messages pop up over the stage while the chat isn't open, then fade away. */}
+      <ChatToasts messages={call.chat} hidden={panel === 'chat'} bottom={(controlsHidden ? 12 : dockHeight + 8) + insets.bottom} onOpen={() => setPanel('chat')} />
 
       {panel === 'chat' && (
         <CallChatPanel

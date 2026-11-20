@@ -387,7 +387,8 @@ function CallRow({
       onPress={selectable ? onToggle : () => conversation && router.navigate(`/chat/${conversation.id}`)}
       onLongPress={selectable ? undefined : onSelect}
       delayLongPress={400}
-      accessibilityRole="button"
+      // A button only while selecting: otherwise the row holds its own call-back button (no button inside a button).
+      accessibilityRole={selectable ? 'button' : undefined}
       accessibilityState={selectable ? { selected: !!selected } : undefined}
       style={({ hovered }: any) => ({
         flexDirection: 'row',

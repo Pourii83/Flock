@@ -5,6 +5,7 @@ import { Platform, Pressable, ScrollView, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AppInfoDialog } from '@/components/app-info-dialog';
+import { MicTest, micTestSupported } from '@/components/mic-test';
 import { Avatar } from '@/components/avatar';
 import { ColorPicker, ColorWheel } from '@/components/color-picker';
 import { LanguagePicker } from '@/components/language-picker';
@@ -467,6 +468,7 @@ function SettingsBody() {
 
       <SettingsSection icon="mic" title={t('Calls & audio')} subtitle={t('Default noise cancellation for your microphone in calls.')} section="audio" onY={recordY}>
         <NoisePicker />
+        {micTestSupported && <MicTest />}
       </SettingsSection>
 
       {notificationsSupported && (
