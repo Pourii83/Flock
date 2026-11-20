@@ -539,7 +539,21 @@ function ChatToast({ message, onOpen, onDone }: { message: CallChatMessage; onOp
         onPress={onOpen}
         accessibilityRole="button"
         accessibilityLabel={t('Open call chat')}
-        style={[styles.glass, { flexDirection: 'row', alignItems: 'flex-start', gap: 10, paddingHorizontal: 14, paddingVertical: 10 }]}>
+        // Solid, not glass: it has to read over any video or shared screen.
+        style={{
+          flexDirection: 'row',
+          alignItems: 'flex-start',
+          gap: 10,
+          paddingHorizontal: 14,
+          paddingVertical: 10,
+          borderRadius: radius.lg,
+          backgroundColor: colors.surfaceHigh,
+          borderWidth: 1,
+          borderColor: colors.surfaceHighest,
+          borderStartWidth: 3,
+          borderStartColor: colors.amber,
+          ...(Platform.OS === 'web' ? ({ boxShadow: '0 8px 24px rgba(0,0,0,0.45)' } as object) : { elevation: 8 }),
+        }}>
         <View style={{ marginTop: 2 }}>
           <Icon name="message-square" size={16} color={colors.amberText} />
         </View>
