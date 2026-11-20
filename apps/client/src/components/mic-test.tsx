@@ -6,7 +6,6 @@ import { Platform, Pressable, View } from "react-native";
 import { num, t } from "@/lib/i18n";
 import { saveDevice, savedDevice } from "@/state/calls";
 import { colors, radius } from "@/theme";
-import { ContextMenu } from "./context-menu";
 import { Button, Icon, T } from "./ui";
 
 const SEGMENTS = 20;
@@ -26,6 +25,18 @@ type Session = {
 };
 type Mic = { id: string; label: string };
 
+/**
+ * A readable name: browsers append the USB vendor:product id ("… (31b2:0011)") and mark the system
+ * default as "Default - …".
+ */
+function micName(label: string): string {
+  const name = label.replace(/\s*\([0-9a-f]{4}:[0-9a-f]{4}\)\s*$/i, "").trim();
+  const isDefault = /^default\s*-\s*/i.exec(name);
+  return isDefault
+    ? `${t("System default")} · ${name.slice(isDefault[0].length)}`
+    : name;
+}
+
 /** The microphones the browser lists (names only appear once the mic has been allowed). */
 async function listMics(): Promise<Mic[]> {
   const all = await navigator.mediaDevices.enumerateDevices();
@@ -38,7 +49,9 @@ async function listMics(): Promise<Mic[]> {
     )
     .map((d, i) => ({
       id: d.deviceId,
-      label: d.label || t("Microphone {n}", { n: num(i + 1) }),
+      label: d.label
+        ? micName(d.label)
+        : t("Microphone {n}", { n: num(i + 1) }),
     }));
 }
 
@@ -46,7 +59,7 @@ export function MicTest() {
   const [mics, setMics] = useState<Mic[]>([]);
   // The same choice calls use (state/calls.tsx): pick it here, and the next call opens this mic.
   const [micId, setMicId] = useState(() => savedDevice("input"));
-  const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null);
+  const [listOpen, setListOpen] = useState(false);
   const [running, setRunning] = useState(false);
   const [level, setLevel] = useState(0);
   const [device, setDevice] = useState("");
@@ -124,7 +137,7 @@ export function MicTest() {
         setLevel((prev) => (next > prev ? next : prev * 0.85 + next * 0.15));
       }, 50);
       session.current = { stream, ctx, timer };
-      setDevice(stream.getAudioTracks()[0]?.label ?? "");
+      setDevice(micName(stream.getAudioTracks()[0]?.label ?? ""));
       setRunning(true);
       // Allowed now: the list can show real names.
       void listMics().then(setMics, () => {});
@@ -142,7 +155,7 @@ export function MicTest() {
   };
 
   const pick = (id: string) => {
-    setMenuAt(null);
+    setListOpen(false);
     setMicId(id);
     saveDevice("input", id);
     // Switch the running test over to the new mic at once.
@@ -179,19 +192,16 @@ export function MicTest() {
       {/* Before the mic is allowed the browser lists no microphones: the first press asks for it. */}
       {
         <Pressable
-          onPress={(event: any) => {
+          onPress={() => {
             if (!mics.length) {
               void start();
               return;
             }
-            const n = event?.nativeEvent ?? {};
-            setMenuAt({
-              x: n.pageX ?? n.clientX ?? 24,
-              y: n.pageY ?? n.clientY ?? 120,
-            });
+            setListOpen((open) => !open);
           }}
           accessibilityRole="button"
           accessibilityLabel={t("Microphone")}
+          accessibilityState={{ expanded: listOpen }}
           style={({ hovered }: any) => ({
             flexDirection: "row",
             alignItems: "center",
@@ -208,19 +218,66 @@ export function MicTest() {
           <T variant="body" numberOfLines={1} style={{ flex: 1, minWidth: 0 }}>
             {current?.label ?? t("Default microphone")}
           </T>
-          <Icon name="chevron-down" size={16} color={colors.textMuted} />
+          <Icon
+            name={listOpen ? "chevron-up" : "chevron-down"}
+            size={16}
+            color={colors.textMuted}
+          />
         </Pressable>
       }
-      <ContextMenu
-        point={menuAt}
-        title={t("Microphone")}
-        items={mics.map((m) => ({
-          icon: m.id === current?.id ? "check" : "mic",
-          label: m.label,
-          onPress: () => pick(m.id),
-        }))}
-        onClose={() => setMenuAt(null)}
-      />
+      {/* Opens right under the box, in the page (not a floating menu). */}
+      {listOpen && mics.length > 0 && (
+        <View
+          accessibilityRole="radiogroup"
+          style={{
+            marginTop: -4,
+            padding: 4,
+            borderRadius: radius.lg,
+            backgroundColor: colors.canvas,
+            borderWidth: 1,
+            borderColor: colors.surfaceHigh,
+          }}
+        >
+          {mics.map((m) => {
+            const on = m.id === current?.id;
+            return (
+              <Pressable
+                key={m.id}
+                onPress={() => pick(m.id)}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: on }}
+                style={({ hovered }: any) => ({
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 10,
+                  paddingHorizontal: 10,
+                  paddingVertical: 9,
+                  borderRadius: radius.md,
+                  backgroundColor: on
+                    ? colors.amberTint
+                    : hovered
+                      ? colors.surfaceHigh
+                      : "transparent",
+                })}
+              >
+                <Icon
+                  name={on ? "check" : "mic"}
+                  size={16}
+                  color={on ? colors.amberText : colors.textMuted}
+                />
+                <T
+                  variant="body"
+                  numberOfLines={1}
+                  color={on ? colors.amberText : colors.text}
+                  style={{ flex: 1, minWidth: 0 }}
+                >
+                  {m.label}
+                </T>
+              </Pressable>
+            );
+          })}
+        </View>
+      )}
       {running && (
         <View
           style={{

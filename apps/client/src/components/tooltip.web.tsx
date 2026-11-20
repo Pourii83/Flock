@@ -27,7 +27,7 @@ export function Tooltip({
   const [open, setOpen] = useState(false);
   const anchor = useRef<ComponentRef<typeof View>>(null);
   const createPortal = portal as (node: ReactNode, container: Element) => ReactNode;
-  const [rect, setRect] = useState<{ x: number; top: number; bottom: number } | null>(null);
+  const [rect, setRect] = useState<{ x: number; top: number; bottom: number; side: 'top' | 'bottom' } | null>(null);
 
   const clear = () => {
     if (timer.current) clearTimeout(timer.current);
@@ -40,7 +40,12 @@ export function Tooltip({
       const node = anchor.current as unknown as HTMLElement | null;
       const box = node?.getBoundingClientRect?.();
       if (!box) return;
-      setRect({ x: box.left + box.width / 2, top: box.top, bottom: box.bottom });
+      // Flip to the other side when the preferred one has no room (the window's top or bottom edge),
+      // so the label is never cut off.
+      const above = box.top >= ROOM;
+      const below = window.innerHeight - box.bottom >= ROOM;
+      const placed = side === 'top' ? (above || !below ? 'top' : 'bottom') : below || !above ? 'bottom' : 'top';
+      setRect({ x: box.left + box.width / 2, top: box.top, bottom: box.bottom, side: placed });
       setOpen(true);
     }, delay);
   };
@@ -73,7 +78,7 @@ export function Tooltip({
             width: 260,
             alignItems: rect.x - 130 < 4 ? 'flex-start' : rect.x + 130 > window.innerWidth - 4 ? 'flex-end' : 'center',
             zIndex: 100000,
-            ...(side === 'top' ? { bottom: window.innerHeight - rect.top + 6 } : { top: rect.bottom + 6 }),
+            ...(rect.side === 'top' ? { bottom: window.innerHeight - rect.top + 6 } : { top: rect.bottom + 6 }),
           }}>
           <View
             style={{
@@ -96,6 +101,9 @@ export function Tooltip({
     </View>
   );
 }
+
+/** Space a two-line label needs beside its control (bubble height + gap). */
+const ROOM = 52;
 
 const styles = {
   shadow: { shadowColor: '#000', shadowOpacity: 0.35, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 8 },

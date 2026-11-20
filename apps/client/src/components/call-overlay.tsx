@@ -743,7 +743,8 @@ function ActiveCall() {
       <Pressable
         style={[StyleSheet.absoluteFill, stageEnd ? { end: stageEnd } : null]}
         onPress={() => {
-          if (panel) setPanel(null);
+          // A pinned chat is part of the layout, not a popover: only its own close button shuts it.
+          if (panel && !chatDocked) setPanel(null);
           else setControlsHidden((h) => !h);
         }}
         accessibilityLabel={t('Show or hide controls')}
