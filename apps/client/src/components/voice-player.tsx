@@ -32,7 +32,8 @@ export function VoicePlayer({
   // The bars come with the message (older voice messages show a flat line here).
   const levels = useWaveform(url, waveform, null);
   const player = useVideoPlayer(attachmentSource(url), (p) => {
-    p.timeUpdateEventInterval = 0.25;
+    // Often enough that the played part of the waveform glides instead of stepping.
+    p.timeUpdateEventInterval = 0.05;
   });
   const { isPlaying } = useEvent(player, 'playingChange', { isPlaying: player.playing });
   const { currentTime } = useEvent(player, 'timeUpdate', { currentTime: 0, currentLiveTimestamp: null, currentOffsetFromLive: null, bufferedPosition: 0 });

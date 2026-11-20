@@ -149,6 +149,8 @@ export function ChatRow({
           alignItems: 'center',
           gap: 14,
           paddingHorizontal: 14,
+          // The 3px amber edge is 2px thicker than the others' 1px: take it back so the content doesn't shift.
+          paddingStart: selected ? 12 : 14,
           paddingVertical: card ? 16 : 12,
           minHeight: 68,
           borderRadius: radius.lg,

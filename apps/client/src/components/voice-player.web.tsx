@@ -48,6 +48,18 @@ export function VoicePlayer({
 
   useEffect(() => () => audio.current?.pause(), []);
 
+  // timeupdate fires only ~4 times a second: while playing, follow the clock often so the
+  // played part of the waveform glides instead of stepping.
+  useEffect(() => {
+    if (!playing) return;
+    // A timer, not requestAnimationFrame: frames stop in panes that aren't painted (and 25/s is plenty).
+    const id = setInterval(() => {
+      const el = audio.current;
+      if (el) setTime(el.currentTime);
+    }, 40);
+    return () => clearInterval(id);
+  }, [playing]);
+
   const ensure = async () => {
     if (audio.current) return audio.current;
     setLoading(true);

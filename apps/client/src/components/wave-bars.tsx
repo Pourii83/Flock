@@ -37,25 +37,28 @@ export function WaveBars({
           return Math.max(...all.slice(from, to));
         });
   const HEIGHT = 26;
+  const row = (color: string, rowWidth?: number) => (
+    <View
+      pointerEvents="none"
+      style={{ height: HEIGHT, flexDirection: 'row', alignItems: 'center', gap: GAP, ...(rowWidth ? { width: rowWidth } : { alignSelf: 'stretch' }) }}>
+      {bars.map((level, i) => (
+        <View key={i} style={{ flex: 1, height: Math.max(4, Math.round(level * HEIGHT)), minWidth: BAR_MIN, borderRadius: 2, backgroundColor: color }} />
+      ))}
+    </View>
+  );
   return (
     <Pressable
       onPress={(e: any) => onSeek && width > 0 && onSeek(Math.max(0, Math.min(1, (e.nativeEvent.locationX ?? 0) / width)))}
       onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
       accessible={false}
-      style={{ height: HEIGHT, flexDirection: 'row', alignItems: 'center', gap: GAP, overflow: 'hidden', alignSelf: 'stretch' }}>
-      {bars.map((level, i) => (
-        <View
-          key={i}
-          pointerEvents="none"
-          style={{
-            flex: 1,
-            height: Math.max(4, Math.round(level * HEIGHT)),
-            minWidth: BAR_MIN,
-            borderRadius: 2,
-            backgroundColor: (i + 0.5) / bars.length <= progress ? played : rest,
-          }}
-        />
-      ))}
+      style={{ height: HEIGHT, overflow: 'hidden', alignSelf: 'stretch' }}>
+      {row(rest)}
+      {/* The played color is the same bars, clipped to the progress: it fills smoothly, even inside a bar. */}
+      {width > 0 && progress > 0 && (
+        <View pointerEvents="none" style={{ position: 'absolute', top: 0, bottom: 0, start: 0, width: Math.min(1, progress) * width, overflow: 'hidden' }}>
+          {row(played, width)}
+        </View>
+      )}
     </Pressable>
   );
 }

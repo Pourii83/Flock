@@ -403,7 +403,8 @@ function InviteLink({ conversation }: { conversation: Conversation }) {
           </T>
           <Button title={copied ? t('Link copied') : t('Copy link')} icon={copied ? 'check' : 'copy'} size="sm" onPress={() => void copy()} />
           {isOwner && (
-            <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+            // Full width, one under the other, like Copy link above them.
+            <View style={{ gap: 8 }}>
               <Button title={t('New link (revokes the old one)')} icon="refresh-cw" size="sm" variant="subtle" loading={busy} onPress={() => void replace()} />
               <Button title={t('Revoke link')} icon="slash" size="sm" variant="danger" loading={busy} onPress={() => void revoke()} />
             </View>

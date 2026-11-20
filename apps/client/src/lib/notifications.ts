@@ -134,13 +134,16 @@ export async function syncPush() {
 }
 
 /** Signing out: this device stops receiving that account's notifications. */
-export async function dropPush() {
+export async function dropPush({ tellServer = true }: { tellServer?: boolean } = {}) {
   if (!pushSupported()) return;
   try {
-    const registration = await navigator.serviceWorker.ready;
-    const current = await registration.pushManager.getSubscription();
+    // Not serviceWorker.ready: with no worker registered (dev server, a browser that refused it) it
+    // never settles, and signing out would hang forever.
+    const registration = await navigator.serviceWorker.getRegistration();
+    const current = await registration?.pushManager.getSubscription();
     if (current) {
-      await api.pushUnsubscribe(current.endpoint).catch(() => {});
+      // A rejected (expired) session can't tell the server; the server drops dead endpoints itself.
+      if (tellServer) await api.pushUnsubscribe(current.endpoint).catch(() => {});
       await current.unsubscribe().catch(() => {});
     }
   } catch {}

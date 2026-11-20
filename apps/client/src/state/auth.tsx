@@ -35,9 +35,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
 
-  const applySession = useCallback(async (nextToken: string | null, nextUser: User | null) => {
-    // Signing out: this device stops getting the old account's notifications (needs the old token).
-    if (!nextToken) await dropPush();
+  const applySession = useCallback(async (nextToken: string | null, nextUser: User | null, { expired = false } = {}) => {
+    // Signing out: this device stops getting the old account's notifications (needs the old token,
+    // so a session the server already rejected only drops it locally).
+    if (!nextToken) await dropPush({ tellServer: !expired });
     setAuthToken(nextToken);
     await setItem(TOKEN_KEY, nextToken);
     await setItem(USER_KEY, nextToken && nextUser ? JSON.stringify(nextUser) : null);
@@ -55,7 +56,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = useCallback(() => applySession(null, null), [applySession]);
 
   useEffect(() => {
-    setUnauthorizedHandler(() => void logout());
+    // The server rejected the session (expired, account gone): back to sign-in.
+    setUnauthorizedHandler(() => void applySession(null, null, { expired: true }));
     let cancelled = false;
     let retry: ReturnType<typeof setTimeout> | undefined;
     (async () => {
@@ -67,7 +69,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           await applySession(saved, await api.me());
         } catch (e: any) {
           // Keep the session when the server is merely unreachable; drop it when rejected.
-          if (e?.status === 401) await applySession(null, null);
+          if (e?.status === 401) await applySession(null, null, { expired: true });
           else {
             const cached = parseUser(await getItem(USER_KEY));
             if (cached) {
@@ -83,7 +85,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                   chatStore.updateUser(fresh);
                   await setItem(USER_KEY, JSON.stringify(fresh));
                 } catch (err: any) {
-                  if (err?.status === 401) await applySession(null, null);
+                  if (err?.status === 401) await applySession(null, null, { expired: true });
                   else if (!cancelled) retry = setTimeout(refresh, RETRY_MS);
                 }
               };
