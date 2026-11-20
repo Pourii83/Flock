@@ -4,7 +4,7 @@
 // package embeds the exact package version (EXPO_PUBLIC_BUILD_VERSION), so hotfix deploys that keep
 // the same number still show the update box.
 import Constants from 'expo-constants';
-import { Platform } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import { useEffect, useSyncExternalStore } from 'react';
 
 import { api } from './api';
@@ -117,6 +117,31 @@ export function refreshUpdateInfo(): Promise<void> {
 
 let subscribers = 0;
 let timer: ReturnType<typeof setInterval> | null = null;
+let stopWatching: (() => void) | null = null;
+
+/**
+ * Timers are frozen while the app is in the background (phones, hidden tabs), so the poll alone can
+ * miss an update for a long time: also check when the app comes back to the front or gets online.
+ */
+function watchForeground(): () => void {
+  if (Platform.OS === 'web') {
+    if (typeof document === 'undefined' || typeof window === 'undefined') return () => {};
+    const onVisible = () => {
+      if (!document.hidden) void refreshUpdateInfo();
+    };
+    const onOnline = () => void refreshUpdateInfo();
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('online', onOnline);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('online', onOnline);
+    };
+  }
+  const sub = AppState.addEventListener('change', (next) => {
+    if (next === 'active') void refreshUpdateInfo();
+  });
+  return () => sub.remove();
+}
 
 /** Update state, polled on mount and every few minutes while the app stays open. */
 export function useUpdateInfo(): UpdateState {
@@ -126,12 +151,15 @@ export function useUpdateInfo(): UpdateState {
     if (subscribers === 1) {
       void refreshUpdateInfo();
       timer = setInterval(() => void refreshUpdateInfo(), POLL_MS);
+      stopWatching = watchForeground();
     }
     return () => {
       subscribers -= 1;
       if (subscribers === 0 && timer) {
         clearInterval(timer);
         timer = null;
+        stopWatching?.();
+        stopWatching = null;
       }
     };
   }, []);

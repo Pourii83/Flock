@@ -12,6 +12,7 @@ import { t } from '@/lib/i18n';
 import { notifyMessage } from '@/lib/notifications';
 import { parseSealedMeta, sealFile } from '@/lib/sealed-files';
 import { systemText } from '@/lib/system-message';
+import { refreshUpdateInfo } from '@/lib/update';
 
 type State = {
   connected: boolean;
@@ -91,6 +92,8 @@ class ChatStore {
     socket.on('connect', () => {
       this.set({ connected: true });
       this.refreshConversations();
+      // A reconnect often means the server restarted, usually for an update: ask for its version now.
+      void refreshUpdateInfo();
       api.marks().then((marks) => this.set((s) => ({ marks: mergeMarks(s.marks, marks) })), () => {});
     });
     socket.on('mark', ({ key, value }: { key: string; value: number }) => this.set((s) => ({ marks: mergeMarks(s.marks, { [key]: value }) })));
