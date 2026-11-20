@@ -92,7 +92,7 @@ export function PersonRow({
             alignItems: 'center',
             justifyContent: 'center',
           }}>
-          {selected && <Icon name="check" size={14} color={colors.canvas} />}
+          {selected && <Icon name="check" size={14} color={colors.onAmber} />}
         </View>
       )}
       {trailing}

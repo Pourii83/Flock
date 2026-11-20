@@ -128,12 +128,17 @@ const alpha = (hex: string, a: number): string => {
   const c = parseHex(hex);
   return c ? `rgba(${c.r}, ${c.g}, ${c.b}, ${a})` : hex;
 };
-/** Dark text on a light accent, light text on a dark one. */
-const onColor = (hex: string): string => {
+const luminance = (hex: string): number => {
   const c = parseHex(hex);
-  if (!c) return '#3D2600';
-  const lum = (0.299 * c.r + 0.587 * c.g + 0.114 * c.b) / 255;
-  return lum > 0.55 ? '#1A1205' : '#FFFFFF';
+  return c ? (0.299 * c.r + 0.587 * c.g + 0.114 * c.b) / 255 : 0.5;
+};
+/** Dark text on a light accent, light text on a dark one. */
+const onColor = (hex: string): string => (luminance(hex) > 0.55 ? '#1A1205' : '#FFFFFF');
+/** The accent as text/icons on the page: lightened (dark theme) or darkened (light theme) just enough to read. */
+const readableOn = (hex: string, dark: boolean): string => {
+  const lum = luminance(hex);
+  if (dark) return lum >= 0.5 ? hex : mix(hex, '#FFFFFF', Math.min(0.75, (0.6 - lum) / (1 - lum)));
+  return mix(hex, '#000000', lum > 0.35 ? 0.42 : 0.15);
 };
 
 function applyAccentTokens() {
@@ -145,14 +150,14 @@ function applyAccentTokens() {
   p.onAmber = onColor(accent);
   if (mode === 'dark') {
     p.amberSoft = mix(accent, '#FFFFFF', 0.62);
-    p.amberText = accent;
+    p.amberText = readableOn(accent, true);
     p.amberSoftText = mix(accent, '#FFFFFF', 0.7);
-    p.onAmberMuted = mix(accent, '#000000', 0.45);
+    p.onAmberMuted = mix(accent, onColor(accent), 0.55);
   } else {
     p.amberSoft = mix(accent, '#FFFFFF', 0.76);
-    p.amberText = mix(accent, '#000000', 0.42);
+    p.amberText = readableOn(accent, false);
     p.amberSoftText = mix(accent, '#000000', 0.52);
-    p.onAmberMuted = mix(accent, '#000000', 0.5);
+    p.onAmberMuted = mix(accent, onColor(accent), 0.6);
   }
 }
 

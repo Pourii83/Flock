@@ -2281,7 +2281,7 @@ function Composer({
                 alignItems: 'center',
                 justifyContent: 'center',
               }}>
-              {savingEdit ? <ActivityIndicator color={colors.onAmber} size="small" /> : <Icon name={mainIcon} size={18} color={mainEnabled ? colors.canvas : colors.textMuted} />}
+              {savingEdit ? <ActivityIndicator color={colors.onAmber} size="small" /> : <Icon name={mainIcon} size={18} color={mainEnabled ? colors.onAmber : colors.textMuted} />}
             </Pressable>
             </View>
           )}
@@ -2315,7 +2315,7 @@ function Composer({
               // No text selection, callout menu or scrolling from a held finger.
               ...(Platform.OS === 'web' ? ({ userSelect: 'none', WebkitUserSelect: 'none', WebkitTouchCallout: 'none', touchAction: 'none' } as object) : {}),
             })}>
-            {savingEdit ? <ActivityIndicator color={colors.onAmber} /> : <Icon name={mainIcon} size={22} color={colors.canvas} />}
+            {savingEdit ? <ActivityIndicator color={colors.onAmber} /> : <Icon name={mainIcon} size={22} color={colors.onAmber} />}
           </Pressable>
         )}
       </View>

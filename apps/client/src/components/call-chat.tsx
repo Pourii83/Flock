@@ -172,7 +172,7 @@ export function CallChatPanel({ onClose }: { onClose: () => void }) {
               transform: [{ scale: pressed ? 0.94 : 1 }],
               backgroundColor: text.trim() ? colors.amber : pressed || hovered ? colors.surfaceHighest : colors.surfaceHigh,
             })}>
-            <Icon name="send" size={17} color={text.trim() ? colors.canvas : colors.textMuted} />
+            <Icon name="send" size={17} color={text.trim() ? colors.onAmber : colors.textMuted} />
           </Pressable>
         </Tooltip>
       </View>

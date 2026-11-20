@@ -83,7 +83,7 @@ export function RailTabBar(props: BottomTabBarProps) {
                     backgroundColor: focused ? colors.amber : hovered ? colors.surface : 'transparent',
                     ...(focused && Platform.OS === 'web' ? { boxShadow: `0 0 18px ${colors.amberGlow}` } : {}),
                   })}>
-                  <Icon name={tab.icon} size={22} color={focused ? colors.canvas : colors.textMuted} />
+                  <Icon name={tab.icon} size={22} color={focused ? colors.onAmber : colors.textMuted} />
                   {route.name === 'index' && !focused && (
                     <UnreadBadge count={unread} style={{ position: 'absolute', top: 2, right: 0 }} />
                   )}

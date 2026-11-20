@@ -424,7 +424,7 @@ export function UnreadBadge({ count, style }: { count: number; style?: StyleProp
         },
         style,
       ]}>
-      <T variant="label" color={colors.canvas} style={{ fontSize: 11, fontVariant: ['tabular-nums'] }}>
+      <T variant="label" color={colors.onAmber} style={{ fontSize: 11, fontVariant: ['tabular-nums'] }}>
         {count > 99 ? '99+' : count}
       </T>
     </View>
@@ -456,7 +456,7 @@ export function Chip({
         gap: 6,
         backgroundColor: active ? colors.amber : hovered ? colors.surfaceHigh : colors.surface,
       })}>
-      <T variant="label" color={active ? colors.canvas : colors.textMuted}>
+      <T variant="label" color={active ? colors.onAmber : colors.textMuted}>
         {label}
         {count !== undefined ? ` (${count})` : ''}
       </T>
