@@ -40,7 +40,7 @@ export type NetQuality = 'good' | 'fair' | 'poor';
 
 /** The microphone / speaker picked last time (web: device ids are per site, so they keep). */
 const DEVICE_KEYS = { input: 'flock.audioInput', output: 'flock.audioOutput' } as const;
-function savedDevice(kind: keyof typeof DEVICE_KEYS) {
+export function savedDevice(kind: keyof typeof DEVICE_KEYS) {
   if (Platform.OS !== 'web') return 'default';
   try {
     return globalThis.localStorage?.getItem(DEVICE_KEYS[kind]) || 'default';
@@ -48,7 +48,7 @@ function savedDevice(kind: keyof typeof DEVICE_KEYS) {
     return 'default';
   }
 }
-function saveDevice(kind: keyof typeof DEVICE_KEYS, id: string) {
+export function saveDevice(kind: keyof typeof DEVICE_KEYS, id: string) {
   if (Platform.OS !== 'web') return;
   try {
     if (id === 'default') globalThis.localStorage?.removeItem(DEVICE_KEYS[kind]);
