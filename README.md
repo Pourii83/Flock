@@ -53,8 +53,9 @@ Want to look around first? Try the [live demo](https://app.flock.beer); its data
 ### Cloud hosting
 
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/Pourii83/Flock)
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/5zHqd9)
 
-One click creates the server and its database. Railway and the details: [Cloud hosting](https://docs.flock.beer/install/cloud/).
+One click creates the server and its database. Details: [Cloud hosting](https://docs.flock.beer/install/cloud/).
 
 ## Documentation
 

@@ -53,8 +53,9 @@ sudo flockctl
 ### میزبانی ابری
 
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/Pourii83/Flock)
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/5zHqd9)
 
-با یک کلیک سرور و دیتابیسش ساخته می‌شود. Railway و جزئیات: [میزبانی ابری](https://docs.flock.beer/fa/install/cloud/).
+با یک کلیک سرور و دیتابیسش ساخته می‌شود. جزئیات: [میزبانی ابری](https://docs.flock.beer/fa/install/cloud/).
 
 ## مستندات
 
