@@ -307,11 +307,12 @@ export function ChatList({
       )}
 
       {/* One row that scrolls sideways when the chips don't fit, instead of wrapping onto a second line. */}
-      {/* Web: a thin scrollbar appears under the chips on hover, so it's clear the row scrolls (CSS in index.html). */}
+      {/* Desktop web: a thin scrollbar appears under the chips on hover, so it's clear the row scrolls with a
+          mouse (CSS in index.html). Phones (and the apps) swipe it: no scrollbar and no space kept for one. */}
       <ScrollView
         horizontal
-        showsHorizontalScrollIndicator={Platform.OS === 'web'}
-        {...({ dataSet: { hscroll: 'hover' } } as object)}
+        showsHorizontalScrollIndicator={Platform.OS === 'web' && desktop}
+        {...(desktop ? ({ dataSet: { hscroll: 'hover' } } as object) : {})}
         style={{ flexGrow: 0 }}
         contentContainerStyle={{ gap: 8 }}>
         <Chip label={t('All')} count={all.length} active={filter === 'all'} onPress={() => setFilter('all')} />
