@@ -20,7 +20,7 @@ const BUTTON = { color: '#fff', bg: 'rgba(255,255,255,0.10)', activeBg: 'rgba(25
  * Telegram-style viewer for image/video attachments: the media pops into the middle of a dimmed screen.
  * Phones give it all the room the screen has; wide screens keep it at a comfortable size.
  */
-export function MediaViewer({ media, onClose }: { media: ViewerMedia | null; onClose: () => void }) {
+export function MediaViewer({ media, onClose, onShowInChat }: { media: ViewerMedia | null; onClose: () => void; /** Shown from outside the chat: scroll the chat to this message. */ onShowInChat?: () => void }) {
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const wide = useIsWide();
@@ -85,6 +85,7 @@ export function MediaViewer({ media, onClose }: { media: ViewerMedia | null; onC
     { icon: 'download', label: t('Download'), onPress: () => void download() },
     ...(!isVideo && Platform.OS === 'web' ? [{ icon: 'copy' as const, label: t('Copy image'), onPress: () => run(copyImageAttachment) }] : []),
     ...(Platform.OS === 'web' ? [{ icon: 'external-link' as const, label: t('Open in new tab'), onPress: () => run(openAttachmentInTab) }] : []),
+    ...(onShowInChat ? [{ icon: 'message-square' as const, label: t('Show in chat'), onPress: onShowInChat }] : []),
     { icon: 'x', label: t('Close viewer'), onPress: onClose },
   ];
   const box = media && loaded?.url === media.url ? fit(loaded.width, loaded.height) : null;
@@ -109,6 +110,7 @@ export function MediaViewer({ media, onClose }: { media: ViewerMedia | null; onC
           ) : (
             <IconButton name="download" label={t('Download')} {...BUTTON} onPress={() => void download()} />
           )}
+          {onShowInChat && <IconButton name="message-square" label={t('Show in chat')} {...BUTTON} onPress={onShowInChat} />}
           <IconButton name="x" label={t('Close')} {...BUTTON} onPress={onClose} />
         </View>
 

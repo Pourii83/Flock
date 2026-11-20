@@ -59,7 +59,6 @@ export function ConversationInfo({ conversationId, onClose }: { conversationId: 
   const conversation = useConversation(conversationId);
   const { user } = useAuth();
   const { startCall } = useCalls();
-  const wide = useIsWide();
   if (!conversation) return null;
   const peer = conversation.type === 'direct' ? conversation.members.find((m) => m.id !== user?.id) : undefined;
   const isChannel = conversation.type === 'channel';
@@ -113,7 +112,7 @@ export function ConversationInfo({ conversationId, onClose }: { conversationId: 
         </View>
 
         {/* Secret chats are encrypted per device, so the server can't list what was shared in them. */}
-        {!conversation.secret && <SharedMedia conversation={conversation} width={wide ? 360 : undefined} />}
+        {!conversation.secret && <SharedMedia conversation={conversation} />}
 
         {/* Channel subscribers don't get a members list: they only see the owner and admins. */}
         {isGroup && !(isChannel && (conversation.myRole ?? 'member') === 'member') && <Members conversation={conversation} meId={user?.id} />}

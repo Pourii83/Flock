@@ -1,3 +1,4 @@
+import { onJumpRequest, takeJump } from '@/lib/jump';
 import * as Clipboard from 'expo-clipboard';
 import * as DocumentPicker from 'expo-document-picker';
 import { Image } from 'expo-image';
@@ -239,6 +240,20 @@ export function ChatThread({
       // Variable-height rows can't always be located; the highlight still points at it.
     }
   };
+  // "Show in chat" from the info panel's tabs: jump when asked (or right away for a request that
+  // was waiting while the phone's info page was open).
+  const jumpRef = useRef(jumpTo);
+  useEffect(() => {
+    jumpRef.current = jumpTo;
+  });
+  useEffect(() => {
+    const check = () => {
+      const id = takeJump(conversationId);
+      if (id) void jumpRef.current(id);
+    };
+    check();
+    return onJumpRequest(check);
+  }, [conversationId]);
 
   if (!conversation) {
     return (

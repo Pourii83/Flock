@@ -2,10 +2,14 @@
 // conversation. Read-only views of messages that already exist; nothing here sends or changes data.
 import { Image } from 'expo-image';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Linking, Platform, Pressable, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Linking, Platform, Pressable, View } from 'react-native';
 
+import { router } from 'expo-router';
+
+import { useIsWide } from '@/hooks/use-layout';
 import { api, type SharedCounts, type SharedKind } from '@/lib/api';
 import { attachmentSource, openAttachment } from '@/lib/attachments';
+import { requestJump } from '@/lib/jump';
 import { shortTime } from '@/lib/format';
 import { num, t } from '@/lib/i18n';
 import type { Conversation, Message } from '@/lib/types';
@@ -46,16 +50,22 @@ function hostOf(url: string) {
 }
 
 /** The tabs plus their content. Hidden while the conversation has shared nothing. */
-export function SharedMedia({ conversation, width }: { conversation: Conversation; width?: number }) {
+export function SharedMedia({ conversation }: { conversation: Conversation }) {
   const [counts, setCounts] = useState<SharedCounts | null>(null);
   const [tab, setTab] = useState<SharedKind>('media');
   const [items, setItems] = useState<Partial<Record<SharedKind, Message[]>>>({});
   const [expanded, setExpanded] = useState(false);
-  const [viewing, setViewing] = useState<ViewerMedia | null>(null);
-  const { width: windowWidth } = useWindowDimensions();
-  // The content is the panel width minus its 20px padding on each side.
-  const inner = (width ?? Math.min(windowWidth, 720)) - 40;
-  const tile = Math.floor((inner - 8) / 3);
+  const [viewing, setViewing] = useState<{ media: ViewerMedia; messageId: string } | null>(null);
+  const wide = useIsWide();
+  // Desktop: the chat sits beside the panel and scrolls at once. Phones: the info page closes first.
+  const showInChat = (messageId: string) => {
+    setViewing(null);
+    if (!wide && router.canGoBack()) router.back();
+    requestJump(conversation.id, messageId);
+  };
+  // Always three columns: the tile size comes from the grid's own width (the panel can be resized).
+  const [gridWidth, setGridWidth] = useState(0);
+  const tile = gridWidth ? Math.floor((gridWidth - 8) / 3) : 0;
   const id = conversation.id;
   const lastMessage = conversation.lastMessage?.id;
 
@@ -129,8 +139,8 @@ export function SharedMedia({ conversation, width }: { conversation: Conversatio
           {t('Nothing shared here yet')}
         </T>
       ) : tab === 'media' ? (
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4 }}>
-          {(expanded ? list : list.slice(0, PREVIEW)).map((m, index) => {
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4 }} onLayout={(e) => setGridWidth(e.nativeEvent.layout.width)}>
+          {!!tile && (expanded ? list : list.slice(0, PREVIEW)).map((m, index) => {
             const a = m.attachment;
             if (!a) return null;
             const more = !expanded && index === PREVIEW - 1 && counts.media > PREVIEW;
@@ -141,7 +151,7 @@ export function SharedMedia({ conversation, width }: { conversation: Conversatio
                 accessibilityLabel={more ? t('Show all') : a.name}
                 onPress={() => {
                   if (more) setExpanded(true);
-                  else if (a.url) setViewing({ url: a.url, name: a.name, mimeType: a.mimeType });
+                  else if (a.url) setViewing({ media: { url: a.url, name: a.name, mimeType: a.mimeType }, messageId: m.id });
                 }}
                 style={{ width: tile, height: tile, borderRadius: radius.md + 2, overflow: 'hidden', backgroundColor: colors.surfaceHigh }}>
                 {a.expired || !a.url ? (
@@ -183,26 +193,38 @@ export function SharedMedia({ conversation, width }: { conversation: Conversatio
           {list.map((m) => {
             const url = URL_RE.exec(m.body)?.[0] ?? '';
             return (
-              <Pressable
-                key={m.id}
-                accessibilityRole="link"
-                accessibilityLabel={url}
-                onPress={() => {
-                  if (url) void Linking.openURL(url);
-                }}
-                style={({ hovered }: any) => [rowStyle(), hovered && { backgroundColor: colors.surfaceHigh }]}>
-                <View style={iconTile()}>
-                  <Icon name="link-2" size={18} color={colors.amberText} />
-                </View>
-                <View style={{ flex: 1, minWidth: 0 }}>
-                  <T variant="labelLg" numberOfLines={1}>
-                    {hostOf(url)}
-                  </T>
-                  <T variant="bodySm" color={colors.textMuted} numberOfLines={1}>
-                    {`${url} · ${shortTime(m.createdAt)}`}
-                  </T>
-                </View>
-              </Pressable>
+              // The row's main part opens the link; the button beside it scrolls the chat (no button inside a link).
+              <View key={m.id} style={[rowStyle(), { paddingVertical: 0, paddingStart: 0 }]}>
+                <Pressable
+                  accessibilityRole="link"
+                  accessibilityLabel={url}
+                  onPress={() => {
+                    if (url) void Linking.openURL(url);
+                  }}
+                  style={({ hovered }: any) => ({
+                    flex: 1,
+                    minWidth: 0,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 12,
+                    padding: 10,
+                    borderRadius: radius.lg,
+                    backgroundColor: hovered ? colors.surfaceHigh : 'transparent',
+                  })}>
+                  <View style={iconTile()}>
+                    <Icon name="link-2" size={18} color={colors.amberText} />
+                  </View>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <T variant="labelLg" numberOfLines={1}>
+                      {hostOf(url)}
+                    </T>
+                    <T variant="bodySm" color={colors.textMuted} numberOfLines={1}>
+                      {`${url} · ${shortTime(m.createdAt)}`}
+                    </T>
+                  </View>
+                </Pressable>
+                <ShowInChat onPress={() => showInChat(m.id)} />
+              </View>
             );
           })}
         </View>
@@ -225,6 +247,7 @@ export function SharedMedia({ conversation, width }: { conversation: Conversatio
                     {a.expired ? t('File expired') : `${bytes(a.size)} · ${shortTime(m.createdAt)}`}
                   </T>
                 </View>
+                <ShowInChat onPress={() => showInChat(m.id)} />
                 {!a.expired && !!a.url && (
                   <IconButton
                     name="download"
@@ -240,9 +263,18 @@ export function SharedMedia({ conversation, width }: { conversation: Conversatio
           })}
         </View>
       )}
-      <MediaViewer media={viewing} onClose={() => setViewing(null)} />
+      <MediaViewer
+        media={viewing?.media ?? null}
+        onClose={() => setViewing(null)}
+        onShowInChat={viewing ? () => showInChat(viewing.messageId) : undefined}
+      />
     </View>
   );
+}
+
+/** Scrolls the chat to the message this row came from. */
+function ShowInChat({ onPress }: { onPress: () => void }) {
+  return <IconButton name="message-square" label={t('Show in chat')} onPress={onPress} size={34} iconSize={17} color={colors.textMuted} />;
 }
 
 // Functions, not constants: the palette is swapped in place when the theme changes.

@@ -557,6 +557,7 @@ const fa: Record<string, string> = {
   'Could not download file': 'دانلود فایل ممکن نشد',
   'Original quality': 'کیفیت اصلی',
   Download: 'دانلود',
+  'Show in chat': 'نمایش در گفتگو',
   'Move up': 'بردن به بالا',
   'Move down': 'بردن به پایین',
   '0 to 365': '۰ تا ۳۶۵',
