@@ -24,6 +24,9 @@ dist/
 # maintainer-only secrets and notes (never committed)
 .private/
 CLAUDE.local.md
+# Agent pointer and the developer-notes vault: kept locally only (shared with contributors directly)
+/CLAUDE.md
+/docs/dev/
 
 # Obsidian workspace state (docs/dev opens as a vault)
 .obsidian/
