@@ -7,8 +7,11 @@ import { fileURLToPath } from 'node:url';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SERVER_DIR = path.join(HERE, '..');
 // /opt/flock when installed; the repository checkout when running from source.
-const APP_DIR = path.join(SERVER_DIR, '..');
+export const APP_DIR = path.join(SERVER_DIR, '..');
 const MAX_NOTES = 4000;
+
+/** True when running from an installed package (/opt/flock/VERSION exists), not a source checkout. */
+export const isInstalled = () => fs.access(path.join(APP_DIR, 'VERSION')).then(() => true, () => false);
 
 const readText = (file) => fs.readFile(file, 'utf8').catch(() => null);
 

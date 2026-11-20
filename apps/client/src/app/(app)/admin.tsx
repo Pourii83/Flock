@@ -246,6 +246,14 @@ function Resources({ usage, cpu, mem }: { usage: ServerUsage; cpu: number[]; mem
         value={bytes(usage.storage.database + usage.storage.uploads)}
         detail={t('Database {db} · files {files}', { db: bytes(usage.storage.database), files: bytes(usage.storage.uploads) })}
       />
+      {usage.storage.install != null && (
+        <Meter
+          icon="package"
+          label={t('Installed program')}
+          value={bytes(usage.storage.install)}
+          detail={t('Server, web app and its own Node runtime')}
+        />
+      )}
     </Panel>
   );
 }

@@ -6,7 +6,7 @@ import path from 'node:path';
 import { UPLOAD_DIR } from './avatars.js';
 import { now, one } from './db.js';
 import { onlineCount } from './presence.js';
-import { installedVersion } from './version.js';
+import { APP_DIR, installedVersion, isInstalled } from './version.js';
 
 /** CPU busy share over a short window (all cores). */
 async function cpuPercent(ms = 250) {
@@ -37,12 +37,20 @@ async function folderBytes(dir) {
   return total;
 }
 
+// The installed program (server, web app, bundled Node) only changes on an upgrade, which restarts
+// the service, so it is measured once. A source checkout has no meaningful size (node_modules, .git).
+let installBytes = null;
+function installSize() {
+  installBytes ??= isInstalled().then((yes) => (yes ? folderBytes(APP_DIR) : null)).catch(() => null);
+  return installBytes;
+}
+
 async function version() {
   return installedVersion();
 }
 
 export async function serverUsage(live) {
-  const [cpu, disk, uploadsBytes, counts, ver] = await Promise.all([
+  const [cpu, disk, uploadsBytes, counts, ver, install] = await Promise.all([
     cpuPercent(),
     fs.statfs(UPLOAD_DIR).catch(() => null),
     folderBytes(UPLOAD_DIR),
@@ -56,13 +64,14 @@ export async function serverUsage(live) {
       [now()],
     ),
     version(),
+    installSize(),
   ]);
   return {
     version: ver,
     cpu: { percent: cpu, cores: os.cpus().length, load: os.loadavg() },
     memory: { total: os.totalmem(), free: os.freemem(), flock: process.memoryUsage().rss },
     disk: disk ? { total: disk.blocks * disk.bsize, free: disk.bavail * disk.bsize } : null,
-    storage: { uploads: uploadsBytes, database: Number(counts.db_bytes) },
+    storage: { uploads: uploadsBytes, database: Number(counts.db_bytes), install },
     uptime: { system: Math.round(os.uptime()), flock: Math.round(process.uptime()) },
     counts: {
       users: Number(counts.users),

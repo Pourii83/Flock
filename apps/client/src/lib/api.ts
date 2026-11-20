@@ -159,7 +159,7 @@ export type ServerUsage = {
   cpu: { percent: number; cores: number; load: number[] };
   memory: { total: number; free: number; flock: number };
   disk: { total: number; free: number } | null;
-  storage: { uploads: number; database: number };
+  storage: { uploads: number; database: number; /** Installed program on disk; null when running from source. */ install?: number | null };
   uptime: { system: number; flock: number };
   counts: {
     users: number;

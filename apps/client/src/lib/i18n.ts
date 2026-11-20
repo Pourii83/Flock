@@ -351,6 +351,8 @@ const fa: Record<string, string> = {
   '{size} free': '{size} آزاد',
   'Flock data': 'داده‌های فلاک',
   'Database {db} · files {files}': 'دیتابیس {db} · فایل‌ها {files}',
+  'Installed program': 'برنامه‌ی نصب‌شده',
+  'Server, web app and its own Node runtime': 'سرور، نسخه‌ی وب و Node همراه برنامه',
   Users: 'کاربران',
   Messages: 'پیام‌ها',
   '{n} chats': '{n} گفتگو',
