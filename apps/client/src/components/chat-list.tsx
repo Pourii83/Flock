@@ -1,7 +1,7 @@
 import { compareConversations } from '@/lib/conversation-order';
 import { router } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentRef } from 'react';
-import { ActivityIndicator, FlatList, Platform, Pressable, ScrollView, View } from 'react-native';
+import { ActivityIndicator, FlatList, Modal, Platform, Pressable, ScrollView, View } from 'react-native';
 
 import { ContextMenu, type ContextMenuItem } from '@/components/context-menu';
 import { ChangelogModal, UpdateBanner } from '@/components/update-banner';
@@ -14,6 +14,7 @@ import { chatStore, useChat } from '@/state/chat-store';
 import { colors, fonts, radius } from '@/theme';
 import { ConversationAvatar, MegaphoneIcon, isSavedConversation } from './avatar';
 import { Button, Chip, Icon, IconButton, PushPin, SearchBar, T, Tooltip, UnreadBadge } from './ui';
+import { VoiceBar } from './voice-bar';
 import { t, num, isRTL } from '@/lib/i18n';
 
 type Filter = 'all' | 'unread' | 'groups' | 'channels';
@@ -96,6 +97,94 @@ function Preview({ c, meId, typing, draft }: { c: Conversation; meId?: string; t
   );
 }
 
+/**
+ * A quick look at a chat without opening it: Alt+click on the web, long-press on phones. The thread is
+ * read-only here and nothing gets marked as read.
+ */
+function ChatPreviewDialog({ c, visible, onClose, onOpen }: { c: Conversation; visible: boolean; onClose: () => void; onOpen: () => void }) {
+  const { user } = useAuth();
+  const messages = useChat((s) => s.messages[c.id]);
+  const typing = useChat((s) => (s.typing[c.id]?.length ?? 0) > 0);
+  const name = isSavedConversation(c) ? t('Saved Messages') : c.name;
+
+  // Peeking loads the thread if it was never opened; it stays unread.
+  useEffect(() => {
+    if (!visible || messages?.length) return;
+    void chatStore.loadMessages(c.id).catch(() => {});
+  }, [visible, c.id, messages]);
+
+  const recent = (messages ?? []).slice(-14);
+  const group = c.type !== 'direct';
+  return (
+    <Modal transparent animationType={Platform.OS === 'web' ? 'none' : 'fade'} visible={visible} onRequestClose={onClose}>
+      <View style={{ flex: 1, backgroundColor: colors.scrim, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+        <View
+          style={{
+            width: '100%',
+            maxWidth: 420,
+            maxHeight: '78%',
+            borderRadius: radius.xl,
+            borderWidth: 1,
+            borderColor: colors.surfaceHigh,
+            backgroundColor: colors.rail,
+            padding: 18,
+            gap: 14,
+          }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+            <ConversationAvatar conversation={c} meId={user?.id} size={44} ringBg={colors.rail} />
+            <View style={{ flex: 1, gap: 2 }}>
+              <T variant="labelLg" numberOfLines={1}>
+                {name}
+              </T>
+              <T variant="bodySm" color={colors.textMuted} numberOfLines={1}>
+                {t('Chat preview')}
+                {group ? ` · ${t('{n} members', { n: num(c.members.length) })}` : ''}
+              </T>
+            </View>
+            <IconButton name="x" label={t('Close')} onPress={onClose} size={32} iconSize={16} />
+          </View>
+
+          <ScrollView style={{ flexGrow: 0 }} contentContainerStyle={{ gap: 8 }}>
+            {recent.length === 0 ? (
+              <T variant="body" color={colors.textMuted} style={{ textAlign: 'center', paddingVertical: 18 }}>
+                {typing ? t('typing…') : t('Say hello 👋')}
+              </T>
+            ) : (
+              recent.map((m) => {
+                const mine = m.senderId === user?.id;
+                const sender = !mine && group ? chatStore.memberName(c.id, m.senderId) : '';
+                const text = m.kind === 'file' ? t('File: {name}', { name: m.attachment?.name ?? t('File') }) : m.body;
+                return (
+                  <View key={m.id} style={{ alignItems: mine ? 'flex-end' : 'flex-start' }}>
+                    <View style={{ maxWidth: '85%', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 14, backgroundColor: mine ? colors.amberSoft : colors.surface }}>
+                      {!!sender && (
+                        <T variant="labelSm" color={colors.amberText} numberOfLines={1}>
+                          {sender}
+                        </T>
+                      )}
+                      <T variant="body" color={mine ? colors.onAmber : colors.text}>
+                        {text}
+                      </T>
+                    </View>
+                  </View>
+                );
+              })
+            )}
+          </ScrollView>
+
+          {/* The long-press menu's actions stay reachable from here. */}
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+            <Button title={c.pinned ? t('Unpin') : t('Pin')} variant="ghost" size="sm" onPress={() => void chatStore.setPinned(c.id, !c.pinned)} />
+            <Button title={c.muted ? t('Unmute') : t('Mute')} variant="ghost" size="sm" onPress={() => void chatStore.setMuted(c.id, !c.muted)} />
+            <Button title={t('Mark as read')} variant="ghost" size="sm" disabled={!c.unreadCount} onPress={() => chatStore.markRead(c.id)} />
+          </View>
+          <Button title={t('Open chat')} icon="message-square" onPress={onOpen} />
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 export function ChatRow({
   c,
   selected,
@@ -119,9 +208,10 @@ export function ChatRow({
   const draft = useDraft(c.id);
   const unread = c.unreadCount > 0;
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const [preview, setPreview] = useState(false);
   const name = isSavedConversation(c) ? t('Saved Messages') : c.name;
 
-  // Right-click on desktop, long-press on phones: pin, mute and mark-read actions.
+  // Right-click on desktop (and the actions row in the preview): pin, mute and mark-read.
   const openMenu = (event: any) => {
     event?.preventDefault?.();
     setMenu(pressPoint(event));
@@ -138,8 +228,16 @@ export function ChatRow({
   return (
     <>
       <Pressable
-        onPress={onPress}
-        onLongPress={openMenu}
+        onPress={(event: any) => {
+          // Alt+click peeks at the chat instead of opening it.
+          if (Platform.OS === 'web' && (event?.nativeEvent?.altKey || (window as any).event?.altKey)) {
+            setPreview(true);
+            return;
+          }
+          onPress();
+        }}
+        // Long-press on a phone opens the same peek (its actions live in the preview).
+        onLongPress={() => setPreview(true)}
         delayLongPress={400}
         accessibilityRole="button"
         accessibilityLabel={name}
@@ -185,6 +283,15 @@ export function ChatRow({
         </View>
       </Pressable>
       <ContextMenu point={menu} items={items} title={name} onClose={() => setMenu(null)} />
+      <ChatPreviewDialog
+        c={c}
+        visible={preview}
+        onClose={() => setPreview(false)}
+        onOpen={() => {
+          setPreview(false);
+          onPress();
+        }}
+      />
     </>
   );
 }
@@ -325,6 +432,9 @@ export function ChatList({
 
   return (
     <View style={{ flex: 1 }}>
+      {/* Phones: the list owns the screen, so the voice player sits here; inside a chat the thread
+          shows it under the header. */}
+      {!desktop && <VoiceBar />}
       <FlatList
         data={list}
         keyExtractor={(c) => c.id}

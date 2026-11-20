@@ -509,12 +509,12 @@ export async function listShared(conversationId, type, { before, limit = 60 } = 
   return rows.map(serializeMessage);
 }
 
-/** Pinned messages of a conversation, newest pin first. */
+/** Pinned messages of a conversation in chat order (oldest first), not pin order. */
 export async function listPinnedMessages(conversationId) {
   const rows = await query(
     `${MESSAGE_SELECT}
      WHERE m.conversation_id = $1 AND m.pinned_at IS NOT NULL
-     ORDER BY m.pinned_at DESC LIMIT 200`,
+     ORDER BY m.created_at ASC, m.id LIMIT 200`,
     [conversationId],
   );
   return withReactions(rows.map(serializeMessage));
@@ -685,6 +685,7 @@ export async function listCalls(meId) {
   const rows = await query(
     `SELECT c.* FROM calls c JOIN members m ON m.conversation_id = c.conversation_id AND m.user_id = $1
      WHERE c.status NOT IN ('ringing', 'active')
+       AND NOT EXISTS (SELECT 1 FROM call_log_hidden h WHERE h.call_id = c.id AND h.user_id = $1)
      ORDER BY c.started_at DESC LIMIT 100`,
     [meId],
   );
@@ -707,6 +708,25 @@ export async function listCalls(meId) {
       durationSec: c.answered_at && c.ended_at ? Math.round((c.ended_at - c.answered_at) / 1000) : 0,
     };
   });
+}
+
+/**
+ * Removes calls from one person's history. The calls themselves stay: the other side of a shared
+ * conversation keeps its own history.
+ */
+export async function hideCalls(userId, ids) {
+  const list = (Array.isArray(ids) ? ids : []).filter(isUuid);
+  if (!list.length) return 0;
+  const rows = await query(
+    `INSERT INTO call_log_hidden (user_id, call_id, hidden_at)
+     SELECT $1, c.id, $2 FROM calls c
+       JOIN members m ON m.conversation_id = c.conversation_id AND m.user_id = $1
+      WHERE c.id = ANY($3::uuid[])
+     ON CONFLICT DO NOTHING
+     RETURNING call_id`,
+    [userId, now(), list],
+  );
+  return rows.length;
 }
 
 export const setAvatarPath = (id, avatarPath) =>

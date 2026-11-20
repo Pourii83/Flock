@@ -28,7 +28,7 @@ type State = {
   pinned: Record<string, Message | null>;
   /** Which conversations already had their pinned message fetched. */
   pinnedLoaded: Record<string, boolean>;
-  /** conversationId -> every pinned message, newest pin first (the banner steps through them). */
+  /** conversationId -> every pinned message in chat order (oldest first); the banner walks back from the newest. */
   pinnedList: Record<string, Message[]>;
   /** Markers shared by all my devices (e.g. the newest missed call I looked at). */
   marks: Record<string, number>;
@@ -364,12 +364,13 @@ class ChatStore {
     if (this.state.pinnedLoaded[conversationId] && !force) return;
     try {
       const list = (await api.pinnedMessages(conversationId)).map((m) => this.reveal(m));
-      const sorted = [...list].sort((a, b) => (b.pinnedAt ?? b.createdAt) - (a.pinnedAt ?? a.createdAt));
-      const latest = sorted[0];
+      // Server sends chat order (oldest first); the banner shows the newest pin first.
+      const ordered = [...list].sort((a, b) => a.createdAt - b.createdAt);
+      const latest = ordered[ordered.length - 1];
       this.set((s) => ({
         pinned: { ...s.pinned, [conversationId]: latest ?? null },
         pinnedLoaded: { ...s.pinnedLoaded, [conversationId]: true },
-        pinnedList: { ...s.pinnedList, [conversationId]: sorted },
+        pinnedList: { ...s.pinnedList, [conversationId]: ordered },
       }));
       if (latest) this.upsertMessage(latest);
     } catch {

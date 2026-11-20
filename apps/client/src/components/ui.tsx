@@ -204,7 +204,8 @@ export function Button({
   const palette = {
     primary: { bg: colors.amber, fg: colors.onAmber, border: colors.amber },
     ghost: { bg: colors.surface, fg: colors.text, border: colors.surfaceHigh },
-    danger: { bg: colors.danger, fg: colors.text, border: colors.danger },
+    // Destructive actions read as a warning, not an alarm: tinted surface, red text and icon.
+    danger: { bg: colors.dangerTint, fg: colors.danger, border: colors.dangerTint },
     subtle: { bg: 'transparent', fg: colors.amber, border: 'transparent' },
   }[variant];
   const height = { sm: 36, md: 48, lg: 56 }[size];

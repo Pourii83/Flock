@@ -15,7 +15,7 @@ import { num, t } from '@/lib/i18n';
 import type { Conversation, Message } from '@/lib/types';
 import { colors, radius } from '@/theme';
 import { MediaViewer, type ViewerMedia } from './media-viewer';
-import { Icon, IconButton, T, type IconName } from './ui';
+import { Icon, IconButton, T, Tooltip, type IconName } from './ui';
 import { VideoThumb } from './video-thumb';
 
 const TABS: { kind: SharedKind; label: string }[] = [
@@ -184,6 +184,17 @@ export function SharedMedia({ conversation }: { conversation: Conversation }) {
                     <T variant="headlineSm" color="#fff">{`+${num(counts.media - PREVIEW + 1)}`}</T>
                   </View>
                 )}
+                {/* The Files tab has an eye in every row; media tiles get one too, so a photo can be
+                    found in the chat again. */}
+                {!more && (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={t('Show in chat')}
+                    onPress={() => showInChat(m.id)}
+                    style={{ position: 'absolute', top: 4, start: 4, width: 26, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(10,13,20,0.6)' }}>
+                    <Icon name="eye" size={13} color="#fff" />
+                  </Pressable>
+                )}
               </Pressable>
             );
           })}
@@ -274,7 +285,11 @@ export function SharedMedia({ conversation }: { conversation: Conversation }) {
 
 /** Scrolls the chat to the message this row came from. */
 function ShowInChat({ onPress }: { onPress: () => void }) {
-  return <IconButton name="eye" label={t('Show in chat')} onPress={onPress} size={34} iconSize={17} color={colors.textMuted} />;
+  return (
+    <Tooltip label={t('Show in chat')}>
+      <IconButton name="eye" label={t('Show in chat')} onPress={onPress} size={34} iconSize={17} color={colors.textMuted} />
+    </Tooltip>
+  );
 }
 
 // Functions, not constants: the palette is swapped in place when the theme changes.

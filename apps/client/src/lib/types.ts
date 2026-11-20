@@ -25,6 +25,8 @@ export type Room = {
   /** null = open until closed. */
   expiresAt: number | null;
   closedAt: number | null;
+  /** People connected to the room right now (from the server). */
+  participants?: number;
 };
 
 export type PublicRoom = {

@@ -16,10 +16,20 @@ import { useCalls } from '@/state/calls';
 import { chatStore, useConversation } from '@/state/chat-store';
 import { colors, radius } from '@/theme';
 import { Avatar, ConversationAvatar } from './avatar';
+import { ContextMenu, type ContextMenuItem } from './context-menu';
 import { SharedMedia } from './shared-media';
 import { Button, Field, Icon, IconButton, PushPin, T, type IconName } from './ui';
 
 const RANK: Record<GroupRole, number> = { member: 0, admin: 1, owner: 2 };
+
+/** Window coordinates of a press (react-native-web exposes clientX/clientY or pageX/pageY). */
+function pressPoint(event: any): { x: number; y: number } {
+  const native = event?.nativeEvent ?? event ?? {};
+  const web = typeof window !== 'undefined' ? (window as any).event : undefined;
+  const x = native.pageX ?? native.clientX ?? event?.pageX ?? event?.clientX ?? web?.clientX;
+  const y = native.pageY ?? native.clientY ?? event?.pageY ?? event?.clientY ?? web?.clientY;
+  return typeof x === 'number' && typeof y === 'number' ? { x, y } : { x: 24, y: 120 };
+}
 
 function Action({ icon, pin, label, onPress, active }: { icon?: IconName; pin?: boolean; label: string; onPress: () => void; active?: boolean }) {
   return (
@@ -429,7 +439,8 @@ function Members({ conversation, meId }: { conversation: Conversation; meId?: st
   const wide = useIsWide();
   const myRole = conversation.myRole ?? 'member';
   const canAdd = RANK[myRole] >= RANK.admin;
-  const [openId, setOpenId] = useState<string | null>(null);
+  // Member actions open in their own menu, over the panel, instead of expanding the row.
+  const [menu, setMenu] = useState<{ member: User & { role?: GroupRole }; point: { x: number; y: number } } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -440,7 +451,7 @@ function Members({ conversation, meId }: { conversation: Conversation; meId?: st
       const c = await fn();
       if ('id' in c) chatStore.upsertConversation(c);
       else chatStore.refreshConversations();
-      setOpenId(null);
+      setMenu(null);
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -455,7 +466,7 @@ function Members({ conversation, meId }: { conversation: Conversation; meId?: st
     try {
       const c = await api.createConversation([m.id]);
       chatStore.upsertConversation(c);
-      setOpenId(null);
+      setMenu(null);
       if (wide) router.navigate({ pathname: '/', params: { c: c.id } });
       else router.push(`/chat/${c.id}`);
     } catch (e: any) {
@@ -530,21 +541,23 @@ function Members({ conversation, meId }: { conversation: Conversation; meId?: st
       {canAdd && <InviteLink conversation={conversation} />}
       {conversation.members.map((m) => {
         const actions = actionsFor(m);
-        const open = openId === m.id;
+        const open = menu?.member.id === m.id;
         return (
-          <View key={m.id} style={{ borderRadius: radius.lg, backgroundColor: open ? colors.surface : 'transparent' }}>
-            <Pressable
-              onPress={actions.length ? () => setOpenId(open ? null : m.id) : undefined}
-              disabled={!actions.length}
-              accessibilityLabel={m.displayName}
-              style={({ hovered }: any) => ({
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: 12,
-                padding: 8,
-                borderRadius: radius.lg,
-                backgroundColor: hovered && actions.length && !open ? colors.surface : 'transparent',
-              })}>
+          <Pressable
+            key={m.id}
+            onPress={actions.length ? (event: any) => setMenu({ member: m, point: pressPoint(event) }) : undefined}
+            disabled={!actions.length}
+            accessibilityRole="button"
+            accessibilityLabel={m.displayName}
+            accessibilityState={actions.length ? { expanded: open } : undefined}
+            style={({ hovered }: any) => ({
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 12,
+              padding: 8,
+              borderRadius: radius.lg,
+              backgroundColor: open || (hovered && actions.length) ? colors.surface : 'transparent',
+            })}>
               <Avatar user={m} size={40} ringBg={colors.rail} />
               <View style={{ flex: 1 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
@@ -563,35 +576,31 @@ function Members({ conversation, meId }: { conversation: Conversation; meId?: st
                   </T>
                 </View>
               </View>
-              {actions.length > 0 && <Icon name={open ? 'chevron-up' : 'more-vertical'} size={18} color={colors.textMuted} />}
-            </Pressable>
-            {open && (
-              <View style={{ paddingHorizontal: 8, paddingBottom: 8, gap: 4 }}>
-                {actions.map((a) => (
-                  <Pressable
-                    key={a.label}
-                    onPress={a.run}
-                    disabled={busy}
-                    style={({ hovered }: any) => ({
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      gap: 10,
-                      paddingHorizontal: 12,
-                      paddingVertical: 10,
-                      borderRadius: radius.md,
-                      backgroundColor: hovered ? colors.surfaceHigh : 'transparent',
-                    })}>
-                    <Icon name={a.icon} size={16} color={a.danger ? colors.danger : colors.text} />
-                    <T variant="body" color={a.danger ? colors.danger : colors.text}>
-                      {a.label}
-                    </T>
-                  </Pressable>
-                ))}
-              </View>
-            )}
-          </View>
+              {actions.length > 0 && <Icon name="more-vertical" size={18} color={open ? colors.amberText : colors.textMuted} />}
+          </Pressable>
         );
       })}
+      <ContextMenu
+        point={menu?.point ?? null}
+        title={menu?.member.displayName}
+        items={
+          menu
+            ? actionsFor(menu.member).map(
+                (a): ContextMenuItem => ({
+                  icon: a.icon,
+                  label: a.label,
+                  danger: a.danger,
+                  disabled: busy,
+                  onPress: () => {
+                    setMenu(null);
+                    a.run();
+                  },
+                }),
+              )
+            : []
+        }
+        onClose={() => setMenu(null)}
+      />
       {!!error && (
         <T variant="bodySm" color={colors.danger}>
           {error}

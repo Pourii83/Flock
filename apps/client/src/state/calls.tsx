@@ -630,7 +630,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       if (data?.type === 'reaction' && typeof data.emoji === 'string') {
         const name = memberOf(callRef.current.conversationId, from)?.displayName ?? callRef.current.remotes.find((r) => r.userId === from)?.user?.displayName ?? callRef.current.peer?.displayName ?? '';
         addReaction(data.emoji.slice(0, 16), name);
-        if (!callRef.current.speakerMuted) playReactionSound('receive');
+        if (!callRef.current.speakerMuted) playReactionSound('receive', data.emoji.slice(0, 16));
         return;
       }
       if (data?.type === 'raise' && typeof data.raised === 'boolean') {
@@ -1398,7 +1398,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       lastReaction.current = now;
       signal({ type: 'reaction', emoji });
       addReaction(emoji, t('You'));
-      playReactionSound('send');
+      playReactionSound('send', emoji);
     },
     [signal, addReaction],
   );

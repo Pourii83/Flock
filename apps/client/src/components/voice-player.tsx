@@ -21,6 +21,8 @@ export function VoicePlayer({
   waveform,
   duration,
   compact,
+  title: _title,
+  subtitle: _subtitle,
 }: {
   url: string;
   mine: boolean;
@@ -28,6 +30,9 @@ export function VoicePlayer({
   duration?: number;
   /** Fits a narrow space (the composer's preview of a fresh recording). */
   compact?: boolean;
+  /** Web only: the shared player bar shows these (see components/voice-bar.tsx). */
+  title?: string;
+  subtitle?: string;
 }) {
   // The bars come with the message (older voice messages show a flat line here).
   const levels = useWaveform(url, waveform, null);

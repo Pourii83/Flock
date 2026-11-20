@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { ActivityIndicator, Pressable, View } from 'react-native';
 
 import { api, getAuthHeaders } from '@/lib/api';
@@ -7,6 +7,7 @@ import { getApiUrl } from '@/lib/config';
 import { t } from '@/lib/i18n';
 import { colors } from '@/theme';
 import { useWaveform } from '@/lib/waveform';
+import { playVoice, seekVoice, toggleVoice, useVoice } from '@/state/voice';
 import { Icon, T } from './ui';
 import { WaveBars } from './wave-bars';
 
@@ -18,6 +19,8 @@ export const clockOf = (sec: number) => {
 /**
  * A voice message in the chat (web/desktop): play/pause, a progress bar you can tap to seek, and
  * the time. The file needs the Authorization header, so it plays from a short-lived signed link.
+ * The sound itself belongs to the shared player (state/voice.ts): it keeps playing while the person
+ * moves between chats, and the bar under the chat header controls pause, speed and volume.
  */
 export function VoicePlayer({
   url,
@@ -25,6 +28,8 @@ export function VoicePlayer({
   waveform,
   duration,
   compact,
+  title,
+  subtitle,
 }: {
   url: string;
   mine: boolean;
@@ -32,58 +37,36 @@ export function VoicePlayer({
   duration?: number;
   /** Fits a narrow space (the composer's preview of a fresh recording). */
   compact?: boolean;
+  /** Shown in the player bar (defaults to the generic voice-message label). */
+  title?: string;
+  subtitle?: string;
 }) {
   // Loudness bars: sent with the message, or measured here from the file for older messages.
   const levels = useWaveform(url, waveform, async () =>
     (await fetch(isLocalUrl(url) ? url : `${getApiUrl()}${url}`, isLocalUrl(url) ? undefined : { headers: getAuthHeaders() })).arrayBuffer(),
   );
-  const audio = useRef<HTMLAudioElement | null>(null);
-  const [src, setSrc] = useState<string | null>(null);
-  const [playing, setPlaying] = useState(false);
+  const now = useVoice();
+  // The signed link is kept with the URL it belongs to, so a row reused for another message can
+  // never borrow the previous one's audio.
+  const [resolved, setResolved] = useState<{ url: string; link: string } | null>(null);
+  const link = resolved?.url === url ? resolved.link : null;
   const [loading, setLoading] = useState(false);
-  const [time, setTime] = useState(0);
-  // The recorded length comes with the message: browser WebM recordings don't say how long they are.
-  const [length, setLength] = useState(duration ?? 0);
   const [error, setError] = useState('');
 
-  useEffect(() => () => audio.current?.pause(), []);
+  // This message is the one that plays: follow the shared clock, otherwise stay at zero.
+  const active = !!now && !!link && now.url === link;
+  const playing = active && now.playing;
+  const time = active ? now.time : 0;
+  const length = active && now.length ? now.length : (duration ?? 0);
+  const progress = length ? Math.min(1, time / length) : 0;
 
-  // timeupdate fires only ~4 times a second: while playing, follow the clock often so the
-  // played part of the waveform glides instead of stepping.
-  useEffect(() => {
-    if (!playing) return;
-    // A timer, not requestAnimationFrame: frames stop in panes that aren't painted (and 25/s is plenty).
-    const id = setInterval(() => {
-      const el = audio.current;
-      if (el) setTime(el.currentTime);
-    }, 40);
-    return () => clearInterval(id);
-  }, [playing]);
-
-  const ensure = async () => {
-    if (audio.current) return audio.current;
+  const resolve = async () => {
+    if (link) return link;
     setLoading(true);
     try {
       const full = isLocalUrl(url) ? url : `${getApiUrl()}${(await api.fileLink(url)).url}`;
-      const el = new Audio(full);
-      el.preload = 'auto';
-      el.onplay = () => setPlaying(true);
-      el.onpause = () => setPlaying(false);
-      el.onended = () => {
-        setPlaying(false);
-        setTime(0);
-      };
-      el.ontimeupdate = () => setTime(el.currentTime);
-      // WebM from MediaRecorder reports Infinity until it has been read through once.
-      el.onloadedmetadata = () => {
-        if (Number.isFinite(el.duration)) setLength(el.duration);
-      };
-      el.ondurationchange = () => {
-        if (Number.isFinite(el.duration)) setLength(el.duration);
-      };
-      audio.current = el;
-      setSrc(full);
-      return el;
+      setResolved({ url, link: full });
+      return full;
     } catch (e) {
       setError(e instanceof Error ? e.message : t('Could not download file'));
       return null;
@@ -93,27 +76,35 @@ export function VoicePlayer({
   };
 
   const toggle = async () => {
-    const el = await ensure();
-    if (!el) return;
-    if (el.paused) void el.play().catch(() => setError(t('Could not play this voice message')));
-    else el.pause();
+    if (active) {
+      toggleVoice();
+      return;
+    }
+    const full = await resolve();
+    if (!full) return;
+    await playVoice({ url: full, title: title || t('Voice message'), subtitle: subtitle ?? '', length: duration });
   };
 
   const seek = async (fraction: number) => {
-    const el = await ensure();
-    if (!el || !length) return;
-    el.currentTime = Math.max(0, Math.min(length, fraction * length));
-    setTime(el.currentTime);
+    if (active) {
+      seekVoice(fraction);
+      return;
+    }
+    const full = await resolve();
+    if (!full) return;
+    await playVoice({ url: full, title: title || t('Voice message'), subtitle: subtitle ?? '', length: duration });
+    // Playback starts at the beginning; jump to where the waveform was tapped.
+    setTimeout(() => seekVoice(fraction), 120);
   };
 
-  const progress = length ? Math.min(1, time / length) : 0;
+  const shape = clockOf(time);
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: compact ? 8 : 10, minWidth: compact ? 0 : 250, ...(compact ? { flex: 1, alignSelf: 'stretch' } : null) }}>
       <Pressable
         onPress={() => void toggle()}
         accessibilityLabel={playing ? t('Pause') : t('Play voice message')}
         style={{ width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: mine ? 'rgba(61,38,0,0.14)' : colors.amber }}>
-        {loading ? <ActivityIndicator color={mine ? colors.onAmber : colors.onAmber} size="small" /> : <Icon name={playing ? 'pause' : 'play'} size={18} color={colors.onAmber} />}
+        {loading ? <ActivityIndicator color={colors.onAmber} size="small" /> : <Icon name={playing ? 'pause' : 'play'} size={18} color={colors.onAmber} />}
       </Pressable>
       <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
         <WaveBars
@@ -124,7 +115,7 @@ export function VoicePlayer({
           onSeek={(f) => void seek(f)}
         />
         <T variant="bodySm" color={error ? colors.danger : mine ? '#72521B' : colors.textMuted} style={{ fontVariant: ['tabular-nums'] }}>
-          {error || (src && (playing || time > 0) ? clockOf(time) : length ? clockOf(length) : t('Voice message'))}
+          {error || (link && (playing || time > 0) ? shape : length ? clockOf(length) : t('Voice message'))}
         </T>
       </View>
     </View>

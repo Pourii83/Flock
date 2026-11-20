@@ -41,6 +41,7 @@ import { MediaViewer } from './media-viewer';
 import { MessageMenu } from './message-menu';
 import { ForwardDialog } from './message-menu';
 import { Button, contentDirection, Icon, IconButton, PushPin, SearchBar, Tooltip, noOutline, persianFont, T, type IconName } from './ui';
+import { VoiceBar } from './voice-bar';
 import { t, num, isRTL } from '@/lib/i18n';
 
 type Row =
@@ -93,7 +94,8 @@ export function ChatThread({
   // Several pins: the banner shows one at a time; tapping it jumps there and moves to the next older pin.
   const [pinIndex, setPinIndex] = useState(0);
   const pinCount = pinnedList.length;
-  const pinned = pinCount ? pinnedList[pinIndex % pinCount]! : latestPin;
+  // Pins arrive in chat order; show the newest first and step back through the older ones.
+  const pinned = pinCount ? pinnedList[pinCount - 1 - (pinIndex % pinCount)]! : latestPin;
   const { user } = useAuth();
   // Channels are broadcast-only: only the owner and admins get a composer.
   const myRole = conversation?.members.find((m) => m.id === user?.id)?.role;
@@ -298,6 +300,7 @@ export function ChatThread({
           onToggleSearch={() => setSearchOpen((v) => !v)}
         />
       )}
+      <VoiceBar />
       {!!pinned && (
         <PinnedBanner
           message={pinned}
@@ -406,6 +409,29 @@ export function ChatThread({
             </T>
           </View>
         </View>
+      )}
+      {/* Read back in the history: one tap returns to the newest message. */}
+      {scrolledUp && loadedMessages && (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={t('Go to newest messages')}
+          onPress={() => listRef.current?.scrollToOffset({ offset: 0, animated: true })}
+          style={{
+            position: 'absolute',
+            bottom: 96,
+            end: 16,
+            zIndex: 6,
+            width: 40,
+            height: 40,
+            borderRadius: 20,
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: colors.surfaceHighest,
+            borderWidth: 1,
+            borderColor: colors.hairline,
+          }}>
+          <Icon name="arrow-down" size={18} color={colors.text} />
+        </Pressable>
       )}
       <TypingIndicator conversation={conversation} />
       {conversation.blocked ? (
@@ -599,7 +625,10 @@ function PinnedBanner({
 }: {
   message: Message;
   conversation: Conversation;
-  /** Which of several pins is shown (newest = 0); null with a single pin. */
+  /**
+   * Which pinned message is shown (0 = newest) and its total.
+   * The list is in chat order, so the newest pin is the last item.
+   */
   position: { index: number; total: number } | null;
   onOpen: () => void;
   onUnpin: () => void;
@@ -1219,6 +1248,23 @@ function Bubble({
       {...(web ? { onPointerEnter: () => setHovered(true), onPointerLeave: () => setHovered(false) } : {})}
       onPress={!desktop ? openAtTouch : undefined}
       style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 10, marginTop: first ? 14 : 3, justifyContent: mine ? 'flex-end' : 'flex-start' }}>
+      {selectionMode && (
+        // A tick beside the message so the picked ones read at a glance.
+        <View
+          style={{
+            width: 24,
+            height: 24,
+            borderRadius: 12,
+            alignSelf: 'center',
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: selected ? colors.amber : 'transparent',
+            borderWidth: selected ? 0 : 2,
+            borderColor: colors.surfaceHighest,
+          }}>
+          {selected && <Icon name="check" size={15} color={colors.onAmber} />}
+        </View>
+      )}
       {!mine && <View style={{ width: 34 }}>{last && <Avatar user={sender} size={34} showPresence={false} />}</View>}
       {mine && hoverControls}
       <View style={{ maxWidth: desktop ? '72%' : '78%', alignItems: mine ? 'flex-end' : 'flex-start', gap: 6 }}>
@@ -1234,7 +1280,7 @@ function Bubble({
           {...(web && canAct && !selectionMode ? ({ onDoubleClick: onReply, onContextMenu: openAtPointer } as object) : {})}
           style={[
             {
-              backgroundColor: bubbleBg,
+              backgroundColor: selected ? (mine ? colors.amberSoft : colors.amberTint) : bubbleBg,
               // The border is always there (transparent when idle) so highlighting it doesn't shift the bubble.
               paddingHorizontal: framedMedia ? 0 : 16,
               paddingVertical: framedMedia ? 0 : 11,
@@ -1412,7 +1458,14 @@ function AttachmentCard({ message, mine, framed }: { message: Message; mine: boo
         onClose={() => setViewing(false)}
       />
       {audio && !expired && attachment.url ? (
-        <VoicePlayer url={attachment.url} mine={mine} waveform={attachment.waveform} duration={attachment.duration} />
+        <VoicePlayer
+          url={attachment.url}
+          mine={mine}
+          waveform={attachment.waveform}
+          duration={attachment.duration}
+          title={attachment.name || t('Voice message')}
+          subtitle={chatStore.state.conversations.find((c) => c.id === message.conversationId)?.name ?? ''}
+        />
       ) : media && !expired && attachment.url ? (
         // Photos/videos: the file name and download sit on the image's top-right corner, so the
         // caption can breathe underneath.
@@ -1660,11 +1713,9 @@ function Composer({
   const [dragOver, setDragOver] = useState(false);
   // Image/file staged from a paste or the picker: waits for Send with an optional caption.
   const [staged, setStaged] = useState<{ asset: DocumentPicker.DocumentPickerAsset; preview: string | null } | null>(null);
-  const [caption, setCaption] = useState('');
   const inputRef = useRef<TextInputInstance>(null);
   // The composer's edge lights up in amber while it has focus (Stitch).
   const [inputFocused, setInputFocused] = useState(false);
-  const captionRef = useRef<TextInputInstance>(null);
   const [inputHeight, setInputHeight] = useState(50);
   const insets = useSafeAreaInsets();
   const canSend = !uploading && !savingEdit && (text.trim().length > 0 || (!!staged && !editing) || editing?.kind === 'file');
@@ -1796,7 +1847,6 @@ function Composer({
     setEditText(editableText(editing));
     setEmojiOpen(false);
     setStaged(null);
-    setCaption('');
     inputRef.current?.focus();
   }, [editing]);
 
@@ -1867,14 +1917,13 @@ function Composer({
     const blob = (asset as { file?: Blob }).file;
     const preview = asset.uri?.startsWith('blob:') ? asset.uri : blob && typeof URL !== 'undefined' ? URL.createObjectURL(blob) : (asset.uri || null);
     setStaged({ asset, preview });
-    setCaption('');
     setEmojiOpen(false);
-    setTimeout(() => captionRef.current?.focus(), 50);
+    // The message box is the caption: one box and one send button for the whole send.
+    setTimeout(() => inputRef.current?.focus(), 50);
   };
 
   const cancelStaged = () => {
     setStaged(null);
-    setCaption('');
     setUploadError('');
   };
 
@@ -1885,9 +1934,9 @@ function Composer({
     setUploadError('');
     setProgress(0);
     try {
-      await chatStore.sendFile(conversation.id, staged.asset, replyTo, caption, (f) => setProgress(f));
+      await chatStore.sendFile(conversation.id, staged.asset, replyTo, text.trim(), (f) => setProgress(f));
       setStaged(null);
-      setCaption('');
+      setText('');
       onClearReply();
       onSent?.();
       inputRef.current?.focus();
@@ -2082,60 +2131,16 @@ function Composer({
               <Icon name="file" size={22} color={colors.amberText} />
             </View>
           )}
-          <View style={{ flex: 1, minWidth: 0, gap: 6 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              <T variant="labelLg" numberOfLines={1} style={{ flexShrink: 1 }}>
-                {staged.asset.name}
-              </T>
-              <T variant="bodySm" color={colors.textMuted}>
-                {bytesLabel(staged.asset.size ?? 0)}
-              </T>
-            </View>
-            <TextInput
-              ref={captionRef}
-              value={caption}
-              onChangeText={setCaption}
-              placeholder={t('Add a caption…')}
-              placeholderTextColor={colors.textMuted}
-              {...emptyInputDirection(caption)}
-              multiline
-              style={[
-                {
-                  minHeight: 38,
-                  maxHeight: 88,
-                  backgroundColor: colors.canvas,
-                  borderRadius: radius.md,
-                  borderWidth: 1,
-                  borderColor: colors.surfaceHigh,
-                  color: colors.text,
-                  fontFamily: fonts.regular,
-                  fontSize: 14,
-                  lineHeight: 20,
-                  paddingHorizontal: 10,
-                  paddingVertical: 8,
-                },
-                noOutline,
-                persianFont(caption || t('Add a caption…'), { fontFamily: fonts.regular }),
-              ]}
-            />
+          <View style={{ flex: 1, minWidth: 0, gap: 4, justifyContent: 'center' }}>
+            <T variant="labelLg" numberOfLines={1}>
+              {staged.asset.name}
+            </T>
+            <T variant="bodySm" color={colors.textMuted} numberOfLines={1}>
+              {bytesLabel(staged.asset.size ?? 0)} · {t('Write the caption in the message box')}
+            </T>
           </View>
-          <View style={{ justifyContent: 'space-between', alignItems: 'flex-end' }}>
+          <View style={{ justifyContent: 'flex-start', alignItems: 'flex-end' }}>
             <IconButton name="x" label={t('Cancel')} onPress={cancelStaged} size={30} iconSize={15} />
-            <Pressable
-              onPress={() => void sendStaged()}
-              disabled={uploading}
-              accessibilityLabel={t('Send')}
-              style={({ pressed, hovered }: any) => ({
-                width: 40,
-                height: 40,
-                borderRadius: 20,
-                backgroundColor: colors.amber,
-                opacity: uploading ? 0.6 : pressed || hovered ? 0.9 : 1,
-                alignItems: 'center',
-                justifyContent: 'center',
-              })}>
-              {uploading ? <ActivityIndicator color={colors.onAmber} size="small" /> : <Icon name="send" size={17} color={colors.onAmber} />}
-            </Pressable>
           </View>
         </View>
       )}
@@ -2216,7 +2221,7 @@ function Composer({
             ref={inputRef}
             value={text}
             onChangeText={onChange}
-            placeholder={placeholder}
+            placeholder={staged ? t('Add a caption…') : placeholder}
             placeholderTextColor={colors.textMuted}
             {...emptyInputDirection(text)}
             multiline

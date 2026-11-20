@@ -20,6 +20,8 @@ export const CLIENT_VERSION = BUILD_VERSION || Constants.expoConfig?.version || 
 const POLL_MS = 5 * 60 * 1000;
 /** Last client version the user has seen (localStorage/SecureStore). */
 const SEEN_KEY = 'flock.seenVersion';
+/** Server build this device already updated to (stops the update box from coming back). */
+const DISMISSED_KEY = 'flock.updatedTo';
 
 type UpdateState = {
   /** Installed server version, or null until the first successful check. */
@@ -61,15 +63,65 @@ export function isNewerVersion(candidate: string | null | undefined, base: strin
 }
 
 /**
+ * "v1.11.0-3-gab12cd" -> { numbers: "1.11.0", build: "3-gab12cd" }.
+ * The leading "v" is cosmetic: the server writes its tag (`v1.11.0`) while the app config has the
+ * bare number (`1.11.0`), so the two must compare as the same release.
+ */
+function buildParts(version: string | null | undefined): { numbers: string; build: string } {
+  const text = String(version ?? '').trim().replace(/^v/i, '');
+  const match = /^(\d+(?:\.\d+)*)(?:[-+](.*))?$/.exec(text);
+  if (!match) return { numbers: text.toLowerCase(), build: '' };
+  return { numbers: match[1]!, build: (match[2] ?? '').toLowerCase() };
+}
+
+/**
  * Is the server serving a different build than this client?
- * - Web served by the Flock server: the bundle is stamped with the package version, so any change
- *   (including a hotfix such as "v1.9.0-4-gf8ad187") means a reload is available.
- * - Installed apps: only a real numeric version bump is an update (they need a new release).
+ * - A newer numeric version is always an update (installed apps need the new release, the web gets
+ *   the new bundle).
+ * - The same numeric version with a different build id behind it (a hotfix deploy) is an update on
+ *   the web only, where a reload picks the new bundle up.
+ * - Anything else is the same build: "v1.11.0" and "1.11.0" are one release, never an update.
  */
 export function isUpdateAvailable(serverVersion: string | null | undefined): boolean {
   if (!serverVersion) return false;
-  if (Platform.OS === 'web' && BUILD_VERSION) return String(serverVersion) !== CLIENT_VERSION;
-  return isNewerVersion(serverVersion, CLIENT_VERSION);
+  const server = buildParts(serverVersion);
+  const client = buildParts(CLIENT_VERSION);
+  if (!server.numbers) return false;
+  if (server.numbers !== client.numbers) return isNewerVersion(serverVersion, CLIENT_VERSION);
+  if (Platform.OS !== 'web' || !BUILD_VERSION) return false;
+  if (!server.build || !client.build) return false;
+  return server.build !== client.build;
+}
+
+// ---------- already updated ----------
+// A reload normally brings the new bundle, so the box goes away by itself. When it cannot (an
+// installed PWA serving its cached build, a bundle without a build stamp) the box would otherwise
+// come back every few minutes: pressing Update remembers that build once.
+
+let dismissedBuild: string | null = null;
+let dismissedLoaded = false;
+
+/** Reads the build this device already updated to (once per launch). */
+export async function loadDismissedUpdate(): Promise<string | null> {
+  if (dismissedLoaded) return dismissedBuild;
+  dismissedLoaded = true;
+  const saved = await getItem(DISMISSED_KEY);
+  dismissedBuild = typeof saved === 'string' && saved ? saved : null;
+  return dismissedBuild;
+}
+
+/** Remember the server build the person updated to, so the same one never asks again. */
+export async function dismissUpdate(version: string | null | undefined) {
+  dismissedBuild = String(version ?? '').trim() || null;
+  await setItem(DISMISSED_KEY, dismissedBuild ?? '');
+}
+
+/** True when this exact build (number + build id) is the one already updated to here. */
+export function isDismissedUpdate(version: string | null | undefined): boolean {
+  if (!dismissedBuild || !version) return false;
+  const asked = buildParts(version);
+  const saved = buildParts(dismissedBuild);
+  return asked.numbers === saved.numbers && asked.build === saved.build;
 }
 
 /** The version as shown to people: numeric part only ("v1.9.0-1-g827c5c7" -> "1.9.0"). */

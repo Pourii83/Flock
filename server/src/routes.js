@@ -225,7 +225,10 @@ export function createRouter(realtime) {
 
   // ---------- meeting rooms: owner side ----------
 
-  r.get('/rooms', async (req, res) => res.json(await repo.listOpenRooms(req.userId)));
+  // Each link carries how many people are in it right now: closing a busy room needs a warning.
+  r.get('/rooms', async (req, res) =>
+    res.json((await repo.listOpenRooms(req.userId)).map((room) => ({ ...room, participants: realtime.roomOccupancy(room.id) }))),
+  );
 
   r.post('/rooms', throttle(roomsPerUser), async (req, res) => {
     const title = String(req.body?.title ?? '').trim().slice(0, 80);
@@ -886,6 +889,12 @@ export function createRouter(realtime) {
   // ---------- calls ----------
 
   r.get('/calls', async (req, res) => res.json(await repo.listCalls(req.userId)));
+  // Deletes calls from this person's history only; the other side keeps its own copy.
+  r.post('/calls/hide', async (req, res) => {
+    const ids = Array.isArray(req.body?.ids) ? req.body.ids.slice(0, 500) : [];
+    if (!ids.length) return res.status(400).json({ error: 'Pick the calls to delete' });
+    res.json({ hidden: await repo.hideCalls(req.userId, ids) });
+  });
   r.get('/calls/active', async (req, res) => res.json(await realtime.activeCalls(req.userId)));
   r.get('/calls/:callId/active', async (req, res) => {
     const call = await realtime.invitedCall(req.userId, req.params.callId);
