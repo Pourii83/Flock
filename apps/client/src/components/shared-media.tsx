@@ -274,7 +274,7 @@ export function SharedMedia({ conversation }: { conversation: Conversation }) {
 
 /** Scrolls the chat to the message this row came from. */
 function ShowInChat({ onPress }: { onPress: () => void }) {
-  return <IconButton name="message-square" label={t('Show in chat')} onPress={onPress} size={34} iconSize={17} color={colors.textMuted} />;
+  return <IconButton name="eye" label={t('Show in chat')} onPress={onPress} size={34} iconSize={17} color={colors.textMuted} />;
 }
 
 // Functions, not constants: the palette is swapped in place when the theme changes.

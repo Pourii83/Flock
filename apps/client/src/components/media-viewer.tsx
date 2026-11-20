@@ -85,7 +85,7 @@ export function MediaViewer({ media, onClose, onShowInChat }: { media: ViewerMed
     { icon: 'download', label: t('Download'), onPress: () => void download() },
     ...(!isVideo && Platform.OS === 'web' ? [{ icon: 'copy' as const, label: t('Copy image'), onPress: () => run(copyImageAttachment) }] : []),
     ...(Platform.OS === 'web' ? [{ icon: 'external-link' as const, label: t('Open in new tab'), onPress: () => run(openAttachmentInTab) }] : []),
-    ...(onShowInChat ? [{ icon: 'message-square' as const, label: t('Show in chat'), onPress: onShowInChat }] : []),
+    ...(onShowInChat ? [{ icon: 'eye' as const, label: t('Show in chat'), onPress: onShowInChat }] : []),
     { icon: 'x', label: t('Close viewer'), onPress: onClose },
   ];
   const box = media && loaded?.url === media.url ? fit(loaded.width, loaded.height) : null;
@@ -110,7 +110,7 @@ export function MediaViewer({ media, onClose, onShowInChat }: { media: ViewerMed
           ) : (
             <IconButton name="download" label={t('Download')} {...BUTTON} onPress={() => void download()} />
           )}
-          {onShowInChat && <IconButton name="message-square" label={t('Show in chat')} {...BUTTON} onPress={onShowInChat} />}
+          {onShowInChat && <IconButton name="eye" label={t('Show in chat')} {...BUTTON} onPress={onShowInChat} />}
           <IconButton name="x" label={t('Close')} {...BUTTON} onPress={onClose} />
         </View>
 
