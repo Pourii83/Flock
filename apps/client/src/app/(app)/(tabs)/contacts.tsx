@@ -43,11 +43,14 @@ async function directWith(user: User) {
 function PersonRow({
   user,
   wide,
+  compact,
   open,
   onToggle,
 }: {
   user: User;
   wide: boolean;
+  /** Too narrow for the buttons: they move into a bar that a tap opens. */
+  compact: boolean;
   /** Narrow rows: this one's actions are showing. */ open: boolean;
   onToggle: () => void;
 }) {
@@ -68,10 +71,6 @@ function PersonRow({
   };
   const call = async (video: boolean) =>
     startCall(await directWith(user), video);
-
-  // A narrow row keeps the name readable: the buttons move into a bar that a tap opens.
-  const [width, setWidth] = useState(0);
-  const compact = width > 0 && width < COMPACT_BELOW;
 
   // The bar slides open and closed: it stays mounted while closing, then leaves (so its buttons
   // can't be reached by Tab while hidden).
@@ -98,10 +97,7 @@ function PersonRow({
   const barShown = compact && (open || closing);
 
   return (
-    <View
-      onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
-      style={{ borderRadius: radius.lg }}
-    >
+    <View style={{ borderRadius: radius.lg }}>
       {compact && (
         <Animated.View
           pointerEvents="none"
@@ -252,6 +248,9 @@ function PersonRow({
 
 /** Rows narrower than this show the name in full and keep their buttons behind a tap. */
 const COMPACT_BELOW = 380;
+const LIST_PADDING = 16;
+/** Always kept free for a scrollbar, so it appearing or not never changes the layout. */
+const SCROLLBAR_ROOM = 12;
 
 /** One of the actions a tap on a narrow contact row reveals. */
 function RowAction({
@@ -304,6 +303,13 @@ function PeopleList({ wide }: { wide: boolean }) {
   const [reload, setReload] = useState(0);
   // Narrow rows: only one shows its actions at a time.
   const [openId, setOpenId] = useState<string | null>(null);
+  // Rows go compact by the list's outer width, which a scrollbar doesn't change. Measuring each row
+  // fed back into itself: compact rows are shorter, the scrollbar went away, the rows widened, went
+  // back to wide (taller), the scrollbar came back... and the list kept jumping.
+  const [listWidth, setListWidth] = useState(0);
+  const compact =
+    listWidth > 0 &&
+    listWidth - LIST_PADDING * 2 - SCROLLBAR_ROOM < COMPACT_BELOW;
 
   useFocusEffect(useCallback(() => setReload((n) => n + 1), []));
 
@@ -333,53 +339,64 @@ function PeopleList({ wide }: { wide: boolean }) {
   ];
 
   return (
-    <FlatList
-      data={sections}
-      extraData={openId}
-      keyExtractor={(item) => (typeof item === "string" ? item : item.id)}
-      contentContainerStyle={{ padding: 16, gap: 2, paddingBottom: 24 }}
-      ListHeaderComponent={
-        <SearchBar
-          value={query}
-          onChangeText={setQuery}
-          placeholder={t("Search by name or @username")}
-          style={{ marginBottom: 16 }}
-        />
-      }
-      renderItem={({ item }) =>
-        typeof item === "string" ? (
-          <View style={{ paddingTop: 12, paddingBottom: 6 }}>
-            <SectionLabel>{item}</SectionLabel>
-          </View>
-        ) : (
-          <PersonRow
-            user={item}
-            wide={wide}
-            open={openId === item.id}
-            onToggle={() =>
-              setOpenId((id) => (id === item.id ? null : item.id))
-            }
+    // Measured on a plain wrapper: FlatList's own onLayout doesn't fire on web.
+    <View
+      style={{ flex: 1 }}
+      onLayout={(e) => setListWidth(e.nativeEvent.layout.width)}
+    >
+      <FlatList
+        data={sections}
+        extraData={`${openId}:${compact}`}
+        keyExtractor={(item) => (typeof item === "string" ? item : item.id)}
+        contentContainerStyle={{
+          padding: LIST_PADDING,
+          gap: 2,
+          paddingBottom: 24,
+        }}
+        ListHeaderComponent={
+          <SearchBar
+            value={query}
+            onChangeText={setQuery}
+            placeholder={t("Search by name or @username")}
+            style={{ marginBottom: 16 }}
           />
-        )
-      }
-      ListEmptyComponent={
-        people === null ? (
-          <ActivityIndicator color={colors.amberText} />
-        ) : (
-          <T
-            variant="body"
-            color={colors.textMuted}
-            style={{ textAlign: "center", marginTop: 24 }}
-          >
-            {query
-              ? t("Nobody found.")
-              : t(
-                  "People you chat or call with show up here. Start a new chat to find someone.",
-                )}
-          </T>
-        )
-      }
-    />
+        }
+        renderItem={({ item }) =>
+          typeof item === "string" ? (
+            <View style={{ paddingTop: 12, paddingBottom: 6 }}>
+              <SectionLabel>{item}</SectionLabel>
+            </View>
+          ) : (
+            <PersonRow
+              user={item}
+              wide={wide}
+              compact={compact}
+              open={openId === item.id}
+              onToggle={() =>
+                setOpenId((id) => (id === item.id ? null : item.id))
+              }
+            />
+          )
+        }
+        ListEmptyComponent={
+          people === null ? (
+            <ActivityIndicator color={colors.amberText} />
+          ) : (
+            <T
+              variant="body"
+              color={colors.textMuted}
+              style={{ textAlign: "center", marginTop: 24 }}
+            >
+              {query
+                ? t("Nobody found.")
+                : t(
+                    "People you chat or call with show up here. Start a new chat to find someone.",
+                  )}
+            </T>
+          )
+        }
+      />
+    </View>
   );
 }
 
