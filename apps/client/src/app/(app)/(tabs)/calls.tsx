@@ -243,10 +243,18 @@ function MeetingsCard() {
               );
             })}
           </View>
-          <View style={{ flexDirection: 'row', gap: 8, justifyContent: 'flex-end' }}>
-            <Button title={t('Cancel')} variant="ghost" size="sm" onPress={() => setCreating(false)} />
-            <Button title={t('Create and copy link')} icon="link" size="sm" loading={busy === 'new'} onPress={create} />
-          </View>
+          {/* Side by side when there's room; on narrow screens they stack full width instead of spilling out of the card. */}
+          {roomy ? (
+            <View style={{ flexDirection: 'row', gap: 8, justifyContent: 'flex-end' }}>
+              <Button title={t('Cancel')} variant="ghost" size="sm" onPress={() => setCreating(false)} />
+              <Button title={t('Create and copy link')} icon="link" size="sm" loading={busy === 'new'} onPress={create} />
+            </View>
+          ) : (
+            <View style={{ gap: 8 }}>
+              <Button title={t('Create and copy link')} icon="link" size="sm" loading={busy === 'new'} onPress={create} />
+              <Button title={t('Cancel')} variant="ghost" size="sm" onPress={() => setCreating(false)} />
+            </View>
+          )}
         </View>
       )}
 

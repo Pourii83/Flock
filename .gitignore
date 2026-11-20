@@ -30,3 +30,6 @@ CLAUDE.local.md
 
 # Obsidian workspace state (docs/dev opens as a vault)
 .obsidian/
+
+# native module build output
+apps/client/modules/*/android/build/
