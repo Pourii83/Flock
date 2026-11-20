@@ -733,10 +733,10 @@ server {
     listen 80;
     listen [::]:80;
     server_name $DOMAIN;
-    # The upload limit is enforced by Flock itself (the admin can change it in the app, up to 4096 MB),
-    # so Nginx only caps at that ceiling and streams uploads through instead of buffering them first:
-    # an oversize upload is cut off by Flock as soon as it passes the limit.
-    client_max_body_size 4101m;
+    # No limit here: Flock enforces its own upload limit (the admin changes it in the app) and every
+    # other request's size. Uploads stream straight through instead of being buffered on disk first,
+    # so an oversize file is cut off by Flock as soon as it passes the limit.
+    client_max_body_size 0;
     proxy_request_buffering off;
 
     location / {

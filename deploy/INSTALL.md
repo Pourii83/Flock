@@ -130,9 +130,9 @@ server {
     ssl_certificate     /etc/letsencrypt/live/chat.example.com/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/chat.example.com/privkey.pem;
     ssl_protocols TLSv1.2 TLSv1.3;
-    # Flock enforces its own upload limit (changeable in the admin panel, up to 4096 MB): cap at that
-    # ceiling and stream uploads through, so raising the limit in the app needs no Nginx change.
-    client_max_body_size 4101m;
+    # No limit here: Flock enforces its own (the upload limit is changed in the admin panel). Uploads
+    # stream through instead of being buffered, so an oversize file is cut off as soon as it passes it.
+    client_max_body_size 0;
     proxy_request_buffering off;
 
     location / {
