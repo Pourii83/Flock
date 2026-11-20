@@ -39,14 +39,38 @@ function patch(next: Partial<VoiceNowPlaying>) {
   emit();
 }
 
+// timeupdate fires only ~4 times a second: while playing, follow the clock often so the played part
+// of the waveform glides instead of stepping. A timer, not requestAnimationFrame: frames stop in
+// windows that aren't painted (and 25 updates a second is plenty).
+let clock: ReturnType<typeof setInterval> | null = null;
+function startClock() {
+  if (clock) return;
+  clock = setInterval(() => {
+    if (element && !element.paused) patch({ time: element.currentTime });
+  }, 40);
+}
+function stopClock() {
+  if (clock) clearInterval(clock);
+  clock = null;
+}
+
 function audio(): HTMLAudioElement | null {
   if (Platform.OS !== 'web' || typeof Audio === 'undefined') return null;
   if (element) return element;
   const el = new Audio();
   el.preload = 'auto';
-  el.onplay = () => patch({ playing: true });
-  el.onpause = () => patch({ playing: false });
-  el.onended = () => patch({ playing: false, time: 0 });
+  el.onplay = () => {
+    patch({ playing: true });
+    startClock();
+  };
+  el.onpause = () => {
+    stopClock();
+    patch({ playing: false });
+  };
+  el.onended = () => {
+    stopClock();
+    patch({ playing: false, time: 0 });
+  };
   el.ontimeupdate = () => patch({ time: el.currentTime });
   // WebM from MediaRecorder reports Infinity until the file has been read through once.
   el.onloadedmetadata = () => {
@@ -122,6 +146,7 @@ export function setVoiceMuted(muted: boolean) {
 
 /** Hides the bar and stops the sound. */
 export function stopVoice() {
+  stopClock();
   if (element) {
     element.pause();
     element.removeAttribute('src');
