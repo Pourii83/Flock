@@ -1,5 +1,15 @@
-import { Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold, useFonts } from '@expo-google-fonts/inter';
-import { Vazirmatn_400Regular, Vazirmatn_500Medium, Vazirmatn_600SemiBold, Vazirmatn_700Bold } from '@expo-google-fonts/vazirmatn';
+import Feather from '@expo/vector-icons/Feather';
+// One module per weight: the package index would also bundle every other weight and a list of
+// Google-hosted font URLs. Everything here is a local file served by Flock itself.
+import { Inter_400Regular } from '@expo-google-fonts/inter/400Regular';
+import { Inter_500Medium } from '@expo-google-fonts/inter/500Medium';
+import { Inter_600SemiBold } from '@expo-google-fonts/inter/600SemiBold';
+import { Inter_700Bold } from '@expo-google-fonts/inter/700Bold';
+import { Vazirmatn_400Regular } from '@expo-google-fonts/vazirmatn/400Regular';
+import { Vazirmatn_500Medium } from '@expo-google-fonts/vazirmatn/500Medium';
+import { Vazirmatn_600SemiBold } from '@expo-google-fonts/vazirmatn/600SemiBold';
+import { Vazirmatn_700Bold } from '@expo-google-fonts/vazirmatn/700Bold';
+import { useFonts } from 'expo-font';
 import { DarkTheme, DefaultTheme, router, Stack, ThemeProvider, usePathname } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
@@ -49,6 +59,8 @@ function RootStack() {
   // reading the module value again on later renders would lose the screen the user came from.
   const restoreTo = useRef(currentPath);
   const [fontsLoaded] = useFonts({
+    // The icon font loads with the text fonts, so no icon pops in late the first time it appears.
+    ...Feather.font,
     Inter_400Regular,
     Inter_500Medium,
     Inter_600SemiBold,

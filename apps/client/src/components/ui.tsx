@@ -1,5 +1,4 @@
 import Feather from '@expo/vector-icons/Feather';
-import Ionicons from '@expo/vector-icons/Ionicons';
 import { forwardRef, isValidElement, useState, type ComponentProps, type ReactNode } from 'react';
 import {
   ActivityIndicator,
@@ -120,9 +119,19 @@ export function PushPin({ size = 18, color = colors.text }: { size?: number; col
   );
 }
 
-/** A monochrome raised-hand icon, so call controls look like the rest of the dock (not an emoji). */
+/**
+ * A monochrome raised hand in the same line style as the Feather icons, so call controls look like
+ * the rest of the dock (not an emoji). Drawn as SVG: no icon font to wait for.
+ */
 export function HandIcon({ size = 20, color = colors.text }: { size?: number; color?: string }) {
-  return <Ionicons name="hand-left" size={size} color={color} />;
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <Path d="M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2" />
+      <Path d="M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2" />
+      <Path d="M10 10.5V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v8" />
+      <Path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15" />
+    </Svg>
+  );
 }
 
 /** Circular / rounded icon button with press + hover feedback. */
