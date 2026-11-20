@@ -17,6 +17,11 @@ import { ContextMenu, type ContextMenuItem } from './context-menu';
 import { EmojiPickerModal } from './emoji-picker';
 import { Icon, IconButton, T } from './ui';
 
+/** Group/channel owners can delete other people's texts and files (the server checks the same). */
+export function canOwnerRemove(conversation: Conversation, message: Message) {
+  return conversation.type !== 'direct' && conversation.myRole === 'owner' && (message.kind === 'text' || message.kind === 'file');
+}
+
 const QUICK_REACTIONS = ['❤️', '👍', '😂', '😢', '🙏', '👎'] as const;
 
 export function MessageMenu({
@@ -57,7 +62,9 @@ export function MessageMenu({
 
   const canAct = !message.pending && !message.failed;
   const isText = message.kind === 'text';
-  const canDelete = canAct && mine;
+  // The owner of a group or channel can also remove other people's messages and files (with a warning).
+  const ownerRemoves = !mine && canOwnerRemove(conversation, message);
+  const canDelete = canAct && (mine || ownerRemoves);
   // The server only pins text and file messages.
   const canPin = canAct && (isText || message.kind === 'file');
   // Secret chats are decrypted per device, so they can't be copied into Saved Messages or forwarded.
@@ -83,7 +90,15 @@ export function MessageMenu({
   };
 
   const remove = async () => {
-    const ok = await confirm(t('Delete message'), t('Delete this message for everyone?'), t('Delete'), t('Cancel'));
+    const sender = conversation.members.find((m) => m.id === message.senderId)?.displayName ?? t('this member');
+    const ok = ownerRemoves
+      ? await confirm(
+          t('Delete someone else’s message'),
+          t('This message was sent by {name}. As the owner you can delete it for everyone, including {name}. This can’t be undone.', { name: sender }),
+          t('Delete'),
+          t('Cancel'),
+        )
+      : await confirm(t('Delete message'), t('Delete this message for everyone?'), t('Delete'), t('Cancel'));
     if (!ok) return;
     try {
       await chatStore.deleteMessage(message);

@@ -104,6 +104,12 @@ const fa: Record<string, string> = {
   // ----- server errors -----
   'Wrong username or password': 'نام کاربری یا رمز عبور اشتباه است',
   'Too many attempts. Please wait a few minutes and try again.': 'تلاش‌ها بیش از حد شد. چند دقیقه صبر کنید و دوباره امتحان کنید.',
+  'Delete someone else’s message': 'حذف پیام شخص دیگر',
+  'this member': 'این عضو',
+  'This message was sent by {name}. As the owner you can delete it for everyone, including {name}. This can’t be undone.':
+    'این پیام را {name} فرستاده است. شما به‌عنوان مالک می‌توانید آن را برای همه، از جمله {name}، حذف کنید. این کار برگشت‌پذیر نیست.',
+  'Delete {n} messages for everyone? {others} of them were sent by other people; they will be deleted for them too. This can’t be undone.':
+    '{n} پیام برای همه حذف شود؟ {others} تا از آن‌ها را دیگران فرستاده‌اند و برای آن‌ها هم حذف می‌شوند. این کار برگشت‌پذیر نیست.',
   'Too many requests. Please wait a moment and try again.': 'درخواست‌ها بیش از حد شد. کمی صبر کنید و دوباره امتحان کنید.',
   'That username is taken': 'این نام کاربری قبلاً گرفته شده',
   'Username must be 3–24 letters, numbers, _ or .': 'نام کاربری باید ۳ تا ۲۴ حرف انگلیسی، عدد، _ یا . باشد',

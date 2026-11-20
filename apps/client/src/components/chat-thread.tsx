@@ -38,7 +38,7 @@ import { Avatar, ConversationAvatar, MegaphoneIcon } from './avatar';
 import { EmojiPicker } from './emoji-picker';
 import { LinkedText } from './linked-text';
 import { MediaViewer } from './media-viewer';
-import { MessageMenu } from './message-menu';
+import { canOwnerRemove, MessageMenu } from './message-menu';
 import { ForwardDialog } from './message-menu';
 import { Button, contentDirection, Icon, IconButton, PushPin, SearchBar, Tooltip, noOutline, persianFont, T, type IconName } from './ui';
 import { VoiceBar } from './voice-bar';
@@ -189,7 +189,15 @@ export function ChatThread({
   };
   const deleteSelected = async () => {
     if (!selectedMessages.length) return;
-    const ok = await confirm(t('Delete message'), t('Delete {n} messages?', { n: num(selectedMessages.length) }), t('Delete'), t('Cancel'));
+    const others = selectedMessages.filter((m) => m.senderId !== user?.id).length;
+    const ok = await confirm(
+      t('Delete message'),
+      others
+        ? t('Delete {n} messages for everyone? {others} of them were sent by other people; they will be deleted for them too. This can’t be undone.', { n: num(selectedMessages.length), others: num(others) })
+        : t('Delete {n} messages?', { n: num(selectedMessages.length) }),
+      t('Delete'),
+      t('Cancel'),
+    );
     if (!ok) return;
     for (const message of selectedMessages) {
       try {
@@ -287,7 +295,7 @@ export function ChatThread({
           onSave={() => void saveSelected()}
           onPin={() => void pinSelected()}
           onDelete={() => void deleteSelected()}
-          canDelete={selectedMessages.length > 0 && selectedMessages.every((m) => m.senderId === user?.id)}
+          canDelete={selectedMessages.length > 0 && selectedMessages.every((m) => m.senderId === user?.id || (!!conversation && canOwnerRemove(conversation, m)))}
         />
       ) : (
         <ThreadHeader

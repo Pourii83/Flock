@@ -435,7 +435,14 @@ export function createRouter(realtime) {
   r.delete('/messages/:messageId', async (req, res) => {
     const message = await visibleMessage(req, res);
     if (!message) return;
-    if (message.sender_id !== req.userId) return res.status(403).json({ error: 'You can only delete your own messages' });
+    if (message.sender_id !== req.userId) {
+      // The owner of a group or channel can remove anyone's message or file there (moderation);
+      // everyone else only their own.
+      const conv = await repo.getConversationRow(message.conversation_id);
+      const owner = conv && conv.type !== 'direct' && (await repo.getRole(conv.id, req.userId)) === 'owner';
+      if (!owner || !['text', 'file'].includes(message.kind))
+        return res.status(403).json({ error: 'You can only delete your own messages' });
+    }
     const deleted = await repo.deleteMessage(message.id);
     if (!deleted) return res.status(404).json({ error: 'Message not found' });
     if (deleted.attachment_path) await deleteStoredFile(deleted.attachment_path);
