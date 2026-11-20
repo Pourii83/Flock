@@ -1153,6 +1153,9 @@ function Bubble({
   const fg = mine ? colors.onAmber : colors.text;
   // Stitch bubbles: 16px corners, the speaker's corner pinched to 4px on the last of a run.
   const r = 16;
+  // A photo or video fills its bubble: only the bubble's thin edge shows around it (no padding).
+  const framedMedia =
+    m.kind === 'file' && !!m.attachment && !m.attachment.expired && !!m.attachment.url && /^(image|video)\//.test(m.attachment.mimeType);
   // Pending/failed messages don't exist on the server yet, so they have no menu.
   const canAct = !m.pending && !m.failed;
   const web = Platform.OS === 'web';
@@ -1233,15 +1236,16 @@ function Bubble({
             {
               backgroundColor: bubbleBg,
               // The border is always there (transparent when idle) so highlighting it doesn't shift the bubble.
-              paddingHorizontal: 16,
-              paddingVertical: 11,
+              paddingHorizontal: framedMedia ? 0 : 16,
+              paddingVertical: framedMedia ? 0 : 11,
+              overflow: framedMedia ? 'hidden' : undefined,
               borderRadius: r,
               borderBottomStartRadius: !mine ? 4 : r,
               borderTopStartRadius: !mine && !first ? 4 : r,
               borderBottomEndRadius: mine ? 4 : r,
               borderTopEndRadius: mine && !first ? 4 : r,
               opacity: m.pending ? 0.75 : 1,
-              gap: 8,
+              gap: framedMedia ? 0 : 8,
               // Their messages are cards with a hairline edge; mine are amber. Highlighting only
               // recolors the edge, so the bubble never shifts.
               borderWidth: 1.5,
@@ -1257,6 +1261,7 @@ function Bubble({
                 backgroundColor: mine ? 'rgba(61,38,0,0.08)' : colors.surfaceHigh,
                 borderRadius: 10,
                 padding: 10,
+                margin: framedMedia ? 6 : 0,
               }}>
               <View style={{ width: 3, borderRadius: 2, backgroundColor: colors.amber }} />
               <View style={{ flexShrink: 1 }}>
@@ -1270,7 +1275,7 @@ function Bubble({
             </View>
           )}
           {!!m.forwardedFrom && (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, ...(framedMedia ? { paddingHorizontal: 12, paddingVertical: 7 } : {}) }}>
               <Icon name="corner-up-right" size={13} color={mine ? '#8A5A00' : colors.amberText} />
               <T variant="label" color={mine ? '#8A5A00' : colors.amberText} numberOfLines={1} style={{ flexShrink: 1 }}>
                 {t('Forwarded from {name}', { name: m.forwardedFrom })}
@@ -1278,7 +1283,7 @@ function Bubble({
             </View>
           )}
           {m.kind === 'file' ? (
-            <AttachmentCard message={m} mine={mine} />
+            <AttachmentCard message={m} mine={mine} framed={framedMedia} />
           ) : m.kind === 'call_invite' ? (
             <CallInviteCard message={m} mine={mine} />
           ) : (
@@ -1354,7 +1359,7 @@ function bytesLabel(size: number) {
   return `${size} B`;
 }
 
-function AttachmentCard({ message, mine }: { message: Message; mine: boolean }) {
+function AttachmentCard({ message, mine, framed }: { message: Message; mine: boolean; /** The bubble frames the photo/video itself (no padding). */ framed?: boolean }) {
   // A secret-chat file is downloaded and decrypted first; it then shows from a local URL.
   const sealedFile = useSealedUrl(message.id, message.attachment);
   const attachment = message.attachment?.sealed ? { ...message.attachment, url: sealedFile.url } : message.attachment;
@@ -1401,7 +1406,7 @@ function AttachmentCard({ message, mine }: { message: Message; mine: boolean }) 
   };
   const press = () => (media ? setViewing(true) : void download());
   return (
-    <View style={{ minWidth: 210, maxWidth: 320, gap: 8 }}>
+    <View style={{ minWidth: 210, maxWidth: 320, gap: framed ? 0 : 8 }}>
       <MediaViewer
         media={viewing && attachment.url ? { url: attachment.url, name: attachment.name, mimeType: attachment.mimeType } : null}
         onClose={() => setViewing(false)}
@@ -1411,7 +1416,7 @@ function AttachmentCard({ message, mine }: { message: Message; mine: boolean }) 
       ) : media && !expired && attachment.url ? (
         // Photos/videos: the file name and download sit on the image's top-right corner, so the
         // caption can breathe underneath.
-        <View style={{ position: 'relative', borderRadius: 12, overflow: 'hidden', backgroundColor: colors.surface }}>
+        <View style={{ position: 'relative', borderRadius: framed ? 0 : 12, overflow: 'hidden', backgroundColor: colors.surface }}>
           <Pressable onPress={() => setViewing(true)} accessibilityLabel={attachment.name} style={{ width: '100%' }}>
             {image ? (
               <Image source={attachmentSource(attachment.url)} style={{ width: '100%', aspectRatio: 4 / 3, backgroundColor: colors.surface }} contentFit="cover" />
@@ -1491,11 +1496,15 @@ function AttachmentCard({ message, mine }: { message: Message; mine: boolean }) 
           variant="bodyLg"
           color={mine ? colors.onAmber : colors.text}
           linkColor={mine ? '#5A3A00' : colors.amberText}
-          style={{ fontSize: 16, lineHeight: 24 }}>
+          style={{ fontSize: 16, lineHeight: 24, ...(framed ? { paddingHorizontal: 14, paddingTop: 8, paddingBottom: 10 } : {}) }}>
           {caption}
         </LinkedText>
       )}
-      {!!error && <T variant="bodySm" color={colors.danger}>{error}</T>}
+      {!!error && (
+        <T variant="bodySm" color={colors.danger} style={framed ? { paddingHorizontal: 14, paddingBottom: 8 } : undefined}>
+          {error}
+        </T>
+      )}
     </View>
   );
 }
