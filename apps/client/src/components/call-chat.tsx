@@ -8,7 +8,7 @@ import { t } from '@/lib/i18n';
 import { useCalls } from '@/state/calls';
 import { colors, fonts, radius } from '@/theme';
 import { LinkedText } from './linked-text';
-import { Icon, IconButton, noOutline, persianFont, T, Tooltip } from './ui';
+import { Icon, IconButton, noOutline, persianFont, PushPin, T, Tooltip } from './ui';
 
 /**
  * Height of the on-screen keyboard on phones (0 elsewhere). The call overlay floats above the
@@ -34,10 +34,26 @@ function useKeyboardHeight() {
 /**
  * Temporary chat for the current call. Messages travel over the call's signaling channel,
  * are never stored, and disappear when the call ends.
+ *
+ * On a wide screen the panel can be pinned: it then docks to the trailing edge and the call
+ * stage reserves that width, so nothing sits underneath it.
  */
-export function CallChatPanel({ onClose }: { onClose: () => void }) {
+export function CallChatPanel({
+  onClose,
+  pinned = false,
+  onTogglePin,
+  dockWidth = 340,
+}: {
+  onClose: () => void;
+  /** Pinned beside the call (wide screens only). */
+  pinned?: boolean;
+  /** Present on wide screens: shows the pin/unpin button in the header. */
+  onTogglePin?: () => void;
+  dockWidth?: number;
+}) {
   const { call, sendChat, readChat, setChatOpen } = useCalls();
   const wide = useIsWide();
+  const docked = wide && pinned;
   const keyboard = useKeyboardHeight();
   const insets = useSafeAreaInsets();
   const [text, setText] = useState('');
@@ -75,7 +91,9 @@ export function CallChatPanel({ onClose }: { onClose: () => void }) {
           ...(Platform.OS === 'web' ? ({ backdropFilter: 'blur(16px)' } as object) : {}),
         },
         wide
-          ? { top: 16, bottom: 16, end: 16, width: 340, borderRadius: radius.xl }
+          ? docked
+            ? { top: 0, end: 0, bottom: 0, width: dockWidth, borderRadius: 0, borderWidth: 0, borderStartWidth: 1 }
+            : { top: 16, bottom: 16, end: 16, width: dockWidth, borderRadius: radius.xl }
           : keyboard
             ? // Keyboard up: sit right above it and use the space that's left.
               // Android draws behind the navigation bar, and the reported keyboard height leaves it out.
@@ -90,6 +108,24 @@ export function CallChatPanel({ onClose }: { onClose: () => void }) {
             {t('Messages disappear when the call ends.')}
           </T>
         </View>
+        {onTogglePin && (
+          <Tooltip label={pinned ? t('Unpin chat') : t('Pin chat')}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={pinned ? t('Unpin chat') : t('Pin chat')}
+              onPress={onTogglePin}
+              style={({ pressed, hovered }: any) => ({
+                width: 34,
+                height: 34,
+                borderRadius: 17,
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: pinned ? colors.amberTint : pressed || hovered ? colors.surfaceHigh : 'transparent',
+              })}>
+              <PushPin size={17} color={pinned ? colors.amberText : colors.textMuted} />
+            </Pressable>
+          </Tooltip>
+        )}
         <Tooltip label={t('Close')}>
           <IconButton name="x" label={t('Close')} onPress={onClose} size={34} iconSize={18} />
         </Tooltip>

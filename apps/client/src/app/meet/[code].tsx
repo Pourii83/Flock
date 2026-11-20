@@ -1,12 +1,12 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, View } from 'react-native';
+import { ActivityIndicator, Pressable, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { FlockTile } from '@/components/logo';
 import { Button, Field, Icon, T } from '@/components/ui';
 import { api } from '@/lib/api';
-import { t } from '@/lib/i18n';
+import { LANGUAGES, setLang, t, useLang } from '@/lib/i18n';
 import type { PublicRoom } from '@/lib/types';
 import { useAuth } from '@/state/auth';
 import { useCalls } from '@/state/calls';
@@ -38,6 +38,8 @@ function expiryLabel(expiresAt: number | null) {
 /** Meeting link landing page: members join with their account, anyone else picks a name. */
 export default function MeetScreen() {
   const { code } = useLocalSearchParams<{ code: string }>();
+  // Guests have no app settings behind them: the language switch lives on this page.
+  const lang = useLang();
   const { user, token } = useAuth();
   // Signed in, but joining under another name without the account (e.g. to test a guest link).
   const [asGuest, setAsGuest] = useState(false);
@@ -123,6 +125,30 @@ export default function MeetScreen() {
             borderColor: colors.surfaceHigh,
             alignItems: 'stretch',
           }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 6 }}>
+            {LANGUAGES.map((item) => {
+              const active = lang === item.code;
+              return (
+                <Pressable
+                  key={item.code}
+                  onPress={() => void setLang(item.code)}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: active }}
+                  style={({ pressed, hovered }: any) => ({
+                    paddingHorizontal: 12,
+                    paddingVertical: 6,
+                    borderRadius: radius.pill,
+                    borderWidth: 1,
+                    borderColor: active ? colors.amber : colors.surfaceHigh,
+                    backgroundColor: active ? colors.amberTint : pressed || hovered ? colors.surfaceHigh : 'transparent',
+                  })}>
+                  <T variant="label" color={active ? colors.amberText : colors.textMuted}>
+                    {item.label}
+                  </T>
+                </Pressable>
+              );
+            })}
+          </View>
           <View style={{ alignItems: 'center', gap: 12 }}>
             <FlockTile size={56} glow />
             {!room && !loadError ? (

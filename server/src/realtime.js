@@ -420,6 +420,10 @@ export function createRealtime(httpServer, corsOrigin) {
   return {
     io,
     closeRoom,
+    /** People currently connected to one meeting room (0 when nobody is in it). */
+    roomOccupancy(roomId) {
+      return live.get(roomId)?.participants.size ?? 0;
+    },
     /** Live calls and meeting rooms right now (admin usage). */
     liveStats() {
       let calls = 0;

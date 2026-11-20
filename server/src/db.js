@@ -68,6 +68,13 @@ export async function migrate() {
       ended_at BIGINT
     );
     CREATE INDEX IF NOT EXISTS calls_conv ON calls (conversation_id, started_at DESC);
+    -- Calls a person deleted from their own history (a shared call stays in the other side's list).
+    CREATE TABLE IF NOT EXISTS call_log_hidden (
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      call_id UUID NOT NULL REFERENCES calls(id) ON DELETE CASCADE,
+      hidden_at BIGINT NOT NULL,
+      PRIMARY KEY (user_id, call_id)
+    );
 
     -- Meeting rooms: a link anyone can open, even without an account, until it expires or its owner closes it.
     CREATE TABLE IF NOT EXISTS rooms (

@@ -1,7 +1,7 @@
 import * as Clipboard from 'expo-clipboard';
 import { SidebarPane } from '@/components/sidebar-pane';
 import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, RefreshControl, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -18,7 +18,8 @@ import { useCalls } from '@/state/calls';
 import { getItem, setItem } from '@/lib/storage';
 import { chatStore, useChat, useMark } from '@/state/chat-store';
 import { colors, radius } from '@/theme';
-import { t } from '@/lib/i18n';
+import { t, num } from '@/lib/i18n';
+import { confirm } from '@/lib/confirm';
 
 function useCallLog() {
   const { historyVersion } = useCalls();
@@ -50,7 +51,11 @@ function useCallLog() {
     await load();
     setRefreshing(false);
   };
-  return { calls, refreshing, refresh };
+  /** Drops deleted calls from the list without refetching. */
+  const hide = useCallback((ids: string[]) => {
+    setCalls((list) => (list ?? []).filter((c) => !ids.includes(c.id)));
+  }, []);
+  return { calls, refreshing, refresh, hide };
 }
 
 function Segmented({ value, onChange, total, missed }: { value: 'all' | 'missed'; onChange: (v: 'all' | 'missed') => void; total: number; missed: number }) {
@@ -120,6 +125,20 @@ function MeetingsCard() {
   const [busy, setBusy] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // A short confirmation under the list (link copied, created and copied).
+  const [notice, setNotice] = useState<string | null>(null);
+  const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flash = (text: string) => {
+    setNotice(text);
+    if (noticeTimer.current) clearTimeout(noticeTimer.current);
+    noticeTimer.current = setTimeout(() => setNotice(null), 3200);
+  };
+  useEffect(
+    () => () => {
+      if (noticeTimer.current) clearTimeout(noticeTimer.current);
+    },
+    [],
+  );
 
   const load = useCallback(() => {
     api.rooms().then(setRooms, () => setRooms((r) => r ?? []));
@@ -134,19 +153,36 @@ function MeetingsCard() {
       setRooms((list) => [room, ...(list ?? [])]);
       setCreating(false);
       setTitle('');
-      await copy(room);
+      await copy(room, t('Meeting link created and copied to the clipboard'));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(null);
     }
   };
-  const copy = async (room: Room) => {
-    await Clipboard.setStringAsync(meetingLink(room.code));
-    setCopied(room.id);
-    setTimeout(() => setCopied((id) => (id === room.id ? null : id)), 2000);
+  const copy = async (room: Room, message = t('Link copied to clipboard')) => {
+    try {
+      await Clipboard.setStringAsync(meetingLink(room.code));
+      setCopied(room.id);
+      setTimeout(() => setCopied((id) => (id === room.id ? null : id)), 2000);
+      flash(message);
+    } catch {
+      setError(t('Could not copy the link'));
+    }
   };
   const close = async (room: Room) => {
+    // Closing a room that people are in drops everyone: ask first, and say how many.
+    const people = room.participants ?? 0;
+    if (
+      people > 0 &&
+      !(await confirm(
+        t('Close room'),
+        t('{n} people are in this room right now. Closing it ends the call for everyone. Continue?', { n: num(people) }),
+        t('Close anyway'),
+        t('Cancel'),
+      ))
+    )
+      return;
     setBusy(room.id);
     try {
       await api.closeRoom(room.id);
@@ -214,16 +250,32 @@ function MeetingsCard() {
         </View>
       )}
 
-      {rooms?.map((room) => (
+      {rooms?.map((room) => {
+        const people = room.participants ?? 0;
+        const expiry = untilLabel(room.expiresAt);
+        return (
         // Name and expiry on the left, actions beside them; a stronger border so each link stands out.
         <View key={room.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.surfaceHighest, backgroundColor: colors.canvas }}>
+          <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: people > 0 ? colors.tealTint : colors.surfaceHigh, alignItems: 'center', justifyContent: 'center' }}>
+            <Icon name="video" size={16} color={people > 0 ? colors.teal : colors.textMuted} />
+          </View>
           <View style={{ gap: 2, flex: 1, minWidth: 0 }}>
             <T variant="labelLg" numberOfLines={1}>
               {room.title || t('Meeting')}
             </T>
-            <T variant="bodySm" color={colors.textMuted} numberOfLines={1}>
-              {untilLabel(room.expiresAt)}
-            </T>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, minWidth: 0 }}>
+              {/* A narrow list cuts the expiry short; the tooltip always has the whole line. */}
+              <Tooltip label={expiry} side="bottom" style={{ flexShrink: 1, minWidth: 0 }}>
+                <T variant="bodySm" color={colors.textMuted} numberOfLines={1}>
+                  {expiry}
+                </T>
+              </Tooltip>
+              {people > 0 && (
+                <T variant="labelSm" color={colors.teal} numberOfLines={1}>
+                  {t('{n} in the room', { n: num(people) })}
+                </T>
+              )}
+            </View>
           </View>
           <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center', flexShrink: 0 }}>
             {/* Compact icon actions with tooltips so the three actions fit on one line. */}
@@ -281,7 +333,16 @@ function MeetingsCard() {
             </View>
           </View>
         </View>
-      ))}
+        );
+      })}
+      {!!notice && (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingVertical: 10, borderRadius: radius.lg, backgroundColor: colors.tealTint }}>
+          <Icon name="check-circle" size={16} color={colors.teal} />
+          <T variant="bodySm" color={colors.teal} style={{ flex: 1 }}>
+            {notice}
+          </T>
+        </View>
+      )}
       {!!error && (
         <T variant="bodySm" color={colors.danger}>
           {error}
@@ -291,7 +352,21 @@ function MeetingsCard() {
   );
 }
 
-function CallRow({ log }: { log: CallLog }) {
+function CallRow({
+  log,
+  selectable,
+  selected,
+  onToggle,
+  onSelect,
+}: {
+  log: CallLog;
+  /** Selection mode: the row becomes a checkbox instead of opening the chat. */
+  selectable?: boolean;
+  selected?: boolean;
+  onToggle?: () => void;
+  /** Long-press (or right-click) starts selection with this row picked. */
+  onSelect?: () => void;
+}) {
   const { startCall } = useCalls();
   const conversation = useChat((s) => s.conversations.find((c) => c.id === log.conversationId));
   const directionIcon = log.missed ? 'phone-missed' : log.direction === 'outgoing' ? 'arrow-up-right' : 'arrow-down-left';
@@ -301,16 +376,20 @@ function CallRow({ log }: { log: CallLog }) {
 
   return (
     <Pressable
-      onPress={() => conversation && router.navigate(`/chat/${conversation.id}`)}
+      onPress={selectable ? onToggle : () => conversation && router.navigate(`/chat/${conversation.id}`)}
+      onLongPress={selectable ? undefined : onSelect}
+      delayLongPress={400}
+      accessibilityRole="button"
+      accessibilityState={selectable ? { selected: !!selected } : undefined}
       style={({ hovered }: any) => ({
         flexDirection: 'row',
         alignItems: 'center',
         gap: 14,
         padding: 14,
         borderRadius: radius.lg,
-        backgroundColor: hovered ? colors.surfaceHigh : colors.surface,
+        backgroundColor: selected ? colors.amberTint : hovered ? colors.surfaceHigh : colors.surface,
         borderWidth: 1,
-        borderColor: colors.surfaceHigh,
+        borderColor: selected ? colors.amberGlow : colors.surfaceHigh,
       })}>
       {log.conversationType === 'group' ? (
         <View style={{ width: 52, height: 52, borderRadius: 26, backgroundColor: colors.surfaceHigh, alignItems: 'center', justifyContent: 'center' }}>
@@ -342,22 +421,38 @@ function CallRow({ log }: { log: CallLog }) {
           </T>
         </View>
       </View>
-      <Tooltip label={t('Call back')} style={{ alignSelf: 'center' }}>
-        <Pressable
-          onPress={callBack}
-          accessibilityRole="button"
-          accessibilityLabel={t('Call back')}
-          style={({ hovered, pressed }: any) => ({
-            width: 48,
-            height: 48,
-            borderRadius: 24,
-            backgroundColor: log.missed ? colors.dangerDeep : hovered || pressed ? colors.surfaceHighest : colors.surfaceHigh,
+      {selectable ? (
+        <View
+          style={{
+            width: 28,
+            height: 28,
+            borderRadius: 14,
+            borderWidth: 2,
+            borderColor: selected ? colors.amber : colors.surfaceHighest,
+            backgroundColor: selected ? colors.amber : 'transparent',
             alignItems: 'center',
             justifyContent: 'center',
-          })}>
-          <Icon name={log.video ? 'video' : 'phone'} size={20} color={log.missed ? colors.danger : log.video ? colors.amberText : colors.teal} />
-        </Pressable>
-      </Tooltip>
+          }}>
+          {selected && <Icon name="check" size={16} color={colors.onAmber} />}
+        </View>
+      ) : (
+        <Tooltip label={t('Call back')} style={{ alignSelf: 'center' }}>
+          <Pressable
+            onPress={callBack}
+            accessibilityRole="button"
+            accessibilityLabel={t('Call back')}
+            style={({ hovered, pressed }: any) => ({
+              width: 48,
+              height: 48,
+              borderRadius: 24,
+              backgroundColor: log.missed ? colors.dangerDeep : hovered || pressed ? colors.surfaceHighest : colors.surfaceHigh,
+              alignItems: 'center',
+              justifyContent: 'center',
+            })}>
+            <Icon name={log.video ? 'video' : 'phone'} size={20} color={log.missed ? colors.danger : log.video ? colors.amberText : colors.teal} />
+          </Pressable>
+        </Tooltip>
+      )}
     </Pressable>
   );
 }
@@ -366,10 +461,46 @@ const SEEN_ALL_KEY = 'flock.calls.seenAll';
 const SEEN_MISSED_KEY = 'flock.calls.seenMissed';
 
 function CallsList() {
-  const { calls, refreshing, refresh } = useCallLog();
+  const { calls, refreshing, refresh, hide } = useCallLog();
   const [filter, setFilter] = useState<'all' | 'missed'>('all');
   const missed = calls?.filter((c) => c.missed) ?? [];
   const data = filter === 'missed' ? missed : (calls ?? []);
+
+  // Selection mode: delete one call, a few, or the whole list from my own history.
+  const [selecting, setSelecting] = useState(false);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [deleting, setDeleting] = useState(false);
+  const allSelected = data.length > 0 && data.every((c) => selected.includes(c.id));
+  const beginSelect = (id?: string) => {
+    setSelecting(true);
+    setSelected(id ? [id] : []);
+  };
+  const cancelSelect = () => {
+    setSelecting(false);
+    setSelected([]);
+  };
+  const toggleSelect = (id: string) => setSelected((list) => (list.includes(id) ? list.filter((x) => x !== id) : [...list, id]));
+  const deleteSelected = async () => {
+    const ids = [...selected];
+    if (!ids.length) return;
+    const ok = await confirm(
+      t('Delete call history?'),
+      t('{n} calls will be removed from your history. The other people on those calls keep theirs.', { n: num(ids.length) }),
+      t('Delete'),
+      t('Cancel'),
+    );
+    if (!ok) return;
+    setDeleting(true);
+    try {
+      await api.hideCalls(ids);
+      hide(ids);
+      cancelSelect();
+    } catch {
+      // Keep the selection so the delete can be tried again.
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   // Each tab's badge counts only calls newer than the last time that tab was looked at. The markers
   // live on the server, so looking at the list on one device clears the badge on the others.
@@ -420,12 +551,64 @@ function CallsList() {
         <View style={{ gap: 18, marginBottom: 6 }}>
           <Segmented value={filter} onChange={setFilter} total={unseenAll} missed={unseenMissed} />
           <MeetingsCard />
-          <SectionLabel right={<T variant="label" color={colors.textMuted}>{Intl.DateTimeFormat().resolvedOptions().timeZone}</T>}>
+          <SectionLabel
+            right={
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                <T variant="label" color={colors.textMuted}>
+                  {Intl.DateTimeFormat().resolvedOptions().timeZone}
+                </T>
+                {data.length > 0 && !selecting && (
+                  <Pressable onPress={() => beginSelect()} accessibilityRole="button" hitSlop={8}>
+                    <T variant="label" color={colors.amberText}>
+                      {t('Select')}
+                    </T>
+                  </Pressable>
+                )}
+              </View>
+            }>
             {t('Recent activity')}
           </SectionLabel>
+          {selecting && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, padding: 8, borderRadius: radius.lg, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.surfaceHigh }}>
+              <Pressable
+                onPress={() => setSelected(allSelected ? [] : data.map((c) => c.id))}
+                accessibilityRole="button"
+                accessibilityState={{ selected: allSelected }}
+                style={({ hovered }: any) => ({
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 8,
+                  paddingHorizontal: 6,
+                  paddingVertical: 4,
+                  borderRadius: radius.md,
+                  backgroundColor: hovered ? colors.surfaceHigh : 'transparent',
+                })}>
+                <Icon name={allSelected ? 'check-circle' : 'circle'} size={17} color={allSelected ? colors.amberText : colors.textMuted} />
+                <T variant="labelLg">{t('Select all')}</T>
+              </Pressable>
+              <View style={{ flex: 1 }} />
+              <Button
+                title={selected.length ? t('Delete ({n})', { n: num(selected.length) }) : t('Delete')}
+                variant="danger"
+                size="sm"
+                disabled={!selected.length || deleting}
+                loading={deleting}
+                onPress={() => void deleteSelected()}
+              />
+              <Button title={t('Cancel')} variant="ghost" size="sm" onPress={cancelSelect} />
+            </View>
+          )}
         </View>
       }
-      renderItem={({ item }) => <CallRow log={item} />}
+      renderItem={({ item }) => (
+        <CallRow
+          log={item}
+          selectable={selecting}
+          selected={selected.includes(item.id)}
+          onToggle={() => toggleSelect(item.id)}
+          onSelect={() => beginSelect(item.id)}
+        />
+      )}
       ListEmptyComponent={
         calls === null ? (
           <ActivityIndicator color={colors.amberText} />

@@ -5,8 +5,11 @@ import { getAppName, getRepoUrl } from '@/lib/brand';
 import { useLang, t } from '@/lib/i18n';
 import {
   CLIENT_VERSION,
+  dismissUpdate,
   displayVersion,
+  isDismissedUpdate,
   isUpdateAvailable,
+  loadDismissedUpdate,
   markChangelogSeen,
   repoReleasesUrl,
   takeChangelog,
@@ -24,11 +27,23 @@ export function UpdateBanner() {
   const { version } = useUpdateInfo();
   const web = Platform.OS === 'web';
   const repo = getRepoUrl();
-  const newer = isUpdateAvailable(version);
+  // A build this device already updated to never asks again (the reload could not replace it).
+  const [updatedHere, setUpdatedHere] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    void loadDismissedUpdate().then(() => alive && setUpdatedHere(isDismissedUpdate(version)));
+    return () => {
+      alive = false;
+    };
+  }, [version]);
+  const newer = isUpdateAvailable(version) && !updatedHere;
   if (!newer || (!web && !repo)) return null;
 
   const update = () => {
     if (web) {
+      // Remember it before reloading: if the same bundle comes back, the box stays away.
+      void dismissUpdate(version);
+      setUpdatedHere(true);
       if (typeof window !== 'undefined') window.location.reload();
       return;
     }
@@ -95,21 +110,24 @@ export function UpdateBanner() {
  * the user saw, with the notes packaged into the server release. Never blocks the app.
  */
 export function ChangelogModal() {
-  const { notes, notesFa } = useUpdateInfo();
+  const { notes, notesFa, checked } = useUpdateInfo();
   const lang = useLang();
-  const [open, setOpen] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [closed, setClosed] = useState(false);
 
   useEffect(() => {
     let alive = true;
-    takeChangelog().then((pending) => {
-      if (alive && pending) setOpen(true);
+    takeChangelog().then((isPending) => {
+      if (alive && isPending) setPending(true);
     });
     return () => {
       alive = false;
     };
   }, []);
 
-  if (!open) return null;
+  // Wait until the notes have arrived: opening on the first frame showed an empty, placeholder-looking
+  // body until the request for the changelog finished.
+  if (!pending || closed || !checked) return null;
   // The server ships the changelog in both languages; show it in the app's current language.
   const notesText = lang === 'fa' && notesFa ? notesFa : notes;
   const lines = notesText
@@ -125,12 +143,13 @@ export function ChangelogModal() {
     .filter(Boolean)
     .slice(0, 12);
   const close = () => {
-    setOpen(false);
+    setClosed(true);
     void markChangelogSeen();
   };
 
   return (
-    <Modal transparent animationType="fade" visible onRequestClose={close}>
+    // No fade on the web: some browsers left the animated dialog's content transparent.
+    <Modal transparent animationType={Platform.OS === 'web' ? 'none' : 'fade'} visible onRequestClose={close}>
       <View style={{ flex: 1, backgroundColor: colors.scrim, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
         <View
           style={{

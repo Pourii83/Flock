@@ -10,7 +10,7 @@ import { meetingLink } from '@/lib/config';
 import { timer } from '@/lib/format';
 import { setImmersive } from '@/lib/immersive';
 import { canSwitchCamera } from '@/lib/native-media';
-import { enterPip, pipAvailable, useAutoPip } from '@/lib/pip';
+import { enterPip, exitPip, pipAvailable, useAutoPip } from '@/lib/pip';
 import { enterNativePip, nativePipSupported, useInNativePip, useNativeAutoPip } from '@/lib/native-pip';
 import { getNoisePreference, strongNoiseSupported } from '@/lib/noise';
 import { setCallChatSounds, setReactionSounds, useCallSoundSettings } from '@/lib/call-sounds';
@@ -29,6 +29,9 @@ import { playTestTone } from '@/lib/test-tone';
 import { LevelMeter } from './call/level-meter';
 
 const REACTIONS = ['❤️', '👏', '💡', '🔥', '✨'];
+
+/** Width of the call chat when it is pinned beside the stage. */
+const CALL_CHAT_DOCK_WIDTH = 340;
 
 /** Small badge for a weak connection (nothing while it's fine): amber = weak, red = very weak. */
 function NetBadge({ q, size = 22, style, label }: { q?: NetQuality; size?: number; style?: object; label?: string }) {
@@ -518,6 +521,10 @@ function ActiveCall() {
   const [selfHidden, setSelfHidden] = useState(false);
   // One panel at a time.
   const [panel, setPanel] = useState<Panel>(null);
+  // The chat can be pinned: it then docks to the side and the stage makes room for it.
+  const [chatPinned, setChatPinned] = useState(false);
+  const chatDocked = wide && chatPinned && panel === 'chat';
+  const stageEnd = chatDocked ? CALL_CHAT_DOCK_WIDTH : 0;
   const toggle = (p: Exclude<Panel, null>) => setPanel((open) => (open === p ? null : p));
   // Popovers open right above the button that owns them: measure it first, then show.
   const [outX, outRef, measureOut] = useAnchor();
@@ -534,6 +541,8 @@ function ActiveCall() {
   // It is remembered per sharer and drops back to the normal layout when the screen closes.
   const [fullWidthSharer, setFullWidthSharer] = useState<string | null>(null);
   const [stage, setStage] = useState({ width: 0, height: 0 });
+  // The stage area the call itself may use: everything except a pinned chat column.
+  const stageBox = { width: Math.max(0, stage.width - stageEnd), height: stage.height };
   const [dockHeight, setDockHeight] = useState(180);
   const [headerHeight, setHeaderHeight] = useState(116);
   // Plain opacity (+ a CSS fade on web); Animated's JS driver doesn't apply reliably on web here.
@@ -657,7 +666,7 @@ function ActiveCall() {
     <View style={{ flex: 1, backgroundColor: colors.canvas }} onLayout={(e) => setStage({ width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height })}>
       {/* Remote stage — tap closes an open panel, otherwise toggles the controls */}
       <Pressable
-        style={StyleSheet.absoluteFill}
+        style={[StyleSheet.absoluteFill, stageEnd ? { end: stageEnd } : null]}
         onPress={() => {
           if (panel) setPanel(null);
           else setControlsHidden((h) => !h);
@@ -708,13 +717,13 @@ function ActiveCall() {
       </Pressable>
 
       {/* Reactions float from the bottom of the screen to the top */}
-      <View style={StyleSheet.absoluteFill} pointerEvents="none">
+      <View style={[StyleSheet.absoluteFill, stageEnd ? { end: stageEnd } : null]} pointerEvents="none">
         {call.reactions.map((r) => (
-          <FloatingReaction key={r.key} reaction={r} stage={stage} />
+          <FloatingReaction key={r.key} reaction={r} stage={stageBox} />
         ))}
       </View>
 
-      <SafeAreaView style={{ flex: 1, justifyContent: 'space-between' }} pointerEvents="box-none">
+      <SafeAreaView style={[{ flex: 1, justifyContent: 'space-between' }, stageEnd ? { marginEnd: stageEnd } : null]} pointerEvents="box-none">
         {/* Top status */}
         <View
           style={[{ padding: 16, gap: 8, alignItems: 'flex-start' }, chrome]}
@@ -731,13 +740,15 @@ function ActiveCall() {
             <T variant="labelLg" style={{ fontSize: 16, flexShrink: 1 }} numberOfLines={1}>
               {callName(call, single?.user)}
             </T>
-            <Pressable
-              accessibilityLabel={t('Minimize call')}
-              onPress={() => setMinimized(true)}
-              hitSlop={8}
-              style={({ pressed }) => ({ padding: 7, borderRadius: 16, backgroundColor: pressed ? colors.surfaceHighest : colors.surfaceHigh })}>
-              <Icon name="minimize-2" size={16} color={colors.text} />
-            </Pressable>
+            <Tooltip label={t('Minimize call')}>
+              <Pressable
+                accessibilityLabel={t('Minimize call')}
+                onPress={() => setMinimized(true)}
+                hitSlop={8}
+                style={({ pressed }) => ({ padding: 7, borderRadius: 16, backgroundColor: pressed ? colors.surfaceHighest : colors.surfaceHigh })}>
+                <Icon name="minimize-2" size={16} color={colors.text} />
+              </Pressable>
+            </Tooltip>
           </View>
           <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
             <View style={[styles.tag, { backgroundColor: colors.tealTint }]}>
@@ -982,7 +993,15 @@ function ActiveCall() {
         </SelfView>
       )}
 
-      {panel === 'chat' && <CallChatPanel onClose={() => setPanel(null)} />}
+      {panel === 'chat' && (
+        <CallChatPanel
+          onClose={() => setPanel(null)}
+          pinned={chatDocked}
+          // Only a wide screen has room for a pinned column; phones keep the floating panel.
+          onTogglePin={wide ? () => setChatPinned((pinned) => !pinned) : undefined}
+          dockWidth={CALL_CHAT_DOCK_WIDTH}
+        />
+      )}
       {panel === 'quality' && <CallQualityPanel onClose={() => setPanel(null)} bottom={dockHeight + insets.bottom} anchorX={wide ? qualX : null} stageWidth={stage.width} />}
       {panel === 'invite' && <CallInvitePanel onClose={() => setPanel(null)} />}
       {panel === 'audio' && <AudioDevicePanel onClose={() => setPanel(null)} bottom={dockHeight + insets.bottom} anchorX={outX} stageWidth={stage.width} />}
@@ -1890,6 +1909,19 @@ function ScreenStage({
   onClose: () => void;
 }) {
   const wide = useIsWide();
+  // Back from another tab: the browser can leave the shared screen in its floating window, and the
+  // inline video stays blank until the screen is closed and opened again. Remount it on return.
+  const [returnedAt, setReturnedAt] = useState(0);
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof document === 'undefined') return;
+    const onVisibility = () => {
+      if (document.visibilityState !== 'visible') return;
+      exitPip();
+      setReturnedAt((n) => n + 1);
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, []);
   const stripTile = wide ? { width: 200, height: 118 } : { width: 124, height: 88 };
   const strip = fullWidth ? null : (
     <ScrollView
@@ -1906,7 +1938,7 @@ function ScreenStage({
   return (
     <View style={{ flex: 1, minHeight: 0, flexDirection: wide && !fullWidth ? 'row' : 'column', paddingTop: padTop, paddingBottom: padBottom, paddingHorizontal: fullWidth ? 0 : 10, gap: fullWidth ? 0 : 10 }}>
       <View style={{ flex: 1, minWidth: 0, minHeight: 0, borderRadius: fullWidth ? 0 : radius.lg, overflow: 'hidden', backgroundColor: '#05070A', borderWidth: fullWidth ? 0 : 2, borderColor: ownerSpeaking ? colors.amber : colors.hairline }}>
-        {!!stream && <VideoView key={`focused-screen-${ownerName}-${version}`} stream={stream} contain />}
+        {!!stream && <VideoView key={`focused-screen-${ownerName}-${version}-${returnedAt}`} stream={stream} contain />}
         <View style={{ position: 'absolute', top: 12, end: 12, flexDirection: 'row', gap: 8 }}>
           <Tooltip label={fullWidth ? t('Show participants') : t('Full width')}>
             <Pressable

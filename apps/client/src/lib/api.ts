@@ -204,6 +204,8 @@ export const api = {
   /** The installed server version and the changelog packaged with it. */
   updateInfo: () => request<UpdateInfo>('GET', '/update'),
   rooms: () => request<Room[]>('GET', '/rooms'),
+  /** Deletes calls from my history only. */
+  hideCalls: (ids: string[]) => request<{ hidden: number }>('POST', '/calls/hide', { ids }),
   /** expiresInMinutes null = open until closed. */
   createRoom: (title: string, expiresInMinutes: number | null) => request<Room>('POST', '/rooms', { title, expiresInMinutes }),
   closeRoom: (id: string) => request<Room>('DELETE', `/rooms/${id}`),

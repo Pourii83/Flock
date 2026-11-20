@@ -112,13 +112,51 @@ function chime(notes: Note[]) {
 }
 
 /**
- * A reaction in the call: `send` is a soft rising blip for the emoji I picked,
- * `receive` a softer two-note fall for someone else's.
+ * One short motif per reaction emoji, so you can hear which one arrived without looking.
+ * `send` is the motif as written; `receive` is the same shape, one octave-ish lower and quieter,
+ * which keeps it recognisable but softer than your own tap.
  */
-export function playReactionSound(kind: 'send' | 'receive') {
+const REACTION_SOUNDS: Record<string, { send: Note[]; receive: Note[] }> = {
+  // Heart: warm rising third.
+  '❤️': {
+    send: [{ frequency: 523, at: 0, length: 0.16, volume: 0.05 }, { frequency: 659, at: 0.1, length: 0.22, volume: 0.045 }],
+    receive: [{ frequency: 392, at: 0, length: 0.16, volume: 0.035 }, { frequency: 494, at: 0.1, length: 0.22, volume: 0.03 }],
+  },
+  // Clap: two dry, percussive taps.
+  '👏': {
+    send: [{ frequency: 988, at: 0, length: 0.05, volume: 0.05, type: 'triangle' }, { frequency: 988, at: 0.09, length: 0.05, volume: 0.045, type: 'triangle' }],
+    receive: [{ frequency: 784, at: 0, length: 0.05, volume: 0.035, type: 'triangle' }, { frequency: 784, at: 0.09, length: 0.05, volume: 0.03, type: 'triangle' }],
+  },
+  // Idea: a bright little ping that hangs.
+  '💡': {
+    send: [{ frequency: 1047, at: 0, length: 0.1, volume: 0.05 }, { frequency: 1568, at: 0.06, length: 0.24, volume: 0.04 }],
+    receive: [{ frequency: 880, at: 0, length: 0.1, volume: 0.035 }, { frequency: 1319, at: 0.06, length: 0.2, volume: 0.03 }],
+  },
+  // Fire: a short, rough fall.
+  '🔥': {
+    send: [{ frequency: 740, at: 0, length: 0.1, volume: 0.045, type: 'sawtooth' }, { frequency: 494, at: 0.08, length: 0.18, volume: 0.04, type: 'sawtooth' }],
+    receive: [{ frequency: 587, at: 0, length: 0.1, volume: 0.032, type: 'sawtooth' }, { frequency: 392, at: 0.08, length: 0.18, volume: 0.028, type: 'sawtooth' }],
+  },
+  // Sparkle: three quick high notes.
+  '✨': {
+    send: [{ frequency: 1319, at: 0, length: 0.07, volume: 0.04 }, { frequency: 1568, at: 0.05, length: 0.07, volume: 0.038 }, { frequency: 2093, at: 0.1, length: 0.16, volume: 0.032 }],
+    receive: [{ frequency: 1047, at: 0, length: 0.07, volume: 0.03 }, { frequency: 1319, at: 0.05, length: 0.07, volume: 0.028 }, { frequency: 1760, at: 0.1, length: 0.14, volume: 0.024 }],
+  },
+};
+
+const FALLBACK_REACTION = {
+  send: [{ frequency: 740, at: 0, length: 0.12, volume: 0.05 }, { frequency: 988, at: 0.07, length: 0.14, volume: 0.045 }],
+  receive: [{ frequency: 988, at: 0, length: 0.11, volume: 0.04 }, { frequency: 740, at: 0.08, length: 0.16, volume: 0.035 }],
+};
+
+/**
+ * A reaction in the call. Each emoji has its own motif; `send` is what you hear when you tap one,
+ * `receive` a softer, lower version when someone else sends the same one.
+ */
+export function playReactionSound(kind: 'send' | 'receive', emoji?: string) {
   if (!settings.reactionSounds) return;
-  if (kind === 'send') chime([{ frequency: 740, at: 0, length: 0.12, volume: 0.05 }, { frequency: 988, at: 0.07, length: 0.14, volume: 0.045 }]);
-  else chime([{ frequency: 988, at: 0, length: 0.11, volume: 0.04 }, { frequency: 740, at: 0.08, length: 0.16, volume: 0.035 }]);
+  const motif = (emoji && REACTION_SOUNDS[emoji]) || FALLBACK_REACTION;
+  chime(motif[kind]);
 }
 
 /** A message arrived in the call's temporary chat while the panel is closed. */
