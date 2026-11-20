@@ -11,6 +11,7 @@ import { createRealtime } from './realtime.js';
 import { createRouter } from './routes.js';
 import * as repo from './repo.js';
 import { initPush } from './push.js';
+import { installedVersion } from './version.js';
 
 const PORT = Number(process.env.PORT || 4000);
 const HOST = process.env.HOST || '0.0.0.0';
@@ -69,6 +70,22 @@ if (WEB_DIR && fs.existsSync(path.join(WEB_DIR, 'index.html'))) {
     res.sendFile(path.join(WEB_DIR, 'index.html'));
   });
   console.log(`[flock] serving web app from ${WEB_DIR}`);
+} else {
+  // Server only (cloud hosting, the API container): opening the address in a browser would show a
+  // bare 404 and look broken. Say it is running and how to connect instead.
+  app.get('/', async (req, res) => {
+    const address = `${req.protocol}://${req.get('host')}`.replace(/[<>"&]/g, '');
+    const version = (await installedVersion().catch(() => null)) ?? '';
+    res.setHeader('Cache-Control', 'no-cache');
+    res.type('html').send(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Flock server</title>
+<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0b0e14;color:#e6e8ee;font:16px/1.6 system-ui,sans-serif}main{max-width:520px;padding:32px}h1{font-size:24px;margin:0 0 8px}code{background:#1a1f2b;padding:2px 6px;border-radius:6px}a{color:#7cc4ff}.fa{direction:rtl;margin-top:24px;color:#b8bdc9}</style></head>
+<body><main><h1>✓ Flock server is running</h1>
+<p>This address is the server only. Open the Flock app (Android or Windows) and enter it on the sign-in screen:</p>
+<p><code>${address}</code></p>
+<p><a href="https://docs.flock.beer/apps/">Get the apps</a> · <a href="https://docs.flock.beer/install/cloud/">Cloud hosting guide</a>${version ? ` · ${version.replace(/[<>"&]/g, '')}` : ''}</p>
+<p class="fa">سرور Flock روشن است. این آدرس فقط سرور است؛ اپ Flock (اندروید یا ویندوز) را باز کنید و همین آدرس را در صفحه‌ی ورود وارد کنید.</p>
+</main></body></html>`);
+  });
 }
 app.use((err, _req, res, _next) => {
   // Client errors (bad JSON, too large, missing/forbidden file) keep their status.
