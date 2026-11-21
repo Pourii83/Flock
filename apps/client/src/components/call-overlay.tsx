@@ -727,13 +727,9 @@ function ActiveCall() {
   // with raise hand and screen sharing on its second row; everything else is behind "More", whose
   // sheet opens with a row of quick reactions.
   const moreItems: MenuItem[] = [
-    // Phones keep the dock to five buttons: the speaker and screen sharing live here instead.
+    // Phones keep screen sharing here instead of on the dock.
     ...(!wide
-      ? [
-          { icon: call.speakerMuted ? ('volume-x' as const) : ('volume-2' as const), label: call.speakerMuted ? t('Unmute call audio') : t('Mute call audio'), active: !call.speakerMuted, onPress: toggleSpeakerMute },
-          { icon: 'headphones' as const, label: t('Sound output'), onPress: () => setPanel('audio') },
-          { icon: 'monitor' as const, label: call.sharingScreen ? t('Stop sharing') : t('Share screen'), active: call.sharingScreen, onPress: () => void toggleScreenShare() },
-        ]
+      ? [{ icon: 'monitor' as const, label: call.sharingScreen ? t('Stop sharing') : t('Share screen'), active: call.sharingScreen, onPress: () => void toggleScreenShare() }]
       : []),
     ...(canPip ? [{ icon: 'minimize-2' as const, label: t('Picture in picture'), onPress: () => (nativePipSupported ? void enterNativePip() : void enterPip(pipStream)) }] : []),
     ...(camOn ? [{ icon: selfHidden ? ('eye' as const) : ('eye-off' as const), label: selfHidden ? t('Show my video') : t('Hide my video'), onPress: () => setSelfHidden((h) => !h) }] : []),
@@ -742,8 +738,8 @@ function ActiveCall() {
     ...(call.room ? [{ icon: 'link' as const, label: t('Copy meeting link'), onPress: () => void copyMeetingLink() }] : []),
     { icon: 'minimize-2', label: t('Minimize call'), onPress: () => setMinimized(true), full: true },
   ];
-  // Phone dock: five equal columns across the panel.
-  const tileSize = Math.max(40, Math.min(52, Math.floor((Math.min(windowWidth, 520) - 16 - 20) / 5) - 14));
+  // Phone dock: six equal columns across the panel (every gap between buttons the same).
+  const tileSize = Math.max(38, Math.min(50, Math.floor((Math.min(windowWidth, 520) - 16 - 20) / 6) - 12));
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.canvas }} onLayout={(e) => setStage({ width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height })}>
@@ -918,6 +914,11 @@ function ActiveCall() {
                 <DockTile label={call.micMuted ? t('Unmute') : t('Mute')} on={!call.micMuted}>
                   <View ref={micRef} collapsable={false}>
                     <MicButton muted={call.micMuted} speaking={!!call.localSpeaking} panelOpen={panel === 'mic'} onToggle={toggleMic} onOpenPanel={() => openAt(measureMic, 'mic')} size={tileSize} />
+                  </View>
+                </DockTile>
+                <DockTile label={t('Speaker')} on={!call.speakerMuted}>
+                  <View ref={outRef} collapsable={false}>
+                    <OutputButton muted={call.speakerMuted} panelOpen={panel === 'audio'} onToggleMute={toggleSpeakerMute} onOpenPanel={() => openAt(measureOut, 'audio')} size={tileSize} />
                   </View>
                 </DockTile>
                 <DockTile label={t('Video')} on={!call.cameraOff}>
