@@ -38,7 +38,7 @@ export function SidebarPane({ children }: { children: ReactNode }) {
 
   const web = Platform.OS === 'web';
   return (
-    <View style={{ width, minWidth: SIDEBAR_MIN, maxWidth: SIDEBAR_MAX, backgroundColor: colors.rail, borderRightWidth: 1, borderRightColor: colors.surfaceHigh }}>
+    <View style={{ width, minWidth: SIDEBAR_MIN, maxWidth: SIDEBAR_MAX, backgroundColor: colors.rail, borderEndWidth: 1, borderEndColor: colors.surfaceHigh }}>
       {children}
       <View
         {...drag.panHandlers}

@@ -58,7 +58,7 @@ function Action({ icon, pin, label, onPress, active }: { icon?: IconName; pin?: 
 /** Desktop right-hand panel ("Contact Info" / "Group Info"). */
 export function ContactPanel({ conversationId, onClose }: { conversationId: string; onClose: () => void }) {
   return (
-    <View style={{ width: 360, backgroundColor: colors.rail, borderLeftWidth: 1, borderLeftColor: colors.border }}>
+    <View style={{ width: 360, backgroundColor: colors.rail, borderStartWidth: 1, borderStartColor: colors.border }}>
       <ConversationInfo conversationId={conversationId} onClose={onClose} />
     </View>
   );

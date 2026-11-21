@@ -45,8 +45,8 @@ export function RailTabBar(props: BottomTabBarProps) {
       style={{
         width: 80,
         backgroundColor: colors.canvas,
-        borderRightWidth: 1,
-        borderRightColor: colors.surfaceHigh,
+        borderEndWidth: 1,
+        borderEndColor: colors.surfaceHigh,
         alignItems: 'center',
         paddingVertical: 16,
         justifyContent: 'space-between',
@@ -85,7 +85,7 @@ export function RailTabBar(props: BottomTabBarProps) {
                   })}>
                   <Icon name={tab.icon} size={22} color={focused ? colors.onAmber : colors.textMuted} />
                   {route.name === 'index' && !focused && (
-                    <UnreadBadge count={unread} style={{ position: 'absolute', top: 2, right: 0 }} />
+                    <UnreadBadge count={unread} style={{ position: 'absolute', top: 2, end: 0 }} />
                   )}
                 </Pressable>
               </Tooltip>
@@ -140,7 +140,7 @@ export function BottomTabBar(props: BottomTabBarProps) {
             style={{ flex: 1, alignItems: 'center', gap: 4 }}>
             <View>
               <Icon name={tab.icon} size={24} color={tint} />
-              {route.name === 'index' && <UnreadBadge count={unread} style={{ position: 'absolute', top: -8, right: -14 }} />}
+              {route.name === 'index' && <UnreadBadge count={unread} style={{ position: 'absolute', top: -8, end: -14 }} />}
             </View>
             <T variant="label" color={focused ? colors.amberText : colors.textMuted}>
               {t(tab.label)}

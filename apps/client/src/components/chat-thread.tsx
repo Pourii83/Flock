@@ -2106,7 +2106,7 @@ function Composer({
         position: 'relative',
       }}>
       {editing && (
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: colors.surface, borderRadius: radius.lg, padding: 10, paddingLeft: 14 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: colors.surface, borderRadius: radius.lg, padding: 10, paddingStart: 14 }}>
           <View style={{ width: 3, alignSelf: 'stretch', borderRadius: 2, backgroundColor: colors.amber }} />
           <View style={{ flex: 1, minWidth: 0 }}>
             <T variant="label" color={colors.amberText}>
@@ -2132,7 +2132,7 @@ function Composer({
         </View>
       )}
       {replyTo && !editing && (
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: colors.surface, borderRadius: radius.lg, padding: 10, paddingLeft: 14 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: colors.surface, borderRadius: radius.lg, padding: 10, paddingStart: 14 }}>
           <View style={{ width: 3, alignSelf: 'stretch', borderRadius: 2, backgroundColor: colors.amber }} />
           <View style={{ flex: 1 }}>
             <T variant="label" color={colors.amberText}>
@@ -2217,8 +2217,10 @@ function Composer({
             borderColor: inputFocused ? colors.amber : colors.border,
             // A recording or a ready clip fills the box edge to edge, with even space on both sides.
             // (the delete button's side gets less, the waveform's end a little more; RTL mirrors it).
-            paddingLeft: voice.recording || voiceClip ? (isRTL() ? 14 : 6) : desktop ? 8 : 20,
-            paddingRight: voice.recording || voiceClip ? (isRTL() ? 6 : 14) : 8,
+            // Start/end (not left/right) so Persian mirrors it: the text side gets the room, the
+            // emoji side stays tight.
+            paddingStart: voice.recording || voiceClip ? 6 : desktop ? 8 : 20,
+            paddingEnd: voice.recording || voiceClip ? 14 : 8,
             minHeight: 52,
           }}>
           {/* Every icon sits in a box as tall as one line of text, so it lines up with the text on

@@ -72,7 +72,7 @@ export function Avatar({
         <View
           style={{
             position: 'absolute',
-            right: ring ? 2 : -1,
+            end: ring ? 2 : -1,
             bottom: ring ? 2 : -1,
             width: dot,
             height: dot,
@@ -171,7 +171,7 @@ export function ConversationAvatar({
       <View
         style={{
           position: 'absolute',
-          right: -2,
+          end: -2,
           bottom: -2,
           width: badge,
           height: badge,
