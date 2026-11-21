@@ -1260,13 +1260,16 @@ function Bubble({
         flexDirection: 'row',
         alignItems: 'flex-end',
         gap: 10,
-        marginTop: first ? 14 : 3,
+        // Space above as padding, not margin: picked rows next to each other join into one band.
+        paddingTop: first ? 14 : 3,
         justifyContent: mine ? 'flex-end' : 'flex-start',
         // A picked message tints its whole row edge to edge, like Telegram.
         marginHorizontal: desktop ? -32 : -14,
         paddingHorizontal: desktop ? 32 : 14,
-        paddingVertical: selectionMode ? 2 : 0,
+        paddingBottom: selectionMode ? 3 : 0,
         backgroundColor: selected ? colors.amberTint : selectionMode && hovered ? colors.surface : 'transparent',
+        // No browser focus frame around a clicked row.
+        ...(web ? ({ outlineStyle: 'none' } as object) : {}),
       }}>
       {selectionMode && (
         // A tick beside the message so the picked ones read at a glance.
