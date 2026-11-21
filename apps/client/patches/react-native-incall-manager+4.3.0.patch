@@ -1,0 +1,69 @@
+diff --git a/node_modules/react-native-incall-manager/android/src/main/java/com/zxcpoiu/incallmanager/InCallManagerModule.java b/node_modules/react-native-incall-manager/android/src/main/java/com/zxcpoiu/incallmanager/InCallManagerModule.java
+index b82ccb9..7cbd32a 100644
+--- a/node_modules/react-native-incall-manager/android/src/main/java/com/zxcpoiu/incallmanager/InCallManagerModule.java
++++ b/node_modules/react-native-incall-manager/android/src/main/java/com/zxcpoiu/incallmanager/InCallManagerModule.java
+@@ -23,6 +23,7 @@ import android.content.IntentFilter;
+ import android.content.BroadcastReceiver;
+ import android.content.pm.PackageManager;
+ import android.media.AudioAttributes;
++import android.media.AudioDeviceCallback;
+ import android.media.AudioDeviceInfo;
+ import android.media.AudioFocusRequest;
+ import android.media.AudioManager;
+@@ -296,7 +297,37 @@ public class InCallManagerModule extends ReactContextBaseJavaModule implements L
+         }
+     }
+ 
++    // Flock: USB-C headsets don't send ACTION_HEADSET_PLUG, so plugging or unplugging one is caught
++    // from the audio device list instead (API 23+).
++    private Object usbDeviceCallback = null;
++
++    private void startUsbHeadsetEvent() {
++        if (android.os.Build.VERSION.SDK_INT < 23 || usbDeviceCallback != null) return;
++        AudioDeviceCallback callback = new AudioDeviceCallback() {
++            @Override
++            public void onAudioDevicesAdded(AudioDeviceInfo[] addedDevices) { refreshWiredHeadset(); }
++            @Override
++            public void onAudioDevicesRemoved(AudioDeviceInfo[] removedDevices) { refreshWiredHeadset(); }
++        };
++        usbDeviceCallback = callback;
++        audioManager.registerAudioDeviceCallback(callback, null);
++    }
++
++    private void stopUsbHeadsetEvent() {
++        if (android.os.Build.VERSION.SDK_INT < 23 || usbDeviceCallback == null) return;
++        audioManager.unregisterAudioDeviceCallback((AudioDeviceCallback) usbDeviceCallback);
++        usbDeviceCallback = null;
++    }
++
++    private void refreshWiredHeadset() {
++        boolean now = hasWiredHeadset();
++        if (now == hasWiredHeadset) return;
++        hasWiredHeadset = now;
++        updateAudioRoute();
++    }
++
+     private void startWiredHeadsetEvent() {
++        startUsbHeadsetEvent();
+         if (wiredHeadsetReceiver == null) {
+             Log.d(TAG, "startWiredHeadsetEvent()");
+             IntentFilter filter = new IntentFilter(ACTION_HEADSET_PLUG);
+@@ -325,6 +356,7 @@ public class InCallManagerModule extends ReactContextBaseJavaModule implements L
+     }
+ 
+     private void stopWiredHeadsetEvent() {
++        stopUsbHeadsetEvent();
+         if (wiredHeadsetReceiver != null) {
+             Log.d(TAG, "stopWiredHeadsetEvent()");
+             this.unregisterReceiver(this.wiredHeadsetReceiver);
+@@ -2157,6 +2189,10 @@ public class InCallManagerModule extends ReactContextBaseJavaModule implements L
+                 } else if (type == AudioDeviceInfo.TYPE_USB_DEVICE) {
+                     Log.d(TAG, "hasWiredHeadset: found USB audio device");
+                     return true;
++                } else if (type == 22 /* AudioDeviceInfo.TYPE_USB_HEADSET (API 26) */) {
++                    // Flock: USB-C headsets (and USB-C to 3.5 mm adapters) report as USB_HEADSET.
++                    Log.d(TAG, "hasWiredHeadset: found USB headset");
++                    return true;
+                 } else if (type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES) {
+                     Log.d(TAG, "hasWiredHeadset: found wired headphones");
+                     return true;

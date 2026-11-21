@@ -370,17 +370,13 @@ export function ChatThread({
           onScroll={(e) => setScrolledUp(e.nativeEvent.contentOffset.y > 120)}
           scrollEventThrottle={100}
           onEndReachedThreshold={0.3}
-          onScrollToIndexFailed={() => {
-            // Variable-height rows: retry once the list has laid out, then rely on the highlight.
-            if (scrollRetry.current > 0) return;
+          onScrollToIndexFailed={(info) => {
+            // Variable-height rows that haven't been laid out yet: jump near the target by the average
+            // row height (which renders it), then scroll to it exactly. A few tries at most.
+            if (scrollRetry.current >= 3) return;
             scrollRetry.current += 1;
-            setTimeout(() => {
-              const id = highlightId;
-              if (!id) return;
-              const currentRows = buildRows(chatStore.state.messages[conversationId] ?? []);
-              const index = currentRows.findIndex((row) => row.type === 'message' && row.message.id === id);
-              if (index >= 0) listRef.current?.scrollToIndex({ index, viewPosition: 0.5, animated: false });
-            }, 120);
+            listRef.current?.scrollToOffset({ offset: Math.max(0, info.averageItemLength * info.index), animated: false });
+            setTimeout(() => listRef.current?.scrollToIndex({ index: info.index, viewPosition: 0.5, animated: true }), 120);
           }}
           contentContainerStyle={{ paddingHorizontal: desktop ? 32 : 14, paddingVertical: 16, maxWidth: desktop ? 900 : undefined, width: '100%', alignSelf: 'center' }}
           ListFooterComponent={messages.length === 0 ? <EmptyThread conversation={conversation} /> : undefined}
@@ -404,6 +400,7 @@ export function ChatThread({
                 onToggleSelect={() => toggleSelected(item.message.id)}
                 onReply={() => setReplyTo(item.message)}
                 onOpenMenu={(point) => setMenu({ message: item.message, point })}
+                onJumpTo={(id) => void jumpTo(id)}
               />
             )
           }
@@ -1166,6 +1163,7 @@ function Bubble({
   selectionMode,
   onToggleSelect,
   onReply,
+  onJumpTo,
   onOpenMenu,
 }: {
   row: Extract<Row, { type: 'message' }>;
@@ -1178,6 +1176,8 @@ function Bubble({
   selectionMode: boolean;
   onToggleSelect: () => void;
   onReply: () => void;
+  /** Scrolls to another message (the one a reply quotes). */
+  onJumpTo: (messageId: string) => void;
   onOpenMenu: (point: { x: number; y: number }) => void;
 }) {
   const { message: m, first, last } = row;
@@ -1244,7 +1244,7 @@ function Bubble({
     </Tooltip>
   );
   // Hover actions belong to the desktop layout; phones use long-press selection instead.
-  const hoverControls = web && desktop && canAct && (
+  const hoverControls = web && desktop && canAct && !selectionMode && (
     <View style={{ flexDirection: 'row', alignSelf: 'center', gap: 4 }}>
       {hoverButton('corner-up-left', t('Reply'), onReply)}
       {hoverButton('more-horizontal', t('Message actions'), openFromButton)}
@@ -1254,8 +1254,20 @@ function Bubble({
   return (
     <Pressable
       {...(web ? { onPointerEnter: () => setHovered(true), onPointerLeave: () => setHovered(false) } : {})}
-      onPress={!desktop ? openAtTouch : undefined}
-      style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 10, marginTop: first ? 14 : 3, justifyContent: mine ? 'flex-end' : 'flex-start' }}>
+      // While selecting, a tap anywhere on the row picks or drops the message (not only the tick).
+      onPress={selectionMode ? toggleSelection : !desktop ? openAtTouch : undefined}
+      style={{
+        flexDirection: 'row',
+        alignItems: 'flex-end',
+        gap: 10,
+        marginTop: first ? 14 : 3,
+        justifyContent: mine ? 'flex-end' : 'flex-start',
+        // A picked message tints its whole row edge to edge, like Telegram.
+        marginHorizontal: desktop ? -32 : -14,
+        paddingHorizontal: desktop ? 32 : 14,
+        paddingVertical: selectionMode ? 2 : 0,
+        backgroundColor: selected ? colors.amberTint : selectionMode && hovered ? colors.surface : 'transparent',
+      }}>
       {selectionMode && (
         // A tick beside the message so the picked ones read at a glance.
         <View
@@ -1264,6 +1276,8 @@ function Bubble({
             height: 24,
             borderRadius: 12,
             alignSelf: 'center',
+            // Always at the row's start edge; my own bubbles still sit at the other end.
+            marginEnd: mine ? 'auto' : 0,
             alignItems: 'center',
             justifyContent: 'center',
             backgroundColor: selected ? colors.amber : 'transparent',
@@ -1288,7 +1302,7 @@ function Bubble({
           {...(web && canAct && !selectionMode ? ({ onDoubleClick: onReply, onContextMenu: openAtPointer } as object) : {})}
           style={[
             {
-              backgroundColor: selected ? (mine ? colors.amberSoft : colors.amberTint) : bubbleBg,
+              backgroundColor: bubbleBg,
               // The border is always there (transparent when idle) so highlighting it doesn't shift the bubble.
               paddingHorizontal: framedMedia ? 0 : 16,
               paddingVertical: framedMedia ? 0 : 11,
@@ -1303,20 +1317,24 @@ function Bubble({
               // Their messages are cards with a hairline edge; mine are amber. Highlighting only
               // recolors the edge, so the bubble never shifts.
               borderWidth: 1.5,
-              borderColor: highlighted || menuOpen || selected ? colors.amber : mine ? 'transparent' : colors.border,
+              borderColor: highlighted || menuOpen ? colors.amber : mine ? 'transparent' : colors.border,
             },
             web && (hovered || menuOpen) && ({ filter: 'brightness(1.06)' } as object),
           ]}>
           {m.replyTo && (
-            <View
-              style={{
+            // Tapping the quote scrolls to the original message and highlights it (like Telegram).
+            <Pressable
+              onPress={selectionMode ? onToggleSelect : () => m.replyTo && onJumpTo(m.replyTo.id)}
+              accessibilityRole="button"
+              accessibilityLabel={t('Go to the original message')}
+              style={({ hovered }: any) => ({
                 flexDirection: 'row',
                 gap: 10,
-                backgroundColor: mine ? 'rgba(61,38,0,0.08)' : colors.surfaceHigh,
+                backgroundColor: mine ? (hovered ? 'rgba(61,38,0,0.14)' : 'rgba(61,38,0,0.08)') : hovered ? colors.surfaceHighest : colors.surfaceHigh,
                 borderRadius: 10,
                 padding: 10,
                 margin: framedMedia ? 6 : 0,
-              }}>
+              })}>
               <View style={{ width: 3, borderRadius: 2, backgroundColor: colors.amber }} />
               <View style={{ flexShrink: 1 }}>
                 <T variant="label" color={mine ? '#8A5A00' : colors.amberText}>
@@ -1326,7 +1344,7 @@ function Bubble({
                   {m.replyTo.body}
                 </T>
               </View>
-            </View>
+            </Pressable>
           )}
           {!!m.forwardedFrom && (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, ...(framedMedia ? { paddingHorizontal: 12, paddingVertical: 7 } : {}) }}>

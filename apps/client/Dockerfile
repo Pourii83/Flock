@@ -2,6 +2,8 @@
 FROM node:24-bookworm-slim AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
+# postinstall applies these (patch-package).
+COPY patches ./patches
 RUN npm ci
 COPY . .
 # Empty = same origin; nginx proxies /api and /socket.io to the server container.

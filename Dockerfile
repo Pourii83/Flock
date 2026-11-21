@@ -6,6 +6,8 @@
 FROM node:24-bookworm-slim AS web
 WORKDIR /client
 COPY apps/client/package.json apps/client/package-lock.json ./
+# postinstall applies these (patch-package).
+COPY apps/client/patches ./patches
 RUN npm ci --no-audit --no-fund
 COPY apps/client/ ./
 # Empty API address: the web app talks to the server on its own origin.

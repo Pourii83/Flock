@@ -727,6 +727,14 @@ function ActiveCall() {
   // with raise hand and screen sharing on its second row; everything else is behind "More", whose
   // sheet opens with a row of quick reactions.
   const moreItems: MenuItem[] = [
+    // Phones keep the dock to five buttons: the speaker and screen sharing live here instead.
+    ...(!wide
+      ? [
+          { icon: call.speakerMuted ? ('volume-x' as const) : ('volume-2' as const), label: call.speakerMuted ? t('Unmute call audio') : t('Mute call audio'), active: !call.speakerMuted, onPress: toggleSpeakerMute },
+          { icon: 'headphones' as const, label: t('Sound output'), onPress: () => setPanel('audio') },
+          { icon: 'monitor' as const, label: call.sharingScreen ? t('Stop sharing') : t('Share screen'), active: call.sharingScreen, onPress: () => void toggleScreenShare() },
+        ]
+      : []),
     ...(canPip ? [{ icon: 'minimize-2' as const, label: t('Picture in picture'), onPress: () => (nativePipSupported ? void enterNativePip() : void enterPip(pipStream)) }] : []),
     ...(camOn ? [{ icon: selfHidden ? ('eye' as const) : ('eye-off' as const), label: selfHidden ? t('Show my video') : t('Hide my video'), onPress: () => setSelfHidden((h) => !h) }] : []),
     { icon: 'sliders', label: t('Call quality'), onPress: () => setPanel('quality') },
@@ -859,10 +867,9 @@ function ActiveCall() {
         </View>
 
         {/* Bottom controls */}
-        <View
-          onLayout={(e) => setDockHeight(e.nativeEvent.layout.height)}
-          style={[{ padding: wide ? 12 : 8, gap: 10, alignItems: 'center' }, chrome]}
-          pointerEvents={chromePointer}>
+        {/* Only the buttons set the stage's bottom space: notices and the raised-hand banner float above
+            them over the video, so they never push the stage around. */}
+        <View style={[{ padding: wide ? 12 : 8, gap: 10, alignItems: 'center' }, chrome]} pointerEvents={chromePointer}>
           {!!call.notice && (
             <View style={[styles.glass, { paddingHorizontal: 14, paddingVertical: 8, maxWidth: '100%' }]}>
               <Notice text={call.notice} />
@@ -904,17 +911,13 @@ function ActiveCall() {
               )}
             </View>
           )}
+          <View onLayout={(e) => setDockHeight(e.nativeEvent.layout.height + (wide ? 24 : 16))} style={{ alignSelf: 'stretch', alignItems: 'center' }}>
           {!wide ? (
             <View style={[styles.glass, { borderRadius: radius.xl, padding: 10, gap: 10, width: '100%', maxWidth: 520 }]}>
               <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
                 <DockTile label={call.micMuted ? t('Unmute') : t('Mute')} on={!call.micMuted}>
                   <View ref={micRef} collapsable={false}>
                     <MicButton muted={call.micMuted} speaking={!!call.localSpeaking} panelOpen={panel === 'mic'} onToggle={toggleMic} onOpenPanel={() => openAt(measureMic, 'mic')} size={tileSize} />
-                  </View>
-                </DockTile>
-                <DockTile label={t('Speaker')} on={!call.speakerMuted}>
-                  <View ref={outRef} collapsable={false}>
-                    <OutputButton muted={call.speakerMuted} panelOpen={panel === 'audio'} onToggleMute={toggleSpeakerMute} onOpenPanel={() => openAt(measureOut, 'audio')} size={tileSize} />
                   </View>
                 </DockTile>
                 <DockTile label={t('Video')} on={!call.cameraOff}>
@@ -931,6 +934,9 @@ function ActiveCall() {
                 </DockTile>
                 <DockTile label={t('Chat')} on={panel === 'chat'}>
                   <DockButton icon="message-square" active={panel === 'chat'} onPress={() => toggle('chat')} label={t('Call chat')} badge={panel === 'chat' ? 0 : call.chatUnread} size={tileSize} />
+                </DockTile>
+                <DockTile label={t('More')} on={panel === 'more' || call.sharingScreen}>
+                  <DockButton icon="more-horizontal" active={panel === 'more' || call.sharingScreen} onPress={() => toggle('more')} label={t('More options')} size={tileSize} />
                 </DockTile>
                 <DockTile label={t('Leave')} danger>
                   <Pressable
@@ -949,17 +955,17 @@ function ActiveCall() {
                   </Pressable>
                 </DockTile>
               </View>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                {call.isGroup && <DockPill hand label={call.raised ? t('Lower hand') : t('Raise hand')} active={call.raised} onPress={toggleRaiseHand} />}
-                <DockPill icon="monitor" label={call.sharingScreen ? t('Stop sharing') : t('Share screen')} active={call.sharingScreen} onPress={() => void toggleScreenShare()} />
-                {canFlip && !selfViewShown && <DockPill icon="refresh-ccw" label={t('Flip')} onPress={flipCamera} />}
-                <View style={{ flex: 1 }} />
-                <DockButton icon="more-horizontal" active={panel === 'more'} onPress={() => toggle('more')} label={t('More options')} size={40} />
-              </View>
+              {(call.isGroup || (canFlip && !selfViewShown)) && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  {call.isGroup && <DockPill hand label={call.raised ? t('Lower hand') : t('Raise hand')} active={call.raised} onPress={toggleRaiseHand} />}
+                  {canFlip && !selfViewShown && <DockPill icon="refresh-ccw" label={t('Flip')} onPress={flipCamera} />}
+                </View>
+              )}
             </View>
           ) : (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: wide ? 14 : 8, maxWidth: '100%' }}>
-            <View style={[styles.glass, { flexDirection: 'row', alignItems: 'center', gap: wide ? 8 : 5, padding: wide ? 8 : 5, flexShrink: 1 }]}>
+            {/* One panel like the phone dock: the same rounded corners, hang-up inside at the end. */}
+            <View style={[styles.glass, { flexDirection: 'row', alignItems: 'center', gap: wide ? 8 : 5, padding: wide ? 10 : 5, borderRadius: radius.xl, flexShrink: 1 }]}>
               <View ref={micRef} collapsable={false}>
                 <MicButton muted={call.micMuted} speaking={!!call.localSpeaking} panelOpen={panel === 'mic'} onToggle={toggleMic} onOpenPanel={() => openAt(measureMic, 'mic')} size={dockSize} />
               </View>
@@ -1002,28 +1008,27 @@ function ActiveCall() {
               ) : (
                 <DockButton icon="more-horizontal" active={panel === 'more' || call.sharingScreen} onPress={() => toggle('more')} label={t('More options')} size={dockSize} />
               )}
+              <Tooltip label={t('Hang up')}>
+                <Pressable
+                  accessibilityLabel={t('Hang up')}
+                  onPress={hangUp}
+                  style={({ pressed, hovered }: any) => ({
+                    // As tall as the other buttons (it lives in the same panel), a little wider.
+                    width: Math.round(dockSize * 1.35),
+                    height: dockSize,
+                    borderRadius: dockSize / 2,
+                    marginStart: 6,
+                    backgroundColor: pressed ? '#B91C1C' : hovered ? '#DC2626' : colors.danger,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  })}>
+                  <Icon name="phone-off" size={Math.round(dockSize * 0.42)} color="#FFFFFF" />
+                </Pressable>
+              </Tooltip>
             </View>
-            <Tooltip label={t('Hang up')}>
-              <Pressable
-                accessibilityLabel={t('Hang up')}
-                onPress={hangUp}
-                style={({ pressed, hovered }: any) => ({
-                  width: wide ? 72 : 56,
-                  height: wide ? 64 : 52,
-                  borderRadius: 32,
-                  backgroundColor: pressed ? '#B91C1C' : colors.danger,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  shadowColor: colors.danger,
-                  shadowOpacity: hovered ? 0.75 : 0.55,
-                  shadowRadius: 18,
-                  elevation: 8,
-                })}>
-                <Icon name="phone-off" size={wide ? 24 : 21} color="#FFFFFF" />
-              </Pressable>
-            </Tooltip>
           </View>
           )}
+          </View>
         </View>
       </SafeAreaView>
 
@@ -1039,16 +1044,17 @@ function ActiveCall() {
             {t('You')}
           </T>
           {canFlip && (
-            <View style={{ position: 'absolute', left: 0, right: 0, bottom: 6, alignItems: 'center' }} pointerEvents="box-none">
+            // Its own corner with some breathing room (the name sits at the other one), clear of the rounded edge.
+            <View style={{ position: 'absolute', end: 10, bottom: 10 }} pointerEvents="box-none">
               <Tooltip label={t('Switch camera')}>
                 <Pressable
                   accessibilityLabel={t('Switch camera')}
                   onPress={flipCamera}
                   hitSlop={6}
                   style={({ pressed, hovered }: any) => ({
-                    width: 32,
-                    height: 32,
-                    borderRadius: 16,
+                    width: 34,
+                    height: 34,
+                    borderRadius: 17,
                     backgroundColor: pressed || hovered ? 'rgba(0,0,0,0.75)' : 'rgba(0,0,0,0.5)',
                     alignItems: 'center',
                     justifyContent: 'center',
@@ -1091,9 +1097,6 @@ function ActiveCall() {
             sendReaction(emoji);
             setPanel(null);
           }}
-          raised={call.raised}
-          onToggleRaise={toggleRaiseHand}
-          canRaise={call.isGroup}
           onClose={() => setPanel(null)}
           bottom={dockHeight + insets.bottom}
           anchorX={reactX}
@@ -1363,18 +1366,12 @@ function ReactionsPopover({
   bottom,
   anchorX,
   stageWidth,
-  raised,
-  onToggleRaise,
-  canRaise,
 }: {
   onPick: (emoji: string) => void;
   onClose: () => void;
   bottom: number;
   anchorX: number | null;
   stageWidth: number;
-  raised: boolean;
-  onToggleRaise: () => void;
-  canRaise: boolean;
 }) {
   return (
     <Popover onClose={onClose} bottom={bottom} anchorX={anchorX} stageWidth={stageWidth} width={Math.min(340, 62 * REACTIONS.length)}>
@@ -1396,32 +1393,6 @@ function ReactionsPopover({
           </Tooltip>
         ))}
       </View>
-      {canRaise && (
-        <>
-          <View style={{ height: 1, backgroundColor: colors.hairline }} />
-          <Tooltip label={raised ? t('Lower hand') : t('Raise hand')} style={{ alignSelf: 'stretch' }}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityState={{ selected: raised }}
-              accessibilityLabel={raised ? t('Lower hand') : t('Raise hand')}
-              onPress={onToggleRaise}
-              style={({ pressed, hovered }: any) => ({
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: 12,
-                minHeight: 44,
-                paddingHorizontal: 12,
-                borderRadius: radius.lg,
-                backgroundColor: raised ? colors.amberTint : pressed || hovered ? colors.surfaceHighest : colors.surfaceHigh,
-              })}>
-              <HandIcon size={20} color={raised ? colors.amberText : colors.text} />
-              <T variant="labelLg" style={{ flex: 1 }} color={raised ? colors.amberText : colors.text}>
-                {raised ? t('Lower hand') : t('Raise hand')}
-              </T>
-            </Pressable>
-          </Tooltip>
-        </>
-      )}
     </Popover>
   );
 }

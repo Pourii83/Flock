@@ -209,6 +209,21 @@ export function ChatRow({
   const unread = c.unreadCount > 0;
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [preview, setPreview] = useState(false);
+  // Alt+click peeks at the chat instead of opening it (web). Listened to on the element itself: the
+  // press handler never fires while a modifier key is held, and onClick isn't passed through.
+  const rowRef = useRef<ComponentRef<typeof Pressable>>(null);
+  useEffect(() => {
+    const node = rowRef.current as unknown as HTMLElement | null;
+    if (Platform.OS !== 'web' || !node?.addEventListener) return;
+    const onClick = (event: MouseEvent) => {
+      if (!event.altKey) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setPreview(true);
+    };
+    node.addEventListener('click', onClick, true);
+    return () => node.removeEventListener('click', onClick, true);
+  }, []);
   const name = isSavedConversation(c) ? t('Saved Messages') : c.name;
 
   // Right-click on desktop (and the actions row in the preview): pin, mute and mark-read.
@@ -228,19 +243,13 @@ export function ChatRow({
   return (
     <>
       <Pressable
-        onPress={(event: any) => {
-          // Alt+click peeks at the chat instead of opening it.
-          if (Platform.OS === 'web' && (event?.nativeEvent?.altKey || (window as any).event?.altKey)) {
-            setPreview(true);
-            return;
-          }
-          onPress();
-        }}
+        onPress={() => onPress()}
         // Long-press on a phone opens the same peek (its actions live in the preview).
         onLongPress={() => setPreview(true)}
         delayLongPress={400}
         accessibilityRole="button"
         accessibilityLabel={name}
+        ref={rowRef}
         {...(Platform.OS === 'web' ? { onContextMenu: openMenu } : {})}
         style={({ hovered, pressed }: any) => ({
           flexDirection: 'row',

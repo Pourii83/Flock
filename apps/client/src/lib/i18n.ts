@@ -105,6 +105,7 @@ const fa: Record<string, string> = {
   'Wrong username or password': 'نام کاربری یا رمز عبور اشتباه است',
   'Too many attempts. Please wait a few minutes and try again.': 'تلاش‌ها بیش از حد شد. چند دقیقه صبر کنید و دوباره امتحان کنید.',
   'Open call chat': 'باز کردن چت تماس',
+  'Go to the original message': 'رفتن به پیام اصلی',
   'Microphone test': 'تست میکروفون',
   'Test mic': 'تست میکروفون',
   'Stop': 'توقف',
