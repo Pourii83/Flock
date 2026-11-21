@@ -286,7 +286,8 @@ export function SharedMedia({ conversation }: { conversation: Conversation }) {
 /** Scrolls the chat to the message this row came from. */
 function ShowInChat({ onPress }: { onPress: () => void }) {
   return (
-    <Tooltip label={t('Show in chat')}>
+    // Centered in its row like the download button beside it (the tooltip wrapper defaults to the top).
+    <Tooltip label={t('Show in chat')} style={{ alignSelf: 'center' }}>
       <IconButton name="eye" label={t('Show in chat')} onPress={onPress} size={34} iconSize={17} color={colors.textMuted} />
     </Tooltip>
   );
