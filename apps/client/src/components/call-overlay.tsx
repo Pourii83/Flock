@@ -741,6 +741,9 @@ function ActiveCall() {
   // Phone dock: six equal columns across the panel (every gap between buttons the same).
   const tileSize = Math.max(38, Math.min(50, Math.floor((Math.min(windowWidth, 520) - 16 - 20) / 6) - 12));
 
+  // Phone, others' cameras still off (the grid): the flip button sits on my own tile instead of the dock.
+  const flipOnTile = !wide && canFlip && !selfHidden && !shownScreen && !(fullBleed && single);
+
   return (
     <View style={{ flex: 1, backgroundColor: colors.canvas }} onLayout={(e) => setStage({ width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height })}>
       {/* Remote stage — tap closes an open panel, otherwise toggles the controls */}
@@ -788,6 +791,7 @@ function ActiveCall() {
             version={call.mediaVersion}
             padTop={padTop}
             padBottom={padBottom}
+            onFlip={flipOnTile ? flipCamera : undefined}
             onOpenScreen={(id) => {
               setDismissedScreen(null);
               setFocusedScreen(id);
@@ -956,10 +960,10 @@ function ActiveCall() {
                   </Pressable>
                 </DockTile>
               </View>
-              {(call.isGroup || (canFlip && !selfViewShown)) && (
+              {(call.isGroup || (canFlip && !selfViewShown && !flipOnTile)) && (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                   {call.isGroup && <DockPill hand label={call.raised ? t('Lower hand') : t('Raise hand')} active={call.raised} onPress={toggleRaiseHand} />}
-                  {canFlip && !selfViewShown && <DockPill icon="refresh-ccw" label={t('Flip')} onPress={flipCamera} />}
+                  {canFlip && !selfViewShown && !flipOnTile && <DockPill icon="refresh-ccw" label={t('Flip')} onPress={flipCamera} />}
                 </View>
               )}
             </View>
@@ -1782,7 +1786,7 @@ type Person = {
 };
 
 /** One person's tile: camera video, or their photo on a plain card; the name sits in a corner. */
-function Tile({ p, width, height, version, compact, onOpenScreen }: { p: Person; width: number; height: number; version: number; compact?: boolean; onOpenScreen?: () => void }) {
+function Tile({ p, width, height, version, compact, onOpenScreen, onFlip }: { p: Person; width: number; height: number; version: number; compact?: boolean; onOpenScreen?: () => void; /** My own tile: switch front/back camera. */ onFlip?: () => void }) {
   const avatar = Math.round(Math.max(36, Math.min(120, Math.min(width, height) * 0.32)));
   const name = p.self ? t('You') : (p.user?.displayName ?? '…');
   return (
@@ -1847,6 +1851,27 @@ function Tile({ p, width, height, version, compact, onOpenScreen }: { p: Person;
             </T>
           )}
         </View>
+      )}
+      {/* Flip front/back camera: the corner below the muted badge, across from my name. */}
+      {!!onFlip && p.video && (
+        <Pressable
+          onPress={onFlip}
+          accessibilityRole="button"
+          accessibilityLabel={t('Switch camera')}
+          hitSlop={6}
+          style={({ pressed }) => ({
+            position: 'absolute',
+            bottom: 10,
+            end: 10,
+            width: 36,
+            height: 36,
+            borderRadius: 18,
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: pressed ? 'rgba(0,0,0,0.75)' : 'rgba(0,0,0,0.5)',
+          })}>
+          <Icon name="refresh-ccw" size={17} color="#fff" />
+        </Pressable>
       )}
       {/* A prominent muted badge: the name chip at the bottom is easy to miss on a busy stage. */}
       {!p.placeholder && p.muted && !p.screen && (
@@ -1918,7 +1943,7 @@ function tileLayout(n: number, width: number, height: number, gap: number) {
 }
 
 /** Everyone as tiles, me first (Google Meet style). */
-function TileGrid({ people, version, padTop, padBottom, onOpenScreen }: { people: Person[]; version: number; padTop: number; padBottom: number; onOpenScreen: (id: string) => void }) {
+function TileGrid({ people, version, padTop, padBottom, onOpenScreen, onFlip }: { people: Person[]; version: number; padTop: number; padBottom: number; onOpenScreen: (id: string) => void; onFlip?: () => void }) {
   const [area, setArea] = useState({ width: 0, height: 0 });
   const gap = 10;
   const { w, h } = tileLayout(people.length, area.width, area.height, gap);
@@ -1928,7 +1953,7 @@ function TileGrid({ people, version, padTop, padBottom, onOpenScreen }: { people
         style={{ flex: 1, flexDirection: 'row', flexWrap: 'wrap', alignContent: 'center', justifyContent: 'center', gap }}
         onLayout={(e) => setArea({ width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height })}>
         {area.width > 0 &&
-          people.map((p) => <Tile key={p.id} p={p} width={w} height={h} version={version} onOpenScreen={p.screen ? () => onOpenScreen(p.id) : undefined} />)}
+          people.map((p) => <Tile key={p.id} p={p} width={w} height={h} version={version} onOpenScreen={p.screen ? () => onOpenScreen(p.id) : undefined} onFlip={p.self ? onFlip : undefined} />)}
       </View>
     </View>
   );
