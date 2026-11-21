@@ -23,6 +23,8 @@ ENV NODE_ENV=production \
 COPY server/package.json server/package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY server/src ./src
+# The in-app changelog; the version comes from server/package.json (kept equal to the release).
+COPY RELEASE_NOTES.md RELEASE_NOTES.fa.md ./
 COPY --from=web /web ./web
 RUN mkdir -p /app/data/uploads && chown -R node:node /app/data
 USER node
