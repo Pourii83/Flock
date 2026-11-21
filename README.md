@@ -23,7 +23,7 @@
 
 - 💬 **Chats**: direct messages, groups and channels, with replies, reactions, file sharing (the admin sets the size limit) and read receipts
 - 🎙️ **Voice messages**: waveform, playback that keeps going between chats, 1×/1.5×/2× speed
-- 🔔 **Push notifications**: reach phones and browsers even when Flock is closed
+- 🔔 **Push notifications**: in browsers and the installed web app, on computers and phones, even when Flock is closed
 - 🔗 **Invite links**: anyone can join a group or channel with one tap; the owner can revoke the link
 - 🔒 **Secret chats**: optional end-to-end encryption; the server only stores ciphertext
 - 📞 **Voice & video calls**: one-to-one or in groups, full-screen video, screen sharing and noise cancellation
