@@ -55,7 +55,7 @@ Want to look around first? Try the [live demo](https://app.flock.beer); its data
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/Pourii83/Flock)
 [![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/5zHqd9)
 
-One click creates the server and its database. Details: [Cloud hosting](https://docs.flock.beer/install/cloud/).
+One click sets up Flock (server, database and web app) on one address; you choose the admin password while deploying. Details: [Cloud hosting](https://docs.flock.beer/install/cloud/).
 
 ## Documentation
 

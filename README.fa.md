@@ -55,7 +55,7 @@ sudo flockctl
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/Pourii83/Flock)
 [![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/5zHqd9)
 
-با یک کلیک سرور و دیتابیسش ساخته می‌شود. جزئیات: [میزبانی ابری](https://docs.flock.beer/fa/install/cloud/).
+با یک کلیک فلاک (سرور، دیتابیس و وب‌اپ) روی یک آدرس راه می‌افتد و رمز مدیر را همان موقع دیپلوی انتخاب می‌کنید. جزئیات: [میزبانی ابری](https://docs.flock.beer/fa/install/cloud/).
 
 ## مستندات
 
