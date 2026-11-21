@@ -1261,7 +1261,10 @@ function Bubble({
         alignItems: 'flex-end',
         gap: 10,
         // Space above as padding, not margin: picked rows next to each other join into one band.
-        paddingTop: first ? 14 : 3,
+        paddingTop: (first ? 14 : 3) + (selectionMode ? 1 : 0),
+        // Rows overlap by a pixel while selecting: a photo's fractional height would otherwise leave a
+        // hairline seam between two tinted rows.
+        marginTop: selectionMode ? -1 : 0,
         justifyContent: mine ? 'flex-end' : 'flex-start',
         // A picked message tints its whole row edge to edge, like Telegram.
         marginHorizontal: desktop ? -32 : -14,
