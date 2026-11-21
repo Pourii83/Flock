@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Pressable, View } from 'react-native';
+import { Platform, View } from 'react-native';
 
 import { WAVE_BARS } from '@/lib/waveform';
 
@@ -46,12 +46,24 @@ export function WaveBars({
       ))}
     </View>
   );
+  const seek = (x: number) => onSeek && width > 0 && onSeek(Math.max(0, Math.min(1, x / width)));
   return (
-    <Pressable
-      onPress={(e: any) => onSeek && width > 0 && onSeek(Math.max(0, Math.min(1, (e.nativeEvent.locationX ?? 0) / width)))}
+    <View
+      // Press or drag anywhere along the bars: the message follows the finger, like a scrubber.
+      // A vertical drag still belongs to the chat list (the scrubber only takes the gesture when it
+      // is a sideways drag or a tap).
+      onStartShouldSetResponder={() => !!onSeek}
+      onMoveShouldSetResponder={() => !!onSeek}
+      onResponderGrant={(e) => seek(e.nativeEvent.locationX ?? 0)}
+      onResponderMove={(e) => seek(e.nativeEvent.locationX ?? 0)}
       onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
       accessible={false}
-      style={{ height: HEIGHT, overflow: 'hidden', alignSelf: 'stretch' }}>
+      style={{
+        height: HEIGHT,
+        overflow: 'hidden',
+        alignSelf: 'stretch',
+        ...(Platform.OS === 'web' ? ({ cursor: onSeek ? 'pointer' : 'auto', touchAction: 'none' } as object) : null),
+      }}>
       {row(rest)}
       {/* The played color is the same bars, clipped to the progress: it fills smoothly, even inside a bar. */}
       {width > 0 && progress > 0 && (
@@ -59,6 +71,6 @@ export function WaveBars({
           {row(played, width)}
         </View>
       )}
-    </Pressable>
+    </View>
   );
 }

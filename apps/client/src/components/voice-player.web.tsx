@@ -30,6 +30,8 @@ export function VoicePlayer({
   compact,
   title,
   subtitle,
+  conversationId,
+  messageId,
 }: {
   url: string;
   mine: boolean;
@@ -40,6 +42,9 @@ export function VoicePlayer({
   /** Shown in the player bar (defaults to the generic voice-message label). */
   title?: string;
   subtitle?: string;
+  /** Where this message is, so the player bar can jump back to it from another chat. */
+  conversationId?: string;
+  messageId?: string;
 }) {
   // Loudness bars: sent with the message, or measured here from the file for older messages.
   const levels = useWaveform(url, waveform, async () =>
@@ -82,7 +87,14 @@ export function VoicePlayer({
     }
     const full = await resolve();
     if (!full) return;
-    await playVoice({ url: full, title: title || t('Voice message'), subtitle: subtitle ?? '', length: duration });
+    await playVoice({
+      url: full,
+      title: title || t('Voice message'),
+      subtitle: subtitle ?? '',
+      length: duration,
+      conversationId,
+      messageId,
+    });
   };
 
   const seek = async (fraction: number) => {
@@ -92,7 +104,14 @@ export function VoicePlayer({
     }
     const full = await resolve();
     if (!full) return;
-    await playVoice({ url: full, title: title || t('Voice message'), subtitle: subtitle ?? '', length: duration });
+    await playVoice({
+      url: full,
+      title: title || t('Voice message'),
+      subtitle: subtitle ?? '',
+      length: duration,
+      conversationId,
+      messageId,
+    });
     // Playback starts at the beginning; jump to where the waveform was tapped.
     setTimeout(() => seekVoice(fraction), 120);
   };

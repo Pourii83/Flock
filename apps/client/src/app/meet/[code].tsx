@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { JoinAudio, joinAudioSupported } from '@/components/join-audio';
 import { FlockTile } from '@/components/logo';
 import { Button, Field, Icon, T } from '@/components/ui';
 import { api } from '@/lib/api';
@@ -207,6 +208,7 @@ export default function MeetScreen() {
                   autoFocus
                 />
               )}
+              {guestMode && !guestToken && joinAudioSupported && <JoinAudio />}
               {!!error && (
                 <T variant="body" color={colors.danger}>
                   {error}

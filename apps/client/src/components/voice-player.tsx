@@ -33,6 +33,9 @@ export function VoicePlayer({
   /** Web only: the shared player bar shows these (see components/voice-bar.tsx). */
   title?: string;
   subtitle?: string;
+  /** Web only: where the message is, for the bar's "show in chat". */
+  conversationId?: string;
+  messageId?: string;
 }) {
   // The bars come with the message (older voice messages show a flat line here).
   const levels = useWaveform(url, waveform, null);

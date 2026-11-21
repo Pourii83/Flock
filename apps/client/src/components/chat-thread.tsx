@@ -1497,6 +1497,8 @@ function AttachmentCard({ message, mine, framed }: { message: Message; mine: boo
           duration={attachment.duration}
           title={attachment.name || t('Voice message')}
           subtitle={chatStore.state.conversations.find((c) => c.id === message.conversationId)?.name ?? ''}
+          conversationId={message.conversationId}
+          messageId={message.id}
         />
       ) : media && !expired && attachment.url ? (
         // Photos/videos: the file name and download sit on the image's top-right corner, so the

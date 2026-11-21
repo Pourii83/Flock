@@ -11,20 +11,25 @@ export type VoiceNowPlaying = {
   title: string;
   /** Who sent it and when. */
   subtitle: string;
+  /** Where the message lives, so the bar can jump to it. */
+  conversationId?: string;
+  messageId?: string;
   time: number;
   length: number;
   playing: boolean;
   speed: number;
+  volume: number;
   muted: boolean;
 };
 
-export const VOICE_MIN_SPEED = 0.5;
-export const VOICE_MAX_SPEED = 2.5;
+export const VOICE_MIN_SPEED = 0.2;
+export const VOICE_MAX_SPEED = 3;
 
 let state: VoiceNowPlaying | null = null;
 let element: HTMLAudioElement | null = null;
-/** Chosen speed: remembered for the next voice message too. */
+/** Chosen speed and volume: remembered for the next voice message too. */
 let speed = 1;
+let volume = 1;
 
 const listeners = new Set<() => void>();
 const emit = () => listeners.forEach((fn) => fn());
@@ -86,7 +91,14 @@ function audio(): HTMLAudioElement | null {
 export const getVoice = (): VoiceNowPlaying | null => state;
 
 /** Plays one voice message, stopping whatever played before. */
-export async function playVoice(input: { url: string; title: string; subtitle: string; length?: number }) {
+export async function playVoice(input: {
+  url: string;
+  title: string;
+  subtitle: string;
+  length?: number;
+  conversationId?: string;
+  messageId?: string;
+}) {
   const el = audio();
   if (!el) return;
   if (state?.url === input.url) {
@@ -97,15 +109,19 @@ export async function playVoice(input: { url: string; title: string; subtitle: s
     url: input.url,
     title: input.title,
     subtitle: input.subtitle,
+    conversationId: input.conversationId,
+    messageId: input.messageId,
     time: 0,
     length: input.length ?? 0,
     playing: false,
     speed,
+    volume,
     muted: false,
   };
   emit();
   el.src = input.url;
   el.playbackRate = speed;
+  el.volume = volume;
   el.muted = false;
   await el.play().catch(() => {});
 }
@@ -130,12 +146,24 @@ export function skipVoice(delta: number) {
   patch({ time: next });
 }
 
-/** 0.5× … 2.5×, continuously — kept for the next message as well. */
+/** 0.2× … 3× in tenths — kept for the next message as well. */
 export function setVoiceSpeed(value: number) {
   if (!Number.isFinite(value)) return;
-  speed = Math.max(VOICE_MIN_SPEED, Math.min(VOICE_MAX_SPEED, Math.round(value * 100) / 100));
+  speed = Math.max(VOICE_MIN_SPEED, Math.min(VOICE_MAX_SPEED, Math.round(value * 10) / 10));
   if (element) element.playbackRate = speed;
   patch({ speed });
+  if (!state) emit();
+}
+
+/** 0…1 of the device's own volume; raising it also lifts a mute, like the call panel. */
+export function setVoiceVolume(value: number) {
+  if (!Number.isFinite(value)) return;
+  volume = Math.max(0, Math.min(1, Math.round(value * 100) / 100));
+  if (element) {
+    element.volume = volume;
+    if (volume > 0 && element.muted) element.muted = false;
+  }
+  patch({ volume, ...(volume > 0 && state?.muted ? { muted: false } : {}) });
   if (!state) emit();
 }
 
