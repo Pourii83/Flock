@@ -1,11 +1,13 @@
 import { useEvent } from 'expo';
 import { useVideoPlayer } from 'expo-video';
-import { Pressable, View } from 'react-native';
+import { useState } from 'react';
+import { ActivityIndicator, Pressable, View } from 'react-native';
 
 import { attachmentSource } from '@/lib/attachments';
 import { t } from '@/lib/i18n';
 import { colors } from '@/theme';
 import { useWaveform } from '@/lib/waveform';
+import { playVoice, seekVoice, toggleVoice, useVoice } from '@/state/voice';
 import { Icon, T } from './ui';
 import { WaveBars } from './wave-bars';
 
@@ -14,30 +16,91 @@ export const clockOf = (sec: number) => {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 };
 
-/** A voice message in the chat (Android): expo-video's player plays audio-only files too. */
-export function VoicePlayer({
-  url,
-  mine,
-  waveform,
-  duration,
-  compact,
-  title: _title,
-  subtitle: _subtitle,
-}: {
+type VoiceProps = {
   url: string;
   mine: boolean;
   waveform?: string | null;
   duration?: number;
   /** Fits a narrow space (the composer's preview of a fresh recording). */
   compact?: boolean;
-  /** Web only: the shared player bar shows these (see components/voice-bar.tsx). */
+  /** Shown in the player bar (defaults to the generic voice-message label). */
   title?: string;
   subtitle?: string;
-  /** Web only: where the message is, for the bar's "show in chat". */
+  /** Where this message is, so the player bar can jump back to it from another chat. */
   conversationId?: string;
   messageId?: string;
-}) {
+};
+
+/**
+ * A voice message in the chat (Android): the sound comes from the shared player (state/voice.ts),
+ * the same one the bar under the header controls, so playback keeps going across chats.
+ */
+function SentVoicePlayer({ url, mine, waveform, duration, title, subtitle, conversationId, messageId }: VoiceProps) {
   // The bars come with the message (older voice messages show a flat line here).
+  const levels = useWaveform(url, waveform, null);
+  const now = useVoice();
+  const [loading, setLoading] = useState(false);
+  // This message is the one that plays: follow the shared clock, otherwise stay at zero.
+  const active = !!now && now.url === url;
+  const playing = active && now.playing;
+  const time = active ? now.time : 0;
+  const length = active && now.length ? now.length : (duration ?? 0);
+  const progress = length ? Math.min(1, time / length) : 0;
+
+  const start = async (at?: number) => {
+    setLoading(true);
+    try {
+      await playVoice({
+        url,
+        title: title || t('Voice message'),
+        subtitle: subtitle ?? '',
+        length: duration,
+        conversationId,
+        messageId,
+      });
+      // Playback starts at the beginning; jump to where the waveform was tapped.
+      if (at != null) setTimeout(() => seekVoice(at), 250);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const toggle = () => {
+    if (active) toggleVoice();
+    else void start();
+  };
+
+  const seek = (fraction: number) => {
+    if (active) seekVoice(fraction);
+    else void start(fraction);
+  };
+
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, minWidth: 250 }}>
+      <Pressable
+        onPress={toggle}
+        accessibilityLabel={playing ? t('Pause') : t('Play voice message')}
+        style={{ width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: mine ? 'rgba(61,38,0,0.14)' : colors.amber }}>
+        {loading ? <ActivityIndicator color={colors.onAmber} size="small" /> : <Icon name={playing ? 'pause' : 'play'} size={18} color={colors.onAmber} />}
+      </Pressable>
+      <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
+        <WaveBars
+          levels={levels}
+          progress={progress}
+          played={mine ? colors.onAmber : colors.amber}
+          rest={mine ? 'rgba(61,38,0,0.32)' : colors.textDim}
+          onSeek={seek}
+        />
+        <T variant="bodySm" color={active && now.error ? colors.danger : mine ? '#72521B' : colors.textMuted} style={{ fontVariant: ['tabular-nums'] }}>
+          {(active && now.error) || (playing || time > 0 ? clockOf(time) : length ? clockOf(length) : t('Voice message'))}
+        </T>
+      </View>
+    </View>
+  );
+}
+
+/** The recording still in the composer: its own short player, so it never takes over the chat's. */
+function PreviewPlayer({ url, mine, waveform, duration, compact }: VoiceProps) {
   const levels = useWaveform(url, waveform, null);
   const player = useVideoPlayer(attachmentSource(url), (p) => {
     // Often enough that the played part of the waveform glides instead of stepping.
@@ -80,4 +143,8 @@ export function VoicePlayer({
       </View>
     </View>
   );
+}
+
+export function VoicePlayer(props: VoiceProps) {
+  return props.compact ? <PreviewPlayer {...props} /> : <SentVoicePlayer {...props} />;
 }

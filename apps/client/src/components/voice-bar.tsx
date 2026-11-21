@@ -2,15 +2,18 @@
 // phones): name, a seekable progress line, play/pause, skip, volume and playback speed, and close.
 // Playback itself lives in state/voice.ts, so moving between chats never stops the sound.
 import { useLocalSearchParams, usePathname, useRouter } from 'expo-router';
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Modal, Platform, Pressable, View } from 'react-native';
 
 import { useIsWide } from '@/hooks/use-layout';
-import { t } from '@/lib/i18n';
+import { isRTL, t } from '@/lib/i18n';
 import { requestJump } from '@/lib/jump';
+import { useChat } from '@/state/chat-store';
 import {
   VOICE_MAX_SPEED,
   VOICE_MIN_SPEED,
+  getVoice,
+  retryVoice,
   seekVoice,
   setVoiceMuted,
   setVoiceSpeed,
@@ -165,6 +168,62 @@ export function VoiceBar() {
   const params = useLocalSearchParams<{ c?: string; id?: string }>();
   const [panel, setPanel] = useState<'speed' | 'volume' | null>(null);
   const [seekWidth, setSeekWidth] = useState(0);
+  // The open chat's messages: a message deleted (here or elsewhere) takes the bar with it.
+  const messages = useChat((s) => (now?.conversationId ? s.messages[now.conversationId] : undefined));
+
+  // Space plays or pauses and the arrow keys skip, like any player on the web. The keys are left
+  // alone while someone is typing.
+  useEffect(() => {
+    if (!web || !now) return;
+    const onKey = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
+      if (event.code === 'Space') {
+        event.preventDefault();
+        toggleVoice();
+      } else if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+        event.preventDefault();
+        skipVoice(event.key === 'ArrowLeft' ? -10 : 10);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [!!now]);
+
+  // The browser's own media keys (and the phone's lock screen, installed as an app) drive the same
+  // player, so the voice keeps showing who is speaking while the app is in the background.
+  useEffect(() => {
+    if (!web || typeof navigator === 'undefined' || !now) return;
+    const session = (navigator as Navigator & { mediaSession?: MediaSession }).mediaSession;
+    if (!session) return;
+    session.metadata = new MediaMetadata({ title: now.title, artist: now.subtitle });
+    const handlers: [MediaSessionAction, MediaSessionActionHandler][] = [
+      ['play', () => !getVoice()?.playing && toggleVoice()],
+      ['pause', () => !!getVoice()?.playing && toggleVoice()],
+      ['seekbackward', (details) => skipVoice(-(details.seekOffset ?? 10))],
+      ['seekforward', (details) => skipVoice(details.seekOffset ?? 10)],
+      ['stop', () => stopVoice()],
+    ];
+    for (const [action, handler] of handlers) {
+      try {
+        session.setActionHandler(action, handler);
+      } catch {}
+    }
+    return () => {
+      for (const [action] of handlers) {
+        try {
+          session.setActionHandler(action, null);
+        } catch {}
+      }
+      session.metadata = null;
+    };
+  }, [!!now, now?.url]);
+
+  useEffect(() => {
+    if (!now?.messageId || !messages) return;
+    if (!messages.some((m) => m.id === now.messageId)) stopVoice();
+  }, [now?.messageId, messages]);
+
   if (!now) return null;
 
   const progress = now.length ? Math.min(1, now.time / now.length) : 0;
@@ -174,7 +233,10 @@ export function VoiceBar() {
 
   /** The bar's own progress line: press or drag anywhere on it to move through the message. */
   const seekTo = (x: number) => {
-    if (now.length && seekWidth > 0) seekVoice(Math.max(0, Math.min(1, x / seekWidth)));
+    if (!now.length || seekWidth <= 0) return;
+    // The line fills from the start edge, which is the right one in a right-to-left layout.
+    const at = isRTL() ? seekWidth - x : x;
+    seekVoice(Math.max(0, Math.min(1, at / seekWidth)));
   };
 
   /** Opens the chat the voice belongs to, scrolled to that message (the bar travels across chats). */
@@ -269,11 +331,33 @@ export function VoiceBar() {
               <View style={{ width: `${progress * 100}%`, height: '100%', backgroundColor: colors.amber }} />
             </View>
           </View>
+          {!!now.error && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <T variant="bodySm" color={colors.danger} style={{ flex: 1 }} numberOfLines={2}>
+                {now.error}
+              </T>
+              <Pressable
+                onPress={() => void retryVoice()}
+                accessibilityRole="button"
+                accessibilityLabel={t('Try again')}
+                style={({ hovered }: any) => ({
+                  paddingHorizontal: 8,
+                  paddingVertical: 3,
+                  borderRadius: radius.pill,
+                  backgroundColor: hovered ? colors.danger : colors.dangerTint,
+                })}>
+                <T variant="label" color={colors.danger}>
+                  {t('Try again')}
+                </T>
+              </Pressable>
+            </View>
+          )}
         </View>
         <T variant="bodySm" color={colors.textMuted} style={{ fontVariant: ['tabular-nums'] }}>
-          {clock(now.time)}
+          {now.length ? `${clock(now.time)} / ${clock(now.length)}` : clock(now.time)}
         </T>
-        <IconButton name="rotate-ccw" label={t('Back 10 seconds')} onPress={() => skipVoice(-10)} size={30} iconSize={15} />
+        {/* A phone bar is narrow: skipping lives on the message itself there. */}
+        {wide && <IconButton name="rotate-ccw" label={t('Back 10 seconds')} onPress={() => skipVoice(-10)} size={30} iconSize={15} />}
         <IconButton
           name={now.playing ? 'pause' : 'play'}
           label={now.playing ? t('Pause') : t('Play voice message')}
@@ -284,7 +368,7 @@ export function VoiceBar() {
           activeBg={colors.amberSoft}
           color={colors.onAmber}
         />
-        <IconButton name="rotate-cw" label={t('Forward 10 seconds')} onPress={() => skipVoice(10)} size={30} iconSize={15} />
+        {wide && <IconButton name="rotate-cw" label={t('Forward 10 seconds')} onPress={() => skipVoice(10)} size={30} iconSize={15} />}
         <View style={{ position: 'relative' }} {...hover('volume')}>
           <IconButton
             name={silent ? 'volume-x' : now.volume < 0.5 ? 'volume-1' : 'volume-2'}

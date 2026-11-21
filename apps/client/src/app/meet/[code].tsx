@@ -53,6 +53,8 @@ export default function MeetScreen() {
   const [error, setError] = useState<string | null>(null);
   const [joined, setJoined] = useState(false);
   const [guestToken, setGuestToken] = useState<string | null>(null);
+  // The name the guest token was made with, so editing it after a failed attempt really renames.
+  const [guestName, setGuestName] = useState('');
   const [reload, setReload] = useState(0);
 
   const inCall = call.phase !== 'idle';
@@ -89,10 +91,17 @@ export default function MeetScreen() {
     try {
       if (guestMode) {
         let token = guestToken;
+        // The name was edited after an attempt that failed: this link joins under a new guest name.
+        if (token && guestName !== name.trim()) {
+          if (chatStore.state.guest) chatStore.stop();
+          token = null;
+          setGuestToken(null);
+        }
         if (!token) {
           if (name.trim().length < 2) throw new Error(t('Enter your name to join'));
           const res = await api.joinRoomAsGuest(String(code), name.trim());
           token = res.token;
+          setGuestName(name.trim());
           setGuestToken(token);
           chatStore.startGuest(token, res.user);
         } else if (!chatStore.socket || !chatStore.state.guest) {
@@ -195,7 +204,8 @@ export default function MeetScreen() {
                   {expiryLabel(room.expiresAt)}
                 </T>
               </View>
-              {guestMode && !guestToken && (
+              {/* Still shown after a failed attempt: the name, the devices and the mute choice can be changed and tried again. */}
+              {guestMode && !joined && (
                 <Field
                   label={t('Your name')}
                   icon="user"
@@ -208,7 +218,7 @@ export default function MeetScreen() {
                   autoFocus
                 />
               )}
-              {guestMode && !guestToken && joinAudioSupported && <JoinAudio />}
+              {guestMode && !joined && joinAudioSupported && <JoinAudio />}
               {!!error && (
                 <T variant="body" color={colors.danger}>
                   {error}
@@ -224,13 +234,19 @@ export default function MeetScreen() {
               {!user && (
                 <Button title={t('I have an account — sign in')} variant="ghost" onPress={() => router.push('/login')} />
               )}
-              {!!user && !guestToken && (
+              {!!user && !joined && (
                 <Button
                   title={asGuest ? t('Join with my account instead') : t('Join as a guest instead')}
                   variant="ghost"
                   onPress={() => {
-                    setAsGuest((v) => !v);
+                    const next = !asGuest;
+                    setAsGuest(next);
                     setError(null);
+                    // Back on my account: the guest connection and its token are done with.
+                    if (!next) {
+                      if (chatStore.state.guest) chatStore.stop();
+                      setGuestToken(null);
+                    }
                   }}
                 />
               )}

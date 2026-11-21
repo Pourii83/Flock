@@ -48,6 +48,42 @@ export function savedDevice(kind: keyof typeof DEVICE_KEYS) {
     return 'default';
   }
 }
+/** Joining with the microphone off (the meeting link page's choice; lasts until it is changed). */
+const START_MUTED_KEY = 'flock.startMuted';
+export function savedStartMuted(): boolean {
+  if (Platform.OS !== 'web') return false;
+  try {
+    return globalThis.localStorage?.getItem(START_MUTED_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+export function saveStartMuted(on: boolean) {
+  if (Platform.OS !== 'web') return;
+  try {
+    if (on) globalThis.localStorage?.setItem(START_MUTED_KEY, '1');
+    else globalThis.localStorage?.removeItem(START_MUTED_KEY);
+  } catch {}
+}
+
+/** Joining with everyone's audio muted (the meeting link page's speaker circle). */
+const START_SPEAKER_MUTED_KEY = 'flock.startSpeakerMuted';
+export function savedStartSpeakerMuted(): boolean {
+  if (Platform.OS !== 'web') return false;
+  try {
+    return globalThis.localStorage?.getItem(START_SPEAKER_MUTED_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+export function saveStartSpeakerMuted(on: boolean) {
+  if (Platform.OS !== 'web') return;
+  try {
+    if (on) globalThis.localStorage?.setItem(START_SPEAKER_MUTED_KEY, '1');
+    else globalThis.localStorage?.removeItem(START_SPEAKER_MUTED_KEY);
+  } catch {}
+}
+
 export function saveDevice(kind: keyof typeof DEVICE_KEYS, id: string) {
   if (Platform.OS !== 'web') return;
   try {
@@ -996,13 +1032,21 @@ export function CallProvider({ children }: { children: ReactNode }) {
       }
       patch({ callId: res.callId, title: res.title || t('Meeting'), room: res.room });
       const ready = await mediaReady.current;
+      // The join page's speaker circle: the call opens with everyone's audio muted.
+      if (savedStartSpeakerMuted()) patch({ speakerMuted: true });
+      // Entering with the microphone off is the join page's choice; the call starts already muted.
+      if (ready && savedStartMuted()) {
+        callRef.current.localStream?.getAudioTracks().forEach((track) => (track.enabled = false));
+        patch({ micMuted: true });
+        signal({ type: 'muted', muted: true });
+      }
       for (const participant of (res.participants ?? []) as User[]) {
         upsertRemote(participant.id, { user: participant });
         if (ready) await offerTo(participant.id).catch((e) => console.warn('[flock] offer failed', e));
       }
       return null;
     },
-    [account, setCall, prepareMedia, cleanup, patch, upsertRemote, offerTo],
+    [account, setCall, prepareMedia, cleanup, patch, signal, upsertRemote, offerTo],
   );
 
   const startCall = useCallback(

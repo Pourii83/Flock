@@ -982,6 +982,9 @@ const fa: Record<string, string> = {
   'Videos play only after the whole file has downloaded': 'ویدیو فقط بعد از دانلود کامل پخش می‌شود',
   'Captions can’t be edited after sending': 'کپشن فایل بعد از ارسال قابل ویرایش نیست',
   'Captions of files in secret chats can’t be edited': 'کپشن فایل‌های چت مخفی قابل ویرایش نیست',
+  'Speak and watch the bars to compare microphones.': 'حرف بزنید و نوارها را ببینید تا میکروفون‌ها را مقایسه کنید.',
+  'Try again': 'دوباره امتحان کنید',
+  'This voice message can’t be played. Its link may have expired.': 'این پیام صوتی پخش نمی‌شود؛ ممکن است پیوندش منقضی شده باشد.',
 };
 
 const dictionaries: Record<Lang, Record<string, string>> = { en: {}, fa };

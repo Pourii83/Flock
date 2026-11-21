@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Platform, View } from 'react-native';
 
+import { isRTL } from '@/lib/i18n';
 import { WAVE_BARS } from '@/lib/waveform';
 
 const GAP = 1.5;
@@ -46,7 +47,9 @@ export function WaveBars({
       ))}
     </View>
   );
-  const seek = (x: number) => onSeek && width > 0 && onSeek(Math.max(0, Math.min(1, x / width)));
+  // The played part starts at the layout's start edge, which is the right one in Persian.
+  const seek = (x: number) =>
+    onSeek && width > 0 && onSeek(Math.max(0, Math.min(1, (isRTL() ? width - x : x) / width)));
   return (
     <View
       // Press or drag anywhere along the bars: the message follows the finger, like a scrubber.
