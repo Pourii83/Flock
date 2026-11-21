@@ -5,7 +5,7 @@ Push notifications, a redesigned look, one-click cloud hosting and two rounds of
 ### 🔔 Notifications and voice
 - **Push notifications** reach phones and browsers even when Flock is closed (Web Push).
 - Voice messages show a **waveform** that fills smoothly while playing. Hold to record on phones.
-- **One voice player** on the web keeps playing while you move between chats, with ±10 s, mute and a 0.5×–2.5× speed slider.
+- **One voice player** on the web keeps playing while you move between chats, with ±10 s, mute and a speed button that steps 1×, 1.5×, 2×.
 
 ### 💬 Chat
 - **Block** someone in a one-to-one chat.
