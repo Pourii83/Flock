@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Dimensions, PixelRatio, Platform } from 'react-native';
 
-import { callAudio, listCameras, switchCamera, type AudioDeviceChoice, type VideoDeviceChoice } from '@/lib/native-media';
+import { callAudio, listCameras, ROUTE_PREFIX, switchCamera, type AudioDeviceChoice, type VideoDeviceChoice } from '@/lib/native-media';
 import { api } from '@/lib/api';
 import { playCallChatSound, playRaiseHandSound, playReactionSound } from '@/lib/call-sounds';
 import { notifyCallChat } from '@/lib/notifications';
@@ -465,6 +465,22 @@ export function CallProvider({ children }: { children: ReactNode }) {
   }, [setSenders, outgoingVideo, applySenderQuality, announceMedia]);
 
   /** Opens mic (and camera for video calls) once per call; false when media is unavailable. */
+  /**
+   * Phone browsers (Chrome on Android) start a call on the earpiece. When the browser lists call
+   * routes and no headset is connected, the mic is reopened on the loudspeaker route, which moves
+   * the call's sound there too. A mic the user picked themselves is left alone.
+   */
+  const preferLoudspeaker = useCallback(async () => {
+    if (callRef.current.audioInputId !== 'default') return;
+    const status = await callAudio.devices();
+    const inputs = status.devices.filter((d) => d.kind === 'input');
+    const speaker = inputs.find((d) => d.route === 'speaker');
+    if (!speaker || inputs.some((d) => d.route === 'headset')) return;
+    if (callRef.current.phase === 'idle' || callRef.current.audioInputId !== 'default') return;
+    await replaceMicRef.current?.(callRef.current.noiseMode, speaker.id);
+    await refreshAudioDevices();
+  }, [refreshAudioDevices]);
+
   const prepareMedia = useCallback(
     async (video: boolean) => {
       if (!rtcSupported()) {
@@ -510,9 +526,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
       // With the camera allowed, the browser now reveals the rest of its camera list.
       if (cam) void refreshVideoDevices();
       patch({ localStream: stream, cameraOff: !cam, noiseMode });
+      if (Platform.OS === 'web') void preferLoudspeaker();
       return true;
     },
-    [patch, refreshVideoDevices],
+    [patch, refreshVideoDevices, preferLoudspeaker],
   );
 
   /** A connection to one participant. The newcomer of the pair is the offerer. */
@@ -1097,6 +1114,13 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const selectAudioOutput = useCallback(
     async (deviceId: string) => {
       if (Platform.OS === 'web') {
+        // A phone call route (loudspeaker / earpiece / headset) is switched through the mic it pairs with.
+        if (deviceId.startsWith(ROUTE_PREFIX)) {
+          const inputId = deviceId.slice(ROUTE_PREFIX.length);
+          if (inputId !== callRef.current.audioInputId) await replaceMicrophone(callRef.current.noiseMode, inputId);
+          await refreshAudioDevices();
+          return;
+        }
         patch({ audioOutputId: deviceId });
         saveDevice('output', deviceId);
         return;
@@ -1104,7 +1128,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       await callAudio.selectRoute(deviceId);
       await refreshAudioDevices();
     },
-    [patch, refreshAudioDevices],
+    [patch, refreshAudioDevices, replaceMicrophone],
   );
 
   const toggleMic = useCallback(() => {

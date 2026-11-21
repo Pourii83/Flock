@@ -4,7 +4,9 @@
 import { DeviceEventEmitter, PermissionsAndroid, Platform } from 'react-native';
 import { t } from './i18n';
 
-export type AudioDeviceChoice = { id: string; label: string; kind: 'input' | 'output' };
+export type PhoneRoute = 'speaker' | 'earpiece' | 'headset';
+export type AudioDeviceChoice = { id: string; label: string; kind: 'input' | 'output'; route?: PhoneRoute };
+export const ROUTE_PREFIX = 'route:';
 export type AudioDeviceStatus = { devices: AudioDeviceChoice[]; selectedInputId: string; selectedOutputId: string };
 export type VideoDeviceChoice = { id: string; label: string };
 
@@ -60,8 +62,12 @@ const routeStatus = (result?: { availableAudioDeviceList?: string; selectedAudio
     routes = JSON.parse(result?.availableAudioDeviceList || '[]');
   } catch {}
   if (Platform.OS === 'ios') routes = ['AUTOMATIC', 'SPEAKER_PHONE'];
-  if (!routes.length) routes = ['AUTOMATIC'];
-  const selected = result?.selectedAudioDevice || 'AUTOMATIC';
+  // Before call audio is up the list can come back empty; a phone always has these two.
+  if (!routes.length) routes = ['SPEAKER_PHONE', 'EARPIECE'];
+  // Loudspeaker first, then the earpiece, then headsets.
+  const order = ['SPEAKER_PHONE', 'EARPIECE', 'WIRED_HEADSET', 'BLUETOOTH'];
+  routes.sort((a, b) => (order.indexOf(a) + 9) % 9 - (order.indexOf(b) + 9) % 9);
+  const selected = result?.selectedAudioDevice || (Platform.OS === 'android' ? 'SPEAKER_PHONE' : 'AUTOMATIC');
   const outputs = routes.map((route) => ({ id: route, label: routeLabel(route), kind: 'output' as const }));
   // Communication routes pair their microphone with their output on Android. iOS chooses
   // the input automatically from its current system route (including AirPods).
@@ -76,16 +82,19 @@ export const callAudio = {
       await PermissionsAndroid.request('android.permission.BLUETOOTH_CONNECT' as any).catch(() => {});
     }
   },
-  /** Enter call audio mode: video calls default to the loudspeaker, voice calls to the earpiece. */
-  start(video: boolean) {
+  /**
+   * Enter call audio mode on the loudspeaker, voice and video calls alike; a connected Bluetooth or
+   * wired headset still wins. The earpiece is one tap away in the sound output panel (the screen
+   * then goes dark against the ear).
+   */
+  start(_video: boolean) {
     const m = inCallManager();
     if (!m) return;
     m.stopRingtone();
-    m.start({ media: video ? 'video' : 'audio' });
+    m.start({ media: 'video' });
     m.setMicrophoneMute(false);
     m.setKeepScreenOn(true);
-    // Keep automatic routing so a connected Bluetooth or wired headset wins.
-    // Users can explicitly choose the loudspeaker from the in-call device panel.
+    // Keep automatic routing so a connected Bluetooth or wired headset wins over the loudspeaker.
     (m.setForceSpeakerphoneOn as any)(null);
   },
   stop() {

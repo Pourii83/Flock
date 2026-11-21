@@ -3,7 +3,9 @@
 import { startRingback, startRingtone, stopTones } from './ringer';
 import { t } from './i18n';
 
-export type AudioDeviceChoice = { id: string; label: string; kind: 'input' | 'output' };
+/** `route` marks a phone's communication route (loudspeaker, earpiece or a headset). */
+export type PhoneRoute = 'speaker' | 'earpiece' | 'headset';
+export type AudioDeviceChoice = { id: string; label: string; kind: 'input' | 'output'; route?: PhoneRoute };
 export type AudioDeviceStatus = { devices: AudioDeviceChoice[]; selectedInputId: string; selectedOutputId: string };
 export type VideoDeviceChoice = { id: string; label: string };
 
@@ -23,6 +25,23 @@ export function cleanDeviceLabel(label: string) {
 // real device, so it is left out; the former becomes "System default (X)".
 const ALIAS = /^(default|communications)\s+-\s+/i;
 
+/** The id prefix of an output entry that really switches a phone's call route (see below). */
+export const ROUTE_PREFIX = 'route:';
+
+/**
+ * Chrome on Android lists no speakers (only "default"): the call's sound follows the microphone
+ * route instead, which it lists as inputs named "Speakerphone", "Headset earpiece", "Wired headset",
+ * "Bluetooth headset" and "USB audio". Opening the mic on one of them moves the call's sound there.
+ */
+const phoneRoute = (label: string): { route: PhoneRoute; label: string } | null => {
+  if (/^speakerphone$/i.test(label)) return { route: 'speaker', label: t('Phone speaker') };
+  if (/^headset earpiece$/i.test(label)) return { route: 'earpiece', label: t('Phone earpiece') };
+  if (/^wired headset$/i.test(label)) return { route: 'headset', label: t('Wired / USB headset') };
+  if (/^bluetooth headset$/i.test(label)) return { route: 'headset', label: t('Bluetooth / AirPods') };
+  if (/^usb audio$/i.test(label)) return { route: 'headset', label: t('Wired / USB headset') };
+  return null;
+};
+
 const browserAudioDevices = async (): Promise<AudioDeviceStatus> => {
   const media = (globalThis as any).navigator?.mediaDevices;
   if (!media?.enumerateDevices) return { devices: [], selectedInputId: 'default', selectedOutputId: 'default' };
@@ -38,6 +57,8 @@ const browserAudioDevices = async (): Promise<AudioDeviceStatus> => {
         const real = device.label.replace(ALIAS, '');
         return { id, label: real && real !== device.label ? t('System default ({name})', { name: cleanDeviceLabel(real) }) : t('System default'), kind };
       }
+      const phone = kind === 'input' ? phoneRoute(device.label) : null;
+      if (phone) return { id, label: phone.label, kind, route: phone.route };
       const index = kind === 'input' ? ++inputs : ++outputs;
       return { id, label: device.label ? cleanDeviceLabel(device.label) : t(kind === 'input' ? 'Microphone {n}' : 'Speaker {n}', { n: index }), kind };
     })
@@ -50,6 +71,16 @@ const browserAudioDevices = async (): Promise<AudioDeviceStatus> => {
       const firstOfKind = devices.findIndex((d) => d.kind === kind);
       devices.splice(firstOfKind, 0, { id: 'default', label: t('System default'), kind });
     }
+  }
+  // A phone browser with call routes but no real speaker choice: offer the routes as outputs.
+  const routes = devices.filter((d) => d.kind === 'input' && d.route);
+  if (routes.length && devices.filter((d) => d.kind === 'output').length <= 1) {
+    const kept = devices.filter((d) => d.kind !== 'output');
+    return {
+      devices: [...kept, ...routes.map((d) => ({ ...d, id: ROUTE_PREFIX + d.id, kind: 'output' as const }))],
+      selectedInputId: 'default',
+      selectedOutputId: 'default',
+    };
   }
   return { devices, selectedInputId: 'default', selectedOutputId: 'default' };
 };

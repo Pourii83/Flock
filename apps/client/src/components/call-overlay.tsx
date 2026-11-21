@@ -9,7 +9,7 @@ import { api } from '@/lib/api';
 import { meetingLink } from '@/lib/config';
 import { timer } from '@/lib/format';
 import { setImmersive } from '@/lib/immersive';
-import { canSwitchCamera } from '@/lib/native-media';
+import { canSwitchCamera, ROUTE_PREFIX } from '@/lib/native-media';
 import { enterPip, exitPip, pipAvailable, useAutoPip } from '@/lib/pip';
 import { enterNativePip, nativePipSupported, useInNativePip, useNativeAutoPip } from '@/lib/native-pip';
 import { getNoisePreference, strongNoiseSupported } from '@/lib/noise';
@@ -2198,6 +2198,9 @@ function AudioDevicePanel({ onClose, bottom, anchorX, stageWidth }: { onClose: (
   const [tone, setTone] = useState<'idle' | 'playing' | 'failed'>('idle');
   useEffect(() => { void refreshAudioDevices(); }, [refreshAudioDevices]);
   const outputs = call.audioDevices.filter((device) => device.kind === 'output');
+  // On a phone browser the outputs are call routes, ticked by the mic route in use.
+  const routeId = ROUTE_PREFIX + call.audioInputId;
+  const selectedOutput = outputs.some((device) => device.id === routeId) ? routeId : call.audioOutputId;
   const testSound = async () => {
     setTone('playing');
     const ok = await playTestTone(call.audioOutputId);
@@ -2228,7 +2231,7 @@ function AudioDevicePanel({ onClose, bottom, anchorX, stageWidth }: { onClose: (
           <Slider value={remote.volume ?? 1} label={t('Volume of {name}', { name: remote.user?.displayName ?? t('Someone') })} onChange={(value) => setParticipantVolume(remote.userId, value)} />
         </View>
       ))}
-      <DeviceSection title={t('Sound output')} icon="volume-2" devices={outputs} selected={call.audioOutputId} onSelect={selectAudioOutput} />
+      <DeviceSection title={t('Sound output')} icon="volume-2" devices={outputs} selected={selectedOutput} onSelect={selectAudioOutput} />
       {Platform.OS === 'web' ? (
         <Button title={tone === 'failed' ? t('Could not play the test sound') : t('Test sound')} size="sm" variant="ghost" loading={tone === 'playing'} onPress={() => void testSound()} />
       ) : (
