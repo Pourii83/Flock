@@ -201,6 +201,7 @@ function MeetingsCard() {
   // Decided by the card's own width (the desktop list column can be narrow too), not the window's.
   const [cardWidth, setCardWidth] = useState(0);
   const roomy = cardWidth >= 420;
+  const [choicesWidth, setChoicesWidth] = useState(0);
   return (
     <View
       onLayout={(event) => setCardWidth(event.nativeEvent.layout.width)}
@@ -226,7 +227,8 @@ function MeetingsCard() {
         <View style={{ gap: 12, padding: 12, borderRadius: radius.lg, backgroundColor: colors.surfaceHigh }}>
           <Field label={t('Meeting name (optional)')} icon="type" placeholder={t('Weekly sync')} value={title} onChangeText={setTitle} maxLength={80} />
           <T variant="label">{t('Link stays valid for')}</T>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+          {/* Four in one row when they fit, otherwise a 2×2 grid (never a lone chip on its own line). */}
+          <View onLayout={(e) => setChoicesWidth(e.nativeEvent.layout.width)} style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
             {DURATIONS.map((d) => {
               const active = d.minutes === minutes;
               return (
@@ -235,8 +237,18 @@ function MeetingsCard() {
                   onPress={() => setMinutes(d.minutes)}
                   accessibilityRole="radio"
                   accessibilityState={{ selected: active }}
-                  style={{ paddingHorizontal: 14, paddingVertical: 8, borderRadius: radius.pill, borderWidth: 1, borderColor: active ? colors.amber : colors.surfaceHighest, backgroundColor: active ? colors.amberTint : colors.surface }}>
-                  <T variant="label" color={active ? colors.amberText : colors.text}>
+                  style={{
+                    flexGrow: 1,
+                    flexBasis: choicesWidth >= 470 ? 0 : '40%',
+                    alignItems: 'center',
+                    paddingHorizontal: 10,
+                    paddingVertical: 8,
+                    borderRadius: radius.pill,
+                    borderWidth: 1,
+                    borderColor: active ? colors.amber : colors.surfaceHighest,
+                    backgroundColor: active ? colors.amberTint : colors.surface,
+                  }}>
+                  <T variant="label" color={active ? colors.amberText : colors.text} style={{ textAlign: 'center' }}>
                     {t(d.label)}
                   </T>
                 </Pressable>

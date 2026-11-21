@@ -1,14 +1,16 @@
 // The voice message that is playing, as one bar under the chat header (and above the chat list on
-// phones): name, progress, play/pause, skip, mute, a continuous 0.5×–2.5× speed slider and close.
+// phones): name, progress, play/pause, skip, mute, a speed button (1× → 1.5× → 2×) and close.
 // Playback itself lives in state/voice.ts, so moving between chats never stops the sound.
-import { useState } from 'react';
 import { Pressable, View } from 'react-native';
 
 import { t } from '@/lib/i18n';
-import { skipVoice, setVoiceMuted, setVoiceSpeed, stopVoice, toggleVoice, useVoice, VOICE_MAX_SPEED, VOICE_MIN_SPEED } from '@/state/voice';
+import { skipVoice, setVoiceMuted, setVoiceSpeed, stopVoice, toggleVoice, useVoice } from '@/state/voice';
 import { colors, radius } from '@/theme';
-import { Slider } from './slider';
 import { IconButton, T } from './ui';
+
+/** One tap steps through these, like Telegram (back to 1× after the last). */
+const SPEEDS = [1, 1.5, 2];
+const nextSpeed = (speed: number) => SPEEDS.find((s) => s > speed + 0.01) ?? SPEEDS[0]!;
 
 const clock = (sec: number) => {
   const s = Math.max(0, Math.round(sec));
@@ -17,10 +19,9 @@ const clock = (sec: number) => {
 
 export function VoiceBar() {
   const now = useVoice();
-  const [speedOpen, setSpeedOpen] = useState(false);
   if (!now) return null;
   const progress = now.length ? Math.min(1, now.time / now.length) : 0;
-  const speedLabel = `${now.speed.toFixed(1)}×`;
+  const fast = Math.abs(now.speed - 1) > 0.01;
 
   return (
     <View
@@ -69,38 +70,22 @@ export function VoiceBar() {
           iconSize={15}
         />
         <Pressable
-          onPress={() => setSpeedOpen((open) => !open)}
+          onPress={() => setVoiceSpeed(nextSpeed(now.speed))}
           accessibilityRole="button"
           accessibilityLabel={t('Playback speed')}
-          accessibilityState={{ expanded: speedOpen }}
-          style={{ paddingHorizontal: 9, paddingVertical: 5, borderRadius: radius.pill, backgroundColor: speedOpen ? colors.amberTint : colors.surfaceHigh }}>
-          <T variant="label" color={speedOpen ? colors.amberText : colors.text} style={{ fontVariant: ['tabular-nums'] }}>
-            {speedLabel}
+          style={({ hovered }: any) => ({
+            minWidth: 44,
+            alignItems: 'center',
+            paddingHorizontal: 8,
+            paddingVertical: 5,
+            borderRadius: radius.pill,
+            backgroundColor: fast ? colors.amberTint : hovered ? colors.surfaceHighest : colors.surfaceHigh,
+          })}>
+          <T variant="label" color={fast ? colors.amberText : colors.text} style={{ fontVariant: ['tabular-nums'] }}>
+            {`${Number(now.speed.toFixed(2))}×`}
           </T>
         </Pressable>
       </View>
-
-      {speedOpen && (
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 34, paddingBottom: 2 }}>
-          <T variant="label" color={colors.textMuted}>
-            {`${VOICE_MIN_SPEED}×`}
-          </T>
-          <View style={{ flex: 1 }}>
-            <Slider
-              label={t('Playback speed')}
-              value={(now.speed - VOICE_MIN_SPEED) / (VOICE_MAX_SPEED - VOICE_MIN_SPEED)}
-              step={0.01}
-              onChange={(value) => setVoiceSpeed(VOICE_MIN_SPEED + value * (VOICE_MAX_SPEED - VOICE_MIN_SPEED))}
-            />
-          </View>
-          <T variant="label" color={colors.textMuted}>
-            {`${VOICE_MAX_SPEED}×`}
-          </T>
-          <T variant="labelLg" color={colors.amberText} style={{ fontVariant: ['tabular-nums'], minWidth: 44, textAlign: 'center' }}>
-            {speedLabel}
-          </T>
-        </View>
-      )}
     </View>
   );
 }
