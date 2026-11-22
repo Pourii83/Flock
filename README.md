@@ -14,7 +14,7 @@
 [Website](https://flock.beer) · [Live demo](https://app.flock.beer) · [Documentation](https://docs.flock.beer)
 
 <!-- Star request: keep both languages in sync -->
-⭐ **If you like Flock, [give it a star](https://github.com/Pourii83/Flock). That alone is a big help to the project.**
+⭐ **If you like Flock, click the Star button at the top of the repository page. That alone is a big help to the project.**
 
 </div>
 

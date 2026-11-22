@@ -14,7 +14,7 @@
 [وب‌سایت](https://flock.beer) · [دموی زنده](https://app.flock.beer) · [مستندات](https://docs.flock.beer/fa/)
 
 <!-- Star request: keep both languages in sync -->
-⭐ **اگر از فلاک خوشتان آمد، [به آن استار بدهید](https://github.com/Pourii83/Flock)؛ همین خودش کمک بزرگی به پروژه است.**
+⭐ **اگر از فلاک خوشتان آمد، در [صفحهٔ اصلی مخزن](https://github.com/Pourii83/Flock) دکمهٔ Star را بزنید؛ همین خودش کمک بزرگی به پروژه است.**
 
 </div>
 
