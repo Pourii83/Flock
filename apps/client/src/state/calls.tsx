@@ -342,6 +342,42 @@ export function CallProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  // One queue per connection (a replaced connection never answers).
+  const joinQueues = useRef(new WeakMap<object, Promise<unknown>>());
+  // The call that rang here and hasn't been joined yet, also while it is being answered.
+  const ringingHere = useRef<string | null>(null);
+
+  /**
+   * Sends what puts me into a call (room:join, call:invite, call:accept). Hanging up can come before
+   * the answer, when the server has already added me and there may be no callId to end: such an
+   * answer ends that call. One at a time, so that this end arrives before a new join of the same call
+   * and can't take that one out. Resolves null when there is nothing left to do with the answer.
+   */
+  const requestJoin = useCallback((event: string, payload: { callId?: string; [key: string]: unknown }, stillHere: () => boolean) => {
+    const socket = chatStore.socket;
+    if (!socket) return Promise.resolve(null);
+    const before = joinQueues.current.get(socket) ?? Promise.resolve();
+    const answer = before.then(
+      () =>
+        new Promise<any>((resolve) => {
+          if (!stillHere()) return resolve(null);
+          // No answer comes over a lost connection; the server then drops me after its grace period.
+          const lost = () => resolve(null);
+          socket.once('disconnect', lost);
+          // From here the server may have me in: hanging up is an end, no longer a decline.
+          ringingHere.current = null;
+          socket.emit(event, payload, (res: any) => {
+            socket.off('disconnect', lost);
+            if (stillHere()) return resolve(res);
+            if (res?.ok) socket.emit('call:end', { callId: res.callId ?? payload.callId });
+            resolve(null);
+          });
+        }),
+    );
+    joinQueues.current.set(socket, answer);
+    return answer;
+  }, []);
+
   const patch = useCallback((p: Partial<CallState>) => setCall((c) => ({ ...c, ...p })), [setCall]);
 
   const upsertRemote = useCallback(
@@ -481,6 +517,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     micDispose.current?.();
     micDispose.current = null;
     callSession.current++;
+    ringingHere.current = null;
     openedTracks.current.forEach((track) => track.stop());
     openedTracks.current.clear();
     screenTrack.current?.stop();
@@ -691,8 +728,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
   /** Becomes a participant: the server answers with who is already in, and we connect to each. */
   const join = useCallback(
     (callId: string) => {
-      chatStore.socket?.emit('call:accept', { callId }, async (res: any) => {
-        if (!res?.ok) {
+      const stillHere = mediaKeeper();
+      void requestJoin('call:accept', { callId }, stillHere).then(async (res) => {
+        if (!res) return;
+        if (!res.ok) {
           cleanup();
           return;
         }
@@ -706,12 +745,13 @@ export function CallProvider({ children }: { children: ReactNode }) {
         });
         const ready = await mediaReady.current;
         for (const participant of (res.participants ?? []) as User[]) {
+          if (!stillHere()) return;
           upsertRemote(participant.id, { user: participant });
           if (ready) await offerTo(participant.id).catch((e) => console.warn('[flock] offer failed', e));
         }
       });
     },
-    [cleanup, patch, offerTo, upsertRemote],
+    [cleanup, patch, mediaKeeper, requestJoin, offerTo, upsertRemote],
   );
 
   const handleSignal = useCallback(
@@ -825,6 +865,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
         peer: p.caller,
         title: p.title,
       });
+      ringingHere.current = p.callId;
       callAudio.startRingtone();
     };
 
@@ -832,6 +873,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       if (callRef.current.callId !== callId) return;
       if (by === user.id) {
         // Answered on another of my devices.
+        ringingHere.current = null;
         if (!acceptedHere.current) cleanup();
         return;
       }
@@ -990,13 +1032,15 @@ export function CallProvider({ children }: { children: ReactNode }) {
       acceptedHere.current = true;
       const video = c.video && !audioOnly;
       patch({ phase: 'active', answeredAt: Date.now(), video, speakerOn: video });
+      const stillHere = mediaKeeper();
       await callAudio.prepare();
+      if (!stillHere()) return;
       callAudio.start(video);
       mediaReady.current = prepareMedia(video);
       await mediaReady.current;
-      if (callRef.current.callId === c.callId) join(c.callId);
+      if (stillHere()) join(c.callId);
     },
-    [patch, prepareMedia, join],
+    [patch, mediaKeeper, prepareMedia, join],
   );
 
   const joinCall = useCallback(
@@ -1068,25 +1112,29 @@ export function CallProvider({ children }: { children: ReactNode }) {
         speakerMuted: !!start?.speakerMuted,
       });
       acceptedHere.current = true;
+      const stillHere = mediaKeeper();
       await callAudio.prepare();
+      if (!stillHere()) return null;
       callAudio.start(false);
       mediaReady.current = prepareMedia(false);
-      const res: any = await new Promise((resolve) => socket.emit('room:join', { code }, resolve));
-      if (!res?.ok) {
+      const res = await requestJoin('room:join', { code }, stillHere);
+      if (!res) return null;
+      if (!res.ok) {
         cleanup();
-        return t(res?.error || 'This meeting has ended');
+        return t(res.error || 'This meeting has ended');
       }
       patch({ callId: res.callId, title: res.title || t('Meeting'), room: res.room });
       const ready = await mediaReady.current;
       // The tracks already follow it (see prepareMedia); the others still have to be told.
       if (ready && callRef.current.micMuted) signal({ type: 'muted', muted: true });
       for (const participant of (res.participants ?? []) as User[]) {
+        if (!stillHere()) return null;
         upsertRemote(participant.id, { user: participant });
         if (ready) await offerTo(participant.id).catch((e) => console.warn('[flock] offer failed', e));
       }
       return null;
     },
-    [account, setCall, prepareMedia, cleanup, patch, signal, upsertRemote, offerTo],
+    [account, setCall, mediaKeeper, requestJoin, prepareMedia, cleanup, patch, signal, upsertRemote, offerTo],
   );
 
   const startCall = useCallback(
@@ -1096,12 +1144,15 @@ export function CallProvider({ children }: { children: ReactNode }) {
       const isGroup = conversation.type === 'group';
       const peer = isGroup ? null : (conversation.members.find((m) => m.id !== user?.id) ?? null);
       setCall({ ...IDLE, phase: 'outgoing', conversationId: conversation.id, isGroup, video, peer, title: conversation.name, speakerOn: video });
+      const stillHere = mediaKeeper();
       await callAudio.prepare();
+      if (!stillHere()) return;
       callAudio.start(video);
       callAudio.startRingback();
       mediaReady.current = prepareMedia(video);
-      chatStore.socket.emit('call:invite', { conversationId: conversation.id, video }, async (res: any) => {
-        if (!res?.ok) {
+      void requestJoin('call:invite', { conversationId: conversation.id, video }, stillHere).then(async (res) => {
+        if (!res) return;
+        if (!res.ok) {
           cleanup();
           return;
         }
@@ -1112,12 +1163,12 @@ export function CallProvider({ children }: { children: ReactNode }) {
           callAudio.stopRingback();
           patch({ phase: 'active', answeredAt: Date.now() });
           await mediaReady.current;
-          if (callRef.current.callId === res.callId) join(res.callId);
+          if (stillHere()) join(res.callId);
         }
       });
       await mediaReady.current;
     },
-    [user, cleanup, patch, prepareMedia, setCall, joinCall, join],
+    [user, cleanup, patch, mediaKeeper, requestJoin, prepareMedia, setCall, joinCall, join],
   );
 
   const decline = useCallback(
@@ -1132,7 +1183,11 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
   const hangUp = useCallback(() => {
     const c = callRef.current;
-    if (c.callId) chatStore.socket?.emit('call:end', { callId: c.callId });
+    if (c.callId) {
+      // Answered, but the microphone was still opening: the server hasn't got me in, so that is a decline.
+      const event = ringingHere.current === c.callId ? 'call:decline' : 'call:end';
+      chatStore.socket?.emit(event, { callId: c.callId });
+    }
     cleanup();
   }, [cleanup]);
 

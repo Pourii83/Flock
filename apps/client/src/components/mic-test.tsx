@@ -1,6 +1,7 @@
 // Microphone check in Settings (web and the Windows app): a live level meter, so people can see that
 // Flock hears them before they join a call. The sound stays on this device; nothing is recorded or sent.
-import { useEffect, useRef, useState } from "react";
+import { useFocusEffect } from "expo-router";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Platform, Pressable, View } from "react-native";
 
 import { num, t } from "@/lib/i18n";
@@ -65,8 +66,11 @@ export function MicTest() {
   const [device, setDevice] = useState("");
   const [error, setError] = useState("");
   const session = useRef<Session | null>(null);
+  // The start still waiting for the microphone; stopping, leaving or a newer start replaces it.
+  const opening = useRef<symbol | null>(null);
 
-  const stop = () => {
+  const stop = useCallback(() => {
+    opening.current = null;
     const s = session.current;
     session.current = null;
     if (s) {
@@ -76,7 +80,7 @@ export function MicTest() {
     }
     setRunning(false);
     setLevel(0);
-  };
+  }, []);
 
   // The list, and again whenever a mic is plugged in or out.
   useEffect(() => {
@@ -94,20 +98,14 @@ export function MicTest() {
     };
   }, []);
 
-  // Leaving Settings turns the microphone off.
-  useEffect(
-    () => () => {
-      const s = session.current;
-      if (!s) return;
-      clearInterval(s.timer);
-      s.stream.getTracks().forEach((track) => track.stop());
-      void s.ctx.close().catch(() => {});
-    },
-    [],
-  );
+  // Leaving Settings turns the microphone off, also one that is still opening. Tabs stay mounted, so
+  // that is losing focus, not only unmounting.
+  useFocusEffect(useCallback(() => stop, [stop]));
 
   const start = async (deviceId = micId) => {
     setError("");
+    const attempt = Symbol();
+    opening.current = attempt;
     try {
       // The same processing a call uses, so the meter shows what the others would hear.
       const processing = {
@@ -121,6 +119,11 @@ export function MicTest() {
             ? { ...processing, deviceId: { exact: deviceId } }
             : processing,
       });
+      if (opening.current !== attempt) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+      opening.current = null;
       const ctx = new AudioContext();
       const analyser = ctx.createAnalyser();
       analyser.fftSize = 1024;
@@ -142,6 +145,9 @@ export function MicTest() {
       // Allowed now: the list can show real names.
       void listMics().then(setMics, () => {});
     } catch (e: any) {
+      // A start that was replaced or abandoned has nothing to report.
+      if (opening.current !== attempt) return;
+      opening.current = null;
       setError(
         e?.name === "NotAllowedError"
           ? t(

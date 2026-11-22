@@ -1,6 +1,7 @@
 // Records a voice message in the browser / Windows app with MediaRecorder. The Android app can play
 // voice messages but not record them yet (that needs a native recorder module and a new APK).
-import { useEffect, useRef, useState } from 'react';
+import { useFocusEffect } from 'expo-router';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Platform } from 'react-native';
 
 import { measureWave } from './waveform';
@@ -45,6 +46,20 @@ export function useVoiceRecorder() {
   const chunks = useRef<Blob[]>([]);
   const startedAt = useRef(0);
   const finish = useRef<((clip: VoiceClip | null) => void) | null>(null);
+  // The start still waiting for the microphone, and whether the chat is off screen.
+  const opening = useRef<symbol | null>(null);
+  const away = useRef(false);
+
+  // Leaving the chat drops a recording that hasn't begun. Tabs stay mounted, so that is losing focus.
+  useFocusEffect(
+    useCallback(() => {
+      away.current = false;
+      return () => {
+        away.current = true;
+        opening.current = null;
+      };
+    }, []),
+  );
 
   useEffect(() => {
     if (!recording) return;
@@ -72,10 +87,31 @@ export function useVoiceRecorder() {
 
   /** Starts recording; throws if the microphone can't be used. */
   const start = async () => {
-    if (!canRecordVoice || recorder.current) return;
-    const mic = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+    // `away`: the permission check before this can outlast the visit to the chat.
+    if (!canRecordVoice || recorder.current || opening.current || away.current) return;
+    const attempt = Symbol();
+    opening.current = attempt;
+    let mic: MediaStream;
+    try {
+      mic = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+    } catch (e) {
+      if (opening.current !== attempt) return;
+      opening.current = null;
+      throw e;
+    }
+    if (opening.current !== attempt) {
+      mic.getTracks().forEach((track) => track.stop());
+      return;
+    }
+    opening.current = null;
     const mimeType = pickMime();
-    const rec = new MediaRecorder(mic, mimeType ? { mimeType, audioBitsPerSecond: 48_000 } : undefined);
+    let rec: MediaRecorder;
+    try {
+      rec = new MediaRecorder(mic, mimeType ? { mimeType, audioBitsPerSecond: 48_000 } : undefined);
+    } catch (e) {
+      mic.getTracks().forEach((track) => track.stop());
+      throw e;
+    }
     chunks.current = [];
     rec.ondataavailable = (event) => {
       if (event.data.size) chunks.current.push(event.data);
@@ -97,7 +133,12 @@ export function useVoiceRecorder() {
     stream.current = mic;
     recorder.current = rec;
     startedAt.current = Date.now();
-    rec.start(250);
+    try {
+      rec.start(250);
+    } catch (e) {
+      release();
+      throw e;
+    }
     setSeconds(0);
     setRecording(true);
   };
@@ -112,6 +153,7 @@ export function useVoiceRecorder() {
     });
 
   const cancel = () => {
+    opening.current = null;
     finish.current = null;
     const rec = recorder.current;
     if (rec?.state === 'recording') rec.stop();
