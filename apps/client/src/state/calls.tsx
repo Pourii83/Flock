@@ -322,6 +322,26 @@ export function CallProvider({ children }: { children: ReactNode }) {
   // Mic/camera may still be waiting on permission when the first offer arrives.
   const mediaReady = useRef<Promise<boolean> | null>(null);
 
+  // Every track the current call opened, also those not in use yet, so that hanging up releases all.
+  const openedTracks = useRef(new Set<MediaStreamTrack>());
+  const callSession = useRef(0);
+
+  /**
+   * Take one before awaiting media. `keep(...tracks)` hands what was opened to the call it was opened
+   * for; when that call is over it stops the tracks and returns false. `keep()` only asks if it is over.
+   */
+  const mediaKeeper = useCallback(() => {
+    const session = callSession.current;
+    return (...tracks: MediaStreamTrack[]) => {
+      const current = session === callSession.current;
+      for (const track of tracks) {
+        if (current) openedTracks.current.add(track);
+        else track.stop();
+      }
+      return current;
+    };
+  }, []);
+
   const patch = useCallback((p: Partial<CallState>) => setCall((c) => ({ ...c, ...p })), [setCall]);
 
   const upsertRemote = useCallback(
@@ -460,6 +480,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
     cameraTrack.current?.stop();
     micDispose.current?.();
     micDispose.current = null;
+    callSession.current++;
+    openedTracks.current.forEach((track) => track.stop());
+    openedTracks.current.clear();
     screenTrack.current?.stop();
     cameraTrack.current = null;
     screenTrack.current = null;
@@ -526,34 +549,42 @@ export function CallProvider({ children }: { children: ReactNode }) {
         patch({ notice: Platform.OS === 'web' ? webrtcBlockedMessage() : t(NATIVE_NOTICE) });
         return false;
       }
+      // Hung up before it got here (callAudio.prepare can wait on a permission).
+      if (callRef.current.phase === 'idle') return false;
+      const keep = mediaKeeper();
       let opening: { stream: MediaStream; cameraError: string | null };
       try {
         const base = micConstraints(getNoisePreference());
         const wanted = savedDevice('input');
-        const open = (id: string) => getLocalMedia(video, id === 'default' ? base : { ...base, deviceId: { exact: id } });
+        const open = async (id: string) => {
+          const result = await getLocalMedia(video, id === 'default' ? base : { ...base, deviceId: { exact: id } });
+          // At once: the relay servers may still be loading, and hanging up has to reach these.
+          keep(...result.stream.getTracks());
+          return result;
+        };
         const media = open(wanted).then(
           (result) => ({ ...result, id: wanted }),
-          (error) => (wanted === 'default' ? Promise.reject(error) : open('default').then((result) => ({ ...result, id: 'default' }))),
+          (error) => (wanted === 'default' || !keep() ? Promise.reject(error) : open('default').then((result) => ({ ...result, id: 'default' }))),
         );
         let opened: { stream: MediaStream; cameraError: string | null; id: string };
         [opened, iceConfig.current] = await Promise.all([media, loadIceConfig(api.ice)]);
+        if (!keep()) return false;
         opening = opened;
         patch({ audioInputId: opened.id, audioOutputId: savedDevice('output'), notice: opened.cameraError });
       } catch (error) {
-        patch({ notice: mediaErrorMessage(error, video ? 'media' : 'microphone') });
+        if (keep()) patch({ notice: mediaErrorMessage(error, video ? 'media' : 'microphone') });
         return false;
       }
       const { stream } = opening;
-      if (callRef.current.phase === 'idle') {
-        // Hung up while the permission prompt was open.
-        stream.getTracks().forEach((tr) => tr.stop());
-        return false;
-      }
       // Run the mic through the preferred noise cancellation before it is sent.
       const rawMic = stream.getAudioTracks()[0];
       let noiseMode = getNoisePreference();
       if (rawMic) {
         const chain = await processMic(rawMic, noiseMode);
+        if (!keep()) {
+          chain.dispose();
+          return false;
+        }
         if (chain.track !== rawMic) {
           stream.removeTrack(rawMic);
           stream.addTrack(chain.track);
@@ -570,7 +601,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       if (Platform.OS === 'web') void preferLoudspeaker();
       return true;
     },
-    [patch, refreshVideoDevices, preferLoudspeaker],
+    [patch, mediaKeeper, refreshVideoDevices, preferLoudspeaker],
   );
 
   /** A connection to one participant. The newcomer of the pair is the offerer. */
@@ -1110,16 +1141,22 @@ export function CallProvider({ children }: { children: ReactNode }) {
       const c = callRef.current;
       if (mode === 'strong' && !strongNoiseSupported()) mode = 'standard';
       if (!c.localStream) return;
+      const keep = mediaKeeper();
       let raw: MediaStreamTrack;
       try {
         const base = micConstraints(mode);
         const constraints = Platform.OS === 'web' && deviceId && deviceId !== 'default' ? { ...base, deviceId: { exact: deviceId } } : base;
         raw = (await navigator.mediaDevices.getUserMedia({ audio: constraints })).getAudioTracks()[0]!;
       } catch (error) {
-        patch({ notice: mediaErrorMessage(error, 'microphone') });
+        if (keep()) patch({ notice: mediaErrorMessage(error, 'microphone') });
         return;
       }
+      if (!keep(raw)) return;
       const chain = await processMic(raw, mode);
+      if (!keep()) {
+        chain.dispose();
+        return;
+      }
       const applied: NoiseMode = mode === 'strong' && chain.track === raw ? 'standard' : mode;
       // Read now, not from `c`: mute can change while the microphone opens. Only the track that is
       // sent is switched, as in toggleMic; a disabled raw track would feed the noise filter silence.
@@ -1133,6 +1170,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
         mix.micInput = input;
       } else {
         await setSenders('audio', chain.track);
+        if (!keep()) {
+          chain.dispose();
+          return;
+        }
       }
       const old = c.localStream.getAudioTracks()[0];
       if (old) c.localStream.removeTrack(old);
@@ -1141,7 +1182,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       micDispose.current = chain.dispose;
       setCall((s) => ({ ...s, noiseMode: applied, audioInputId: deviceId || 'default', notice: null, mediaVersion: s.mediaVersion + 1 }));
     },
-    [patch, setCall, setSenders],
+    [patch, mediaKeeper, setCall, setSenders],
   );
 
   useEffect(() => {
@@ -1212,18 +1253,20 @@ export function CallProvider({ children }: { children: ReactNode }) {
       await syncVideoSender();
       return;
     }
+    const keep = mediaKeeper();
     try {
       // Turn on the camera picked earlier in the call, if any.
       const cam = await getCameraTrack(c.videoDeviceId);
+      if (!keep(cam)) return;
       cameraTrack.current = cam;
       c.localStream.addTrack(cam);
       setCall((s) => ({ ...s, cameraOff: false, frontCamera: true, notice: null, mediaVersion: s.mediaVersion + 1 }));
       await syncVideoSender();
       void refreshVideoDevices();
     } catch (e: any) {
-      patch({ notice: e.message });
+      if (keep()) patch({ notice: e.message });
     }
-  }, [patch, setCall, syncVideoSender, refreshVideoDevices]);
+  }, [patch, mediaKeeper, setCall, syncVideoSender, refreshVideoDevices]);
 
   /** Swaps the local camera for another one without dropping the call. */
   const selectVideoDevice = useCallback(
@@ -1234,6 +1277,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
         return;
       }
       if (!c.cameraOff && c.videoDeviceId === deviceId) return;
+      const keep = mediaKeeper();
       try {
         let track: MediaStreamTrack;
         try {
@@ -1241,10 +1285,11 @@ export function CallProvider({ children }: { children: ReactNode }) {
         } catch (first) {
           // Phones open one camera at a time: release the current one and try again.
           const current = cameraTrack.current;
-          if (!current) throw first;
+          if (!current || !keep()) throw first;
           current.stop();
           track = await getCameraTrack(deviceId);
         }
+        if (!keep(track)) return;
         const old = cameraTrack.current;
         cameraTrack.current = track;
         c.localStream.addTrack(track);
@@ -1256,10 +1301,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
         await syncVideoSender();
         void refreshVideoDevices();
       } catch (e: any) {
-        patch({ notice: e.message });
+        if (keep()) patch({ notice: e.message });
       }
     },
-    [patch, setCall, syncVideoSender, refreshVideoDevices],
+    [patch, mediaKeeper, setCall, syncVideoSender, refreshVideoDevices],
   );
 
   const toggleScreenShare = useCallback(async () => {
@@ -1277,6 +1322,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       patch({ notice: screenShareUnavailableMessage() });
       return;
     }
+    const keep = mediaKeeper();
     try {
       const preset = STREAM_PRESETS[callRef.current.streamQuality];
       const fps = callRef.current.streamFps;
@@ -1306,6 +1352,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
           surfaceSwitching: 'include',
         });
       }
+      if (!keep(...display.getTracks())) return;
       const track = display.getVideoTracks()[0]!;
       if ('contentHint' in track) track.contentHint = 'detail';
       screenTrack.current = track;
@@ -1341,6 +1388,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
         const mixed = out.stream.getAudioTracks()[0]!;
         screenAudio.current = { track: shared, ctx, mixed, out, micInput };
         await setSenders('audio', mixed);
+        if (!keep()) return;
         withAudio = true;
       }
       patch({ sharingScreen: true, sharingAudio: withAudio, screenStream: new MediaStream([track]), notice });
@@ -1348,11 +1396,11 @@ export function CallProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       // The user chose "Cancel" in the browser's own picker: no message.
       const name = (error as { name?: string } | null)?.name;
-      if (name !== 'NotAllowedError' && name !== 'PermissionDeniedError' && name !== 'AbortError') {
+      if (keep() && name !== 'NotAllowedError' && name !== 'PermissionDeniedError' && name !== 'AbortError') {
         patch({ notice: mediaErrorMessage(error, 'screen') });
       }
     }
-  }, [patch, syncVideoSender, setSenders, stopScreenAudio]);
+  }, [patch, mediaKeeper, syncVideoSender, setSenders, stopScreenAudio]);
 
   const setVoiceBitrate = useCallback(
     async (voiceBitrate: VoiceBitrate) => {
@@ -1410,7 +1458,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
     const old = cameraTrack.current;
     const facing = (old?.getSettings?.().facingMode as string | undefined) ?? (c.frontCamera ? 'user' : 'environment');
     const target: 'user' | 'environment' = facing === 'environment' ? 'user' : 'environment';
+    const keep = mediaKeeper();
     const put = async (track: MediaStreamTrack, front: boolean) => {
+      if (!keep(track)) return;
       cameraTrack.current = track;
       c.localStream!.addTrack(track);
       if (old && old !== track) c.localStream!.removeTrack(old);
@@ -1422,12 +1472,14 @@ export function CallProvider({ children }: { children: ReactNode }) {
       try {
         track = await getFacingCameraTrack(target);
       } catch {
+        if (!keep()) return;
         old?.stop();
         track = await getFacingCameraTrack(target);
       }
       if (old && old.readyState !== 'ended') old.stop();
       await put(track, target === 'user');
     } catch (e) {
+      if (!keep()) return;
       patch({ notice: e instanceof Error ? e.message : String(e) });
       // Bring the previous camera back so the call doesn't lose video.
       if (old?.readyState === 'ended') {
@@ -1436,7 +1488,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
         } catch {}
       }
     }
-  }, [patch, setCall, syncVideoSender]);
+  }, [patch, mediaKeeper, setCall, syncVideoSender]);
 
   const flipCamera = useCallback(() => {
     const c = callRef.current;
