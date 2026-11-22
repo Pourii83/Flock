@@ -48,6 +48,45 @@ export function savedDevice(kind: keyof typeof DEVICE_KEYS) {
     return 'default';
   }
 }
+/** Joining with the microphone off (the meeting link page's choice; lasts until it is changed). */
+const START_MUTED_KEY = 'flock.startMuted';
+export function savedStartMuted(): boolean {
+  if (Platform.OS !== 'web') return false;
+  try {
+    return globalThis.localStorage?.getItem(START_MUTED_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+export function saveStartMuted(on: boolean) {
+  if (Platform.OS !== 'web') return;
+  try {
+    if (on) globalThis.localStorage?.setItem(START_MUTED_KEY, '1');
+    else globalThis.localStorage?.removeItem(START_MUTED_KEY);
+  } catch {}
+}
+
+/** Joining with everyone's audio muted (the meeting link page's speaker circle). */
+const START_SPEAKER_MUTED_KEY = 'flock.startSpeakerMuted';
+export function savedStartSpeakerMuted(): boolean {
+  if (Platform.OS !== 'web') return false;
+  try {
+    return globalThis.localStorage?.getItem(START_SPEAKER_MUTED_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+export function saveStartSpeakerMuted(on: boolean) {
+  if (Platform.OS !== 'web') return;
+  try {
+    if (on) globalThis.localStorage?.setItem(START_SPEAKER_MUTED_KEY, '1');
+    else globalThis.localStorage?.removeItem(START_SPEAKER_MUTED_KEY);
+  } catch {}
+}
+
+/** How a meeting is entered. Only the guest page offers this choice, so only it passes one. */
+export type JoinStart = { muted: boolean; speakerMuted: boolean };
+
 export function saveDevice(kind: keyof typeof DEVICE_KEYS, id: string) {
   if (Platform.OS !== 'web') return;
   try {
@@ -193,7 +232,7 @@ type CallApi = {
   joinInvitedCall: (callId: string) => Promise<void>;
   inviteGuests: (userIds: string[]) => Promise<User[]>;
   /** Joins a meeting room by its link code; resolves with an error message if it couldn't. */
-  joinRoom: (code: string) => Promise<string | null>;
+  joinRoom: (code: string, start?: JoinStart) => Promise<string | null>;
   /** Who I am in calls: my account, or my guest identity in a meeting room. */
   self: User | null;
   accept: (audioOnly?: boolean) => Promise<void>;
@@ -525,6 +564,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
       cameraTrack.current = cam;
       // With the camera allowed, the browser now reveals the rest of its camera list.
       if (cam) void refreshVideoDevices();
+      // Muted before the mic was ready: it must never be live, not even until the join answers.
+      stream.getAudioTracks().forEach((track) => (track.enabled = !callRef.current.micMuted));
       patch({ localStream: stream, cameraOff: !cam, noiseMode });
       if (Platform.OS === 'web') void preferLoudspeaker();
       return true;
@@ -979,12 +1020,22 @@ export function CallProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const joinRoom = useCallback(
-    async (code: string) => {
+    async (code: string, start?: JoinStart) => {
       const socket = chatStore.socket;
       if (callRef.current.phase !== 'idle') return t('You are already in a call');
       if (!socket) return t("Can't reach the Flock server. Check your connection.");
       // Join with the camera off; it can be turned on from the dock.
-      setCall({ ...IDLE, phase: 'active', isGroup: true, video: false, answeredAt: Date.now(), title: t('Meeting'), guest: !account });
+      setCall({
+        ...IDLE,
+        phase: 'active',
+        isGroup: true,
+        video: false,
+        answeredAt: Date.now(),
+        title: t('Meeting'),
+        guest: !account,
+        micMuted: !!start?.muted,
+        speakerMuted: !!start?.speakerMuted,
+      });
       acceptedHere.current = true;
       await callAudio.prepare();
       callAudio.start(false);
@@ -996,13 +1047,15 @@ export function CallProvider({ children }: { children: ReactNode }) {
       }
       patch({ callId: res.callId, title: res.title || t('Meeting'), room: res.room });
       const ready = await mediaReady.current;
+      // The tracks already follow it (see prepareMedia); the others still have to be told.
+      if (ready && callRef.current.micMuted) signal({ type: 'muted', muted: true });
       for (const participant of (res.participants ?? []) as User[]) {
         upsertRemote(participant.id, { user: participant });
         if (ready) await offerTo(participant.id).catch((e) => console.warn('[flock] offer failed', e));
       }
       return null;
     },
-    [account, setCall, prepareMedia, cleanup, patch, upsertRemote, offerTo],
+    [account, setCall, prepareMedia, cleanup, patch, signal, upsertRemote, offerTo],
   );
 
   const startCall = useCallback(
@@ -1068,8 +1121,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
       }
       const chain = await processMic(raw, mode);
       const applied: NoiseMode = mode === 'strong' && chain.track === raw ? 'standard' : mode;
-      chain.track.enabled = !c.micMuted;
-      raw.enabled = !c.micMuted;
+      // Read now, not from `c`: mute can change while the microphone opens. Only the track that is
+      // sent is switched, as in toggleMic; a disabled raw track would feed the noise filter silence.
+      chain.track.enabled = !callRef.current.micMuted;
       // Swap the mic everywhere it is used: the live screen-audio mix, or the call's audio senders.
       const mix = screenAudio.current;
       if (mix) {

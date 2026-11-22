@@ -6,6 +6,7 @@ import { dropPush, syncPush } from '@/lib/notifications';
 import { getItem, setItem } from '@/lib/storage';
 import type { User } from '@/lib/types';
 import { chatStore } from './chat-store';
+import { stopVoice } from './voice';
 
 const TOKEN_KEY = 'flock.token';
 /** The signed-in profile, so the app can open without a connection instead of asking to sign in again. */
@@ -38,7 +39,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const applySession = useCallback(async (nextToken: string | null, nextUser: User | null, { expired = false } = {}) => {
     // Signing out: this device stops getting the old account's notifications (needs the old token,
     // so a session the server already rejected only drops it locally).
-    if (!nextToken) await dropPush({ tellServer: !expired });
+    if (!nextToken) {
+      stopVoice();
+      await dropPush({ tellServer: !expired });
+    }
     setAuthToken(nextToken);
     await setItem(TOKEN_KEY, nextToken);
     await setItem(USER_KEY, nextToken && nextUser ? JSON.stringify(nextUser) : null);

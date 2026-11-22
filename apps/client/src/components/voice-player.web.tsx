@@ -30,6 +30,8 @@ export function VoicePlayer({
   compact,
   title,
   subtitle,
+  conversationId,
+  messageId,
 }: {
   url: string;
   mine: boolean;
@@ -40,68 +42,70 @@ export function VoicePlayer({
   /** Shown in the player bar (defaults to the generic voice-message label). */
   title?: string;
   subtitle?: string;
+  /** Where this message is, so the player bar can jump back to it from another chat. */
+  conversationId?: string;
+  messageId?: string;
 }) {
   // Loudness bars: sent with the message, or measured here from the file for older messages.
   const levels = useWaveform(url, waveform, async () =>
     (await fetch(isLocalUrl(url) ? url : `${getApiUrl()}${url}`, isLocalUrl(url) ? undefined : { headers: getAuthHeaders() })).arrayBuffer(),
   );
   const now = useVoice();
-  // The signed link is kept with the URL it belongs to, so a row reused for another message can
-  // never borrow the previous one's audio.
-  const [resolved, setResolved] = useState<{ url: string; link: string } | null>(null);
-  const link = resolved?.url === url ? resolved.link : null;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  // This message is the one that plays: follow the shared clock, otherwise stay at zero.
-  const active = !!now && !!link && now.url === link;
+  // This message is the one that plays: follow the shared clock, otherwise stay at zero. Matched by
+  // the file, not its signed link, so a row that was remounted still knows it is playing.
+  const active = !!now && now.key === url;
   const playing = active && now.playing;
   const time = active ? now.time : 0;
   const length = active && now.length ? now.length : (duration ?? 0);
   const progress = length ? Math.min(1, time / length) : 0;
 
-  const resolve = async () => {
-    if (link) return link;
+  // Signed links expire after a few minutes, so every start and retry asks for its own.
+  const signedLink = async () => (isLocalUrl(url) ? url : `${getApiUrl()}${(await api.fileLink(url)).url}`);
+
+  const start = async (from?: number) => {
+    if (loading) return;
     setLoading(true);
+    setError('');
+    let link: string;
     try {
-      const full = isLocalUrl(url) ? url : `${getApiUrl()}${(await api.fileLink(url)).url}`;
-      setResolved({ url, link: full });
-      return full;
+      link = await signedLink();
     } catch (e) {
       setError(e instanceof Error ? e.message : t('Could not download file'));
-      return null;
+      return;
     } finally {
       setLoading(false);
     }
+    await playVoice({
+      url: link,
+      key: url,
+      renew: signedLink,
+      title: title || t('Voice message'),
+      subtitle: subtitle ?? '',
+      length: duration,
+      from,
+      conversationId,
+      messageId,
+    });
   };
 
-  const toggle = async () => {
-    if (active) {
-      toggleVoice();
-      return;
-    }
-    const full = await resolve();
-    if (!full) return;
-    await playVoice({ url: full, title: title || t('Voice message'), subtitle: subtitle ?? '', length: duration });
+  const toggle = () => {
+    if (active) toggleVoice();
+    else void start();
   };
 
-  const seek = async (fraction: number) => {
-    if (active) {
-      seekVoice(fraction);
-      return;
-    }
-    const full = await resolve();
-    if (!full) return;
-    await playVoice({ url: full, title: title || t('Voice message'), subtitle: subtitle ?? '', length: duration });
-    // Playback starts at the beginning; jump to where the waveform was tapped.
-    setTimeout(() => seekVoice(fraction), 120);
+  const seek = (fraction: number) => {
+    if (active) seekVoice(fraction);
+    else void start(fraction);
   };
 
   const shape = clockOf(time);
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: compact ? 8 : 10, minWidth: compact ? 0 : 250, ...(compact ? { flex: 1, alignSelf: 'stretch' } : null) }}>
       <Pressable
-        onPress={() => void toggle()}
+        onPress={toggle}
         accessibilityLabel={playing ? t('Pause') : t('Play voice message')}
         style={{ width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: mine ? 'rgba(61,38,0,0.14)' : colors.amber }}>
         {loading ? <ActivityIndicator color={colors.onAmber} size="small" /> : <Icon name={playing ? 'pause' : 'play'} size={18} color={colors.onAmber} />}
@@ -112,10 +116,10 @@ export function VoicePlayer({
           progress={progress}
           played={mine ? colors.onAmber : colors.amber}
           rest={mine ? 'rgba(61,38,0,0.32)' : colors.textDim}
-          onSeek={(f) => void seek(f)}
+          onSeek={seek}
         />
         <T variant="bodySm" color={error ? colors.danger : mine ? '#72521B' : colors.textMuted} style={{ fontVariant: ['tabular-nums'] }}>
-          {error || (link && (playing || time > 0) ? shape : length ? clockOf(length) : t('Voice message'))}
+          {error || (playing || time > 0 ? shape : length ? clockOf(length) : t('Voice message'))}
         </T>
       </View>
     </View>

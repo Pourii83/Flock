@@ -3,13 +3,14 @@ import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { JoinAudio, joinAudioSupported } from '@/components/join-audio';
 import { FlockTile } from '@/components/logo';
 import { Button, Field, Icon, T } from '@/components/ui';
 import { api } from '@/lib/api';
 import { LANGUAGES, setLang, t, useLang } from '@/lib/i18n';
 import type { PublicRoom } from '@/lib/types';
 import { useAuth } from '@/state/auth';
-import { useCalls } from '@/state/calls';
+import { savedStartMuted, savedStartSpeakerMuted, useCalls } from '@/state/calls';
 import { chatStore } from '@/state/chat-store';
 import { colors, radius } from '@/theme';
 
@@ -52,6 +53,8 @@ export default function MeetScreen() {
   const [error, setError] = useState<string | null>(null);
   const [joined, setJoined] = useState(false);
   const [guestToken, setGuestToken] = useState<string | null>(null);
+  // The name the guest token was made with, so editing it after a failed attempt really renames.
+  const [guestName, setGuestName] = useState('');
   const [reload, setReload] = useState(0);
 
   const inCall = call.phase !== 'idle';
@@ -87,11 +90,15 @@ export default function MeetScreen() {
     setError(null);
     try {
       if (guestMode) {
-        let token = guestToken;
+        // The name was edited after an attempt that failed: this link joins under a new guest name.
+        // The old connection stays until the new pass arrives (startGuest replaces it), so leaving the
+        // page still knows there is an account connection to give back.
+        let token = guestName === name.trim() ? guestToken : null;
         if (!token) {
           if (name.trim().length < 2) throw new Error(t('Enter your name to join'));
           const res = await api.joinRoomAsGuest(String(code), name.trim());
           token = res.token;
+          setGuestName(name.trim());
           setGuestToken(token);
           chatStore.startGuest(token, res.user);
         } else if (!chatStore.socket || !chatStore.state.guest) {
@@ -99,7 +106,8 @@ export default function MeetScreen() {
         }
       }
       if (!(await connectedSoon())) throw new Error(t("Can't reach the Flock server. Check your connection."));
-      const problem = await joinRoom(String(code));
+      const start = guestMode && joinAudioSupported ? { muted: savedStartMuted(), speakerMuted: savedStartSpeakerMuted() } : undefined;
+      const problem = await joinRoom(String(code), start);
       if (problem) throw new Error(problem);
       setJoined(true);
     } catch (e) {
@@ -194,7 +202,8 @@ export default function MeetScreen() {
                   {expiryLabel(room.expiresAt)}
                 </T>
               </View>
-              {guestMode && !guestToken && (
+              {/* Still shown after a failed attempt: the name, the devices and the mute choice can be changed and tried again. */}
+              {guestMode && !joined && (
                 <Field
                   label={t('Your name')}
                   icon="user"
@@ -207,6 +216,7 @@ export default function MeetScreen() {
                   autoFocus
                 />
               )}
+              {guestMode && !joined && joinAudioSupported && <JoinAudio joining={busy} />}
               {!!error && (
                 <T variant="body" color={colors.danger}>
                   {error}
@@ -222,13 +232,20 @@ export default function MeetScreen() {
               {!user && (
                 <Button title={t('I have an account — sign in')} variant="ghost" onPress={() => router.push('/login')} />
               )}
-              {!!user && !guestToken && (
+              {!!user && !joined && (
                 <Button
                   title={asGuest ? t('Join with my account instead') : t('Join as a guest instead')}
                   variant="ghost"
+                  disabled={busy}
                   onPress={() => {
-                    setAsGuest((v) => !v);
+                    const next = !asGuest;
+                    setAsGuest(next);
                     setError(null);
+                    // Back on my account: its connection replaces the guest one (start stops that first).
+                    if (!next) {
+                      if (chatStore.state.guest && token) chatStore.start(token, user);
+                      setGuestToken(null);
+                    }
                   }}
                 />
               )}
