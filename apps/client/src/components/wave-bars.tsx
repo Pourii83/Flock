@@ -1,11 +1,15 @@
-import { useState } from 'react';
-import { Platform, View } from 'react-native';
+import { useRef, useState } from 'react';
+import { Platform, View, type GestureResponderEvent } from 'react-native';
 
 import { isRTL } from '@/lib/i18n';
 import { WAVE_BARS } from '@/lib/waveform';
 
 const GAP = 1.5;
 const BAR_MIN = 2;
+/** How far a finger moves before it is a drag and no longer a tap. */
+const SLOP = 6;
+/** A press held longer than this is not a tap. */
+const TAP_MS = 500;
 
 /**
  * The timeline of a voice message: one bar per slice, as tall as that slice is loud. Played bars
@@ -47,30 +51,56 @@ export function WaveBars({
       ))}
     </View>
   );
+  const touch = useRef<{ x: number; y: number; at: number; kind: 'tap' | 'scrub' | 'scroll' } | null>(null);
+  /** Where a drag in progress points; the player only moves when it is let go. */
+  const [scrub, setScrub] = useState<number | null>(null);
   // The played part starts at the layout's start edge, which is the right one in Persian.
-  const seek = (x: number) =>
-    onSeek && width > 0 && onSeek(Math.max(0, Math.min(1, (isRTL() ? width - x : x) / width)));
+  const fractionAt = (e: GestureResponderEvent) => {
+    const x = e.nativeEvent.locationX ?? 0;
+    return Math.max(0, Math.min(1, (isRTL() ? width - x : x) / width));
+  };
+  const release = () => {
+    touch.current = null;
+    setScrub(null);
+  };
+  const shown = scrub ?? progress;
   return (
     <View
-      // Press or drag anywhere along the bars: the message follows the finger, like a scrubber.
-      // A vertical drag still belongs to the chat list (the scrubber only takes the gesture when it
-      // is a sideways drag or a tap).
-      onStartShouldSetResponder={() => !!onSeek}
-      onMoveShouldSetResponder={() => !!onSeek}
-      onResponderGrant={(e) => seek(e.nativeEvent.locationX ?? 0)}
-      onResponderMove={(e) => seek(e.nativeEvent.locationX ?? 0)}
+      // A tap or a sideways drag seeks, on release. A vertical drag belongs to the chat list: seeking
+      // on touch-down would start a message each time the list is scrolled from its waveform.
+      onStartShouldSetResponder={() => !!onSeek && width > 0}
+      onResponderTerminationRequest={() => touch.current?.kind !== 'scrub'}
+      onResponderGrant={(e) => {
+        touch.current = { x: e.nativeEvent.pageX, y: e.nativeEvent.pageY, at: Date.now(), kind: 'tap' };
+      }}
+      onResponderMove={(e) => {
+        const from = touch.current;
+        if (!from) return;
+        if (from.kind === 'tap') {
+          const dx = Math.abs(e.nativeEvent.pageX - from.x);
+          const dy = Math.abs(e.nativeEvent.pageY - from.y);
+          if (dx > SLOP || dy > SLOP) from.kind = dx > dy ? 'scrub' : 'scroll';
+        }
+        if (from.kind === 'scrub') setScrub(fractionAt(e));
+      }}
+      onResponderRelease={(e) => {
+        const from = touch.current;
+        if (from?.kind === 'scrub' || (from?.kind === 'tap' && Date.now() - from.at < TAP_MS)) onSeek?.(fractionAt(e));
+        release();
+      }}
+      onResponderTerminate={release}
       onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
       accessible={false}
       style={{
         height: HEIGHT,
         overflow: 'hidden',
         alignSelf: 'stretch',
-        ...(Platform.OS === 'web' ? ({ cursor: onSeek ? 'pointer' : 'auto', touchAction: 'none' } as object) : null),
+        ...(Platform.OS === 'web' ? ({ cursor: onSeek ? 'pointer' : 'auto', touchAction: 'pan-y', userSelect: 'none' } as object) : null),
       }}>
       {row(rest)}
       {/* The played color is the same bars, clipped to the progress: it fills smoothly, even inside a bar. */}
-      {width > 0 && progress > 0 && (
-        <View pointerEvents="none" style={{ position: 'absolute', top: 0, bottom: 0, start: 0, width: Math.min(1, progress) * width, overflow: 'hidden' }}>
+      {width > 0 && shown > 0 && (
+        <View pointerEvents="none" style={{ position: 'absolute', top: 0, bottom: 0, start: 0, width: Math.min(1, shown) * width, overflow: 'hidden' }}>
           {row(played, width)}
         </View>
       )}

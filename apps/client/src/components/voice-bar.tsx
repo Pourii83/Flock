@@ -51,6 +51,65 @@ const clock = (sec: number) => {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 };
 
+/** Controls that use Space or the arrow keys themselves. */
+const OWN_KEYS = [
+  'input',
+  'textarea',
+  'select',
+  'button',
+  'a[href]',
+  '[contenteditable]',
+  ...['button', 'slider', 'radio', 'checkbox', 'switch', 'tab', 'menuitem', 'dialog'].map((role) => `[role="${role}"]`),
+].join(',');
+
+/**
+ * What belongs to the playing message rather than to a bar: media keys, and stopping when the message
+ * is deleted. Mounted once at the app root, as bars come and go with their screens.
+ */
+export function VoiceSession() {
+  const now = useVoice();
+  const active = !!now;
+  const { key, title, subtitle, conversationId, messageId } = now ?? {};
+  // The message's chat: a message deleted (here or elsewhere) takes the sound with it.
+  const messages = useChat((s) => (conversationId ? s.messages[conversationId] : undefined));
+
+  // The browser's own media keys (and the phone's lock screen, installed as an app) drive the same
+  // player, so the voice keeps showing who is speaking while the app is in the background.
+  useEffect(() => {
+    if (!web || typeof navigator === 'undefined' || !active) return;
+    const session = (navigator as Navigator & { mediaSession?: MediaSession }).mediaSession;
+    if (!session) return;
+    session.metadata = new MediaMetadata({ title, artist: subtitle });
+    const handlers: [MediaSessionAction, MediaSessionActionHandler][] = [
+      ['play', () => !getVoice()?.playing && toggleVoice()],
+      ['pause', () => !!getVoice()?.playing && toggleVoice()],
+      ['seekbackward', (details) => skipVoice(-(details.seekOffset ?? 10))],
+      ['seekforward', (details) => skipVoice(details.seekOffset ?? 10)],
+      ['stop', () => stopVoice()],
+    ];
+    for (const [action, handler] of handlers) {
+      try {
+        session.setActionHandler(action, handler);
+      } catch {}
+    }
+    return () => {
+      for (const [action] of handlers) {
+        try {
+          session.setActionHandler(action, null);
+        } catch {}
+      }
+      session.metadata = null;
+    };
+  }, [active, key, title, subtitle]);
+
+  useEffect(() => {
+    if (!messageId || !messages) return;
+    if (!messages.some((m) => m.id === messageId)) stopVoice();
+  }, [messageId, messages]);
+
+  return null;
+}
+
 /**
  * A small card under its button. On the web it hangs off the bar (hover opens it); on a phone a
  * long press raises it over the chat with a scrim, since a phone has no hover.
@@ -168,19 +227,19 @@ export function VoiceBar() {
   const params = useLocalSearchParams<{ c?: string; id?: string }>();
   const [panel, setPanel] = useState<'speed' | 'volume' | null>(null);
   const [seekWidth, setSeekWidth] = useState(0);
-  // The open chat's messages: a message deleted (here or elsewhere) takes the bar with it.
-  const messages = useChat((s) => (now?.conversationId ? s.messages[now.conversationId] : undefined));
+  const active = !!now;
 
-  // Space plays or pauses and the arrow keys skip, like any player on the web. The keys are left
-  // alone while someone is typing.
+  // Space plays or pauses and the arrow keys skip, like any player on the web. Only keys nobody else
+  // wants: not while typing, on a focused control, or in a dialog, and once when two bars are mounted.
   useEffect(() => {
-    if (!web || !now) return;
+    if (!web || !active) return;
     const onKey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
       const target = event.target as HTMLElement | null;
-      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
+      if (target?.closest?.(OWN_KEYS) || document.querySelector('[aria-modal="true"]')) return;
       if (event.code === 'Space') {
         event.preventDefault();
-        toggleVoice();
+        if (!event.repeat) toggleVoice();
       } else if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
         event.preventDefault();
         skipVoice(event.key === 'ArrowLeft' ? -10 : 10);
@@ -188,41 +247,17 @@ export function VoiceBar() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [!!now]);
+  }, [active]);
 
-  // The browser's own media keys (and the phone's lock screen, installed as an app) drive the same
-  // player, so the voice keeps showing who is speaking while the app is in the background.
+  // A card opened by a long press has no pointer to leave it: a press anywhere else closes it.
   useEffect(() => {
-    if (!web || typeof navigator === 'undefined' || !now) return;
-    const session = (navigator as Navigator & { mediaSession?: MediaSession }).mediaSession;
-    if (!session) return;
-    session.metadata = new MediaMetadata({ title: now.title, artist: now.subtitle });
-    const handlers: [MediaSessionAction, MediaSessionActionHandler][] = [
-      ['play', () => !getVoice()?.playing && toggleVoice()],
-      ['pause', () => !!getVoice()?.playing && toggleVoice()],
-      ['seekbackward', (details) => skipVoice(-(details.seekOffset ?? 10))],
-      ['seekforward', (details) => skipVoice(details.seekOffset ?? 10)],
-      ['stop', () => stopVoice()],
-    ];
-    for (const [action, handler] of handlers) {
-      try {
-        session.setActionHandler(action, handler);
-      } catch {}
-    }
-    return () => {
-      for (const [action] of handlers) {
-        try {
-          session.setActionHandler(action, null);
-        } catch {}
-      }
-      session.metadata = null;
+    if (!web || !panel) return;
+    const onDown = (event: PointerEvent) => {
+      if (!(event.target as HTMLElement | null)?.closest?.('[data-voice-panel]')) setPanel(null);
     };
-  }, [!!now, now?.url]);
-
-  useEffect(() => {
-    if (!now?.messageId || !messages) return;
-    if (!messages.some((m) => m.id === now.messageId)) stopVoice();
-  }, [now?.messageId, messages]);
+    document.addEventListener('pointerdown', onDown, true);
+    return () => document.removeEventListener('pointerdown', onDown, true);
+  }, [panel]);
 
   if (!now) return null;
 
@@ -267,8 +302,11 @@ export function VoiceBar() {
   const hover = (name: 'speed' | 'volume') =>
     web
       ? ({
-          onMouseEnter: () => setPanel(name),
-          onMouseLeave: () => setPanel((p) => (p === name ? null : p)),
+          dataSet: { voicePanel: name },
+          // A mouse only: a tap also "enters", and would leave the card open with nothing to close it.
+          onPointerEnter: (e: any) => (e.nativeEvent ?? e).pointerType === 'mouse' && setPanel(name),
+          onPointerLeave: (e: any) =>
+            (e.nativeEvent ?? e).pointerType === 'mouse' && setPanel((p) => (p === name ? null : p)),
         } as object)
       : null;
 
@@ -316,12 +354,15 @@ export function VoiceBar() {
             onMoveShouldSetResponder={() => now.length > 0}
             onResponderGrant={(e) => seekTo(e.nativeEvent.locationX)}
             onResponderMove={(e) => seekTo(e.nativeEvent.locationX)}
+            onResponderTerminationRequest={() => false}
             style={{
               height: 14,
               justifyContent: 'center',
               ...(web ? ({ cursor: 'pointer', touchAction: 'none' } as object) : null),
             }}>
             <View
+              // Touches must land on the line itself: native locationX is relative to the touched view.
+              pointerEvents="none"
               style={{
                 height: 4,
                 borderRadius: 2,
@@ -431,7 +472,7 @@ export function VoiceBar() {
                       }}
                       accessibilityRole="button"
                       accessibilityState={{ selected: on }}
-                      accessibilityLabel={`${label}, ${speed}×`}
+                      accessibilityLabel={`${t(label)}, ${speed}×`}
                       style={({ hovered }: any) => ({
                         flexDirection: 'row',
                         alignItems: 'center',

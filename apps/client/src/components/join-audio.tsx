@@ -3,11 +3,12 @@
 // While the microphone list is open every microphone in it is live, each with the same vertical
 // level meter the call screen uses (components/call/level-meter.tsx), so they can be compared
 // before picking one. Nothing is recorded.
+import { useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Platform, Pressable, View } from 'react-native';
 
 import { t } from '@/lib/i18n';
-import { callAudio, type AudioDeviceChoice } from '@/lib/native-media';
+import { callAudio, ROUTE_PREFIX, type AudioDeviceChoice } from '@/lib/native-media';
 import { playTestTone } from '@/lib/test-tone';
 import {
   savedDevice,
@@ -33,22 +34,13 @@ const PROCESSING = { echoCancellation: true, noiseSuppression: true, autoGainCon
 /** More microphones than this opened at once would be more than a comparison needs. */
 const MAX_OPEN = 6;
 
-/**
- * Opens one microphone. A device remembered from another session can be gone: the browser then
- * answers OverconstrainedError and the default one is opened instead. Resolves with the device
- * that really opened, which is the one to show as chosen.
- */
-async function openMic(id: string): Promise<{ stream: MediaStream; id: string }> {
-  const exact = id && id !== 'default' ? { ...PROCESSING, deviceId: { exact: id } } : PROCESSING;
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: exact });
-    return { stream, id: stream.getAudioTracks()[0]?.getSettings().deviceId ?? id };
-  } catch (e: any) {
-    if (!id || id === 'default' || e?.name !== 'OverconstrainedError') throw e;
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: PROCESSING });
-    return { stream, id: 'default' };
-  }
-}
+/** Opens exactly the microphone asked for, so each level bar shows its own row's device. */
+const openMic = (id: string) =>
+  navigator.mediaDevices.getUserMedia({
+    audio: id === 'default' ? PROCESSING : { ...PROCESSING, deviceId: { exact: id } },
+  });
+
+const stopStream = (stream: MediaStream) => stream.getTracks().forEach((track) => track.stop());
 
 /** The circle the call screen uses for its microphone and speaker, so the choice reads the same here. */
 function RoundToggle({
@@ -67,7 +59,6 @@ function RoundToggle({
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={label}
-      aria-pressed={on}
       style={({ pressed, hovered }: any) => ({
         width: 38,
         height: 38,
@@ -82,7 +73,8 @@ function RoundToggle({
   );
 }
 
-export function JoinAudio() {
+/** `joining`: the call is opening its own microphone, so the previews let go of theirs. */
+export function JoinAudio({ joining }: { joining: boolean }) {
   const [devices, setDevices] = useState<AudioDeviceChoice[]>([]);
   const [inputId, setInputId] = useState(() => savedDevice('input'));
   const [outputId, setOutputId] = useState(() => savedDevice('output'));
@@ -94,7 +86,18 @@ export function JoinAudio() {
   // The microphones held open while the list is showing, by device id: they only feed the meters.
   const [streams, setStreams] = useState<Record<string, MediaStream>>({});
   const streamsRef = useRef<Map<string, MediaStream>>(new Map());
-  const asked = useRef(false);
+  // Bumped on every release: a microphone that finishes opening after that is stopped at once.
+  const session = useRef(0);
+
+  // Joining closes the lists: if it fails they are opened again, with live bars.
+  const [wasJoining, setWasJoining] = useState(joining);
+  if (wasJoining !== joining) {
+    setWasJoining(joining);
+    if (joining) {
+      setOpen(null);
+      setStreams({});
+    }
+  }
 
   const refresh = useCallback(
     () =>
@@ -111,19 +114,32 @@ export function JoinAudio() {
     return callAudio.watchDevices(() => void refresh());
   }, [refresh]);
 
-  const stopListening = useCallback(() => {
-    streamsRef.current.forEach((stream) => stream.getTracks().forEach((track) => track.stop()));
+  const releaseMics = useCallback(() => {
+    session.current++;
+    streamsRef.current.forEach(stopStream);
     streamsRef.current.clear();
-    setStreams({});
   }, []);
 
-  // Leaving the page releases every microphone.
-  useEffect(
-    () => () => {
-      streamsRef.current.forEach((stream) => stream.getTracks().forEach((track) => track.stop()));
-      streamsRef.current.clear();
-    },
-    [],
+  const stopListening = useCallback(() => {
+    releaseMics();
+    setStreams({});
+  }, [releaseMics]);
+
+  // Leaving the page, or starting to join, releases every microphone, also those still opening.
+  useEffect(() => {
+    if (joining) releaseMics();
+    return releaseMics;
+  }, [joining, releaseMics]);
+
+  // The sign-in page opens over this one, which stays mounted: out of sight, no microphone stays on.
+  useFocusEffect(
+    useCallback(
+      () => () => {
+        stopListening();
+        setOpen(null);
+      },
+      [stopListening],
+    ),
   );
 
   const micError = (e: any) =>
@@ -133,86 +149,46 @@ export function JoinAudio() {
         : t('Couldn’t open the microphone.'),
     );
 
-  /** Opens the chosen microphone and keeps it for the level bar (also asks for permission). */
-  const listen = async (id: string) => {
+  /** Opens one microphone for its level bar; false when it came too late or couldn't open. */
+  const listen = async (id: string, turn: number, report = true) => {
     try {
-      const { stream, id: actual } = await openMic(id);
-      const previous = streamsRef.current.get(actual);
-      if (previous) previous.getTracks().forEach((track) => track.stop());
-      streamsRef.current.set(actual, stream);
-      setStreams(Object.fromEntries(streamsRef.current));
-      setError('');
-      await refresh();
-      // The remembered microphone was gone and another one opened: say so, and keep that one.
-      if (actual !== id) {
-        setInputId(actual);
-        saveDevice('input', actual);
+      const stream = await openMic(id);
+      if (turn !== session.current) {
+        stopStream(stream);
+        return false;
       }
+      const previous = streamsRef.current.get(id);
+      if (previous) stopStream(previous);
+      streamsRef.current.set(id, stream);
+      setStreams(Object.fromEntries(streamsRef.current));
+      if (report) setError('');
+      return true;
     } catch (e: any) {
-      micError(e);
+      if (report && turn === session.current) micError(e);
+      return false;
     }
   };
 
-  /** Opens every listed microphone at once, so their meters can be compared before picking one. */
-  const listenAll = async () => {
+  /** Opens the listed microphones at once, so their meters can be compared before picking one. */
+  const openMics = async () => {
     stopListening();
-    // Read the list now, not the one from the click: allowing the microphone reveals the rest.
+    const turn = session.current;
+    // The default one first: browsers list the others only once the microphone has been allowed.
+    const allowed = await listen('default', turn);
+    if (turn !== session.current) return;
     const status = await callAudio.devices().catch(() => null);
-    const ids = (status?.devices ?? []).filter((device) => device.kind === 'input').map((device) => device.id);
-    const wanted = (ids.length ? ids : ['default']).slice(0, MAX_OPEN);
-    let firstError: any = null;
-    const opened = (
-      await Promise.all(
-        wanted.map(async (id) => {
-          try {
-            return await openMic(id);
-          } catch (e) {
-            firstError = firstError ?? e;
-            return null;
-          }
-        }),
-      )
-    ).filter((item): item is { stream: MediaStream; id: string } => !!item);
-    if (!opened.length) {
-      micError(firstError);
-      return;
-    }
-    const next = new Map<string, MediaStream>();
-    for (const { stream, id } of opened) {
-      // Two devices can fall back to the same default one; one stream per row is enough.
-      if (next.has(id)) stream.getTracks().forEach((track) => track.stop());
-      else next.set(id, stream);
-    }
-    streamsRef.current = next;
-    setStreams(Object.fromEntries(next));
-    setError('');
-    await refresh();
-    // The remembered microphone is gone: the default one is what will open in the call.
-    if (inputId !== 'default' && !next.has(inputId) && next.has('default')) {
+    if (!status || turn !== session.current) return;
+    setDevices(status.devices);
+    const ids = status.devices.filter((device) => device.kind === 'input').map((device) => device.id);
+    // Only a list read with permission can tell that the remembered microphone is gone.
+    if (allowed && inputId !== 'default' && !ids.includes(inputId)) {
       setInputId('default');
       saveDevice('input', 'default');
     }
-  };
-
-  /** Browsers hide device names until the microphone has been allowed once (the call needs it anyway). */
-  const allow = async () => {
-    if (asked.current) return;
-    asked.current = true;
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      stream.getTracks().forEach((track) => track.stop());
-      await refresh();
-    } catch (e: any) {
-      // A retry can help (the mic was busy, or it has just been allowed in the site settings).
-      asked.current = false;
-      micError(e);
-    }
-  };
-
-  /** Opens the microphone list and every microphone in it (asking for permission first if needed). */
-  const openMics = async () => {
-    if (!devices.some((device) => device.kind === 'input')) await allow();
-    await listenAll();
+    const others = ids.filter((id) => id !== 'default');
+    // The chosen one always gets a bar, however long the list is.
+    const wanted = [...others.filter((id) => id === inputId), ...others.filter((id) => id !== inputId)];
+    await Promise.all(wanted.slice(0, MAX_OPEN - 1).map((id) => listen(id, turn, false)));
   };
 
   const toggle = (kind: Kind) => {
@@ -226,22 +202,35 @@ export function JoinAudio() {
     setOpen(kind);
     if (kind === 'input') {
       void openMics();
-    } else if (!devices.some((device) => device.kind === 'output')) {
-      // Only needed to reveal the speaker names; a microphone prompt would be out of place here.
-      void allow();
     }
+    // The speaker list never asks for the microphone: without permission it offers the system default.
   };
 
-  const chosen = (kind: Kind) => (kind === 'input' ? inputId : outputId);
+  // Phones list call routes instead of speakers, and a route is switched by the microphone it pairs
+  // with (see lib/native-media.ts). Left alone, a call starts on a headset, else on the loudspeaker.
+  const routes = devices.filter((device) => device.kind === 'output' && device.id.startsWith(ROUTE_PREFIX));
+  const route =
+    routes.find((device) => device.id === ROUTE_PREFIX + inputId) ??
+    routes.find((device) => device.route === 'headset') ??
+    routes.find((device) => device.route === 'speaker');
+
+  const chosen = (kind: Kind) => (kind === 'input' ? inputId : (route?.id ?? outputId));
   const label = (kind: Kind) =>
     devices.find((device) => device.kind === kind && device.id === chosen(kind))?.label ?? t('System default');
 
   const pick = (kind: Kind, id: string) => {
+    if (kind === 'output' && id.startsWith(ROUTE_PREFIX)) {
+      const mic = id.slice(ROUTE_PREFIX.length);
+      saveDevice('input', mic);
+      setInputId(mic);
+      setOpen(null);
+      return;
+    }
     saveDevice(kind, id);
     if (kind === 'input') {
       setInputId(id);
       // The list stays open: the level bar shows what this microphone picks up.
-      if (!streamsRef.current.has(id)) void listen(id);
+      if (!streamsRef.current.has(id)) void listen(id, session.current);
       return;
     }
     setOutputId(id);
@@ -276,6 +265,7 @@ export function JoinAudio() {
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
           <Pressable
             onPress={() => toggle(kind)}
+            disabled={joining}
             accessibilityRole="button"
             accessibilityLabel={kind === 'input' ? t('Microphone') : t('Speaker')}
             accessibilityState={{ expanded: isOpen }}
@@ -302,21 +292,21 @@ export function JoinAudio() {
             </View>
             <Icon name={isOpen ? 'chevron-up' : 'chevron-down'} size={16} color={colors.textMuted} />
           </Pressable>
-        {kind === 'input' ? (
-          <RoundToggle
-            on={!muted}
-            icon={muted ? 'mic-off' : 'mic'}
-            label={muted ? t('Unmute') : t('Mute')}
-            onPress={chooseMute}
-          />
-        ) : (
-          <RoundToggle
-            on={!speakerMuted}
-            icon={speakerMuted ? 'volume-x' : 'volume-2'}
-            label={speakerMuted ? t('Unmute call audio') : t('Mute call audio')}
-            onPress={chooseSpeaker}
-          />
-        )}
+          {kind === 'input' ? (
+            <RoundToggle
+              on={!muted}
+              icon={muted ? 'mic-off' : 'mic'}
+              label={muted ? t('Unmute') : t('Mute')}
+              onPress={chooseMute}
+            />
+          ) : (
+            <RoundToggle
+              on={!speakerMuted}
+              icon={speakerMuted ? 'volume-x' : 'volume-2'}
+              label={speakerMuted ? t('Unmute call audio') : t('Mute call audio')}
+              onPress={chooseSpeaker}
+            />
+          )}
         </View>
         {/* The test belongs to the speaker, not to its list: it works with the list closed too. */}
         {kind === 'output' && (

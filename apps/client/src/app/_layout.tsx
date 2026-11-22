@@ -18,6 +18,7 @@ import { View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { CallOverlay } from '@/components/call-overlay';
+import { VoiceSession } from '@/components/voice-bar';
 import { api } from '@/lib/api';
 import { setBranding, useBranding } from '@/lib/brand';
 import { loadServerUrl } from '@/lib/config';
@@ -156,6 +157,7 @@ function LocalizedApp() {
         <PathTracker />
         <RootStack />
         <CallOverlay />
+        <VoiceSession />
       </View>
     </ThemeProvider>
   );

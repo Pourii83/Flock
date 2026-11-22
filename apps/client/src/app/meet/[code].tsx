@@ -10,7 +10,7 @@ import { api } from '@/lib/api';
 import { LANGUAGES, setLang, t, useLang } from '@/lib/i18n';
 import type { PublicRoom } from '@/lib/types';
 import { useAuth } from '@/state/auth';
-import { useCalls } from '@/state/calls';
+import { savedStartMuted, savedStartSpeakerMuted, useCalls } from '@/state/calls';
 import { chatStore } from '@/state/chat-store';
 import { colors, radius } from '@/theme';
 
@@ -90,13 +90,10 @@ export default function MeetScreen() {
     setError(null);
     try {
       if (guestMode) {
-        let token = guestToken;
         // The name was edited after an attempt that failed: this link joins under a new guest name.
-        if (token && guestName !== name.trim()) {
-          if (chatStore.state.guest) chatStore.stop();
-          token = null;
-          setGuestToken(null);
-        }
+        // The old connection stays until the new pass arrives (startGuest replaces it), so leaving the
+        // page still knows there is an account connection to give back.
+        let token = guestName === name.trim() ? guestToken : null;
         if (!token) {
           if (name.trim().length < 2) throw new Error(t('Enter your name to join'));
           const res = await api.joinRoomAsGuest(String(code), name.trim());
@@ -109,7 +106,8 @@ export default function MeetScreen() {
         }
       }
       if (!(await connectedSoon())) throw new Error(t("Can't reach the Flock server. Check your connection."));
-      const problem = await joinRoom(String(code));
+      const start = guestMode && joinAudioSupported ? { muted: savedStartMuted(), speakerMuted: savedStartSpeakerMuted() } : undefined;
+      const problem = await joinRoom(String(code), start);
       if (problem) throw new Error(problem);
       setJoined(true);
     } catch (e) {
@@ -218,7 +216,7 @@ export default function MeetScreen() {
                   autoFocus
                 />
               )}
-              {guestMode && !joined && joinAudioSupported && <JoinAudio />}
+              {guestMode && !joined && joinAudioSupported && <JoinAudio joining={busy} />}
               {!!error && (
                 <T variant="body" color={colors.danger}>
                   {error}
@@ -238,13 +236,14 @@ export default function MeetScreen() {
                 <Button
                   title={asGuest ? t('Join with my account instead') : t('Join as a guest instead')}
                   variant="ghost"
+                  disabled={busy}
                   onPress={() => {
                     const next = !asGuest;
                     setAsGuest(next);
                     setError(null);
-                    // Back on my account: the guest connection and its token are done with.
+                    // Back on my account: its connection replaces the guest one (start stops that first).
                     if (!next) {
-                      if (chatStore.state.guest) chatStore.stop();
+                      if (chatStore.state.guest && token) chatStore.start(token, user);
                       setGuestToken(null);
                     }
                   }}

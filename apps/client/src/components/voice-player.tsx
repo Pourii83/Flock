@@ -41,7 +41,7 @@ function SentVoicePlayer({ url, mine, waveform, duration, title, subtitle, conve
   const now = useVoice();
   const [loading, setLoading] = useState(false);
   // This message is the one that plays: follow the shared clock, otherwise stay at zero.
-  const active = !!now && now.url === url;
+  const active = !!now && now.key === url;
   const playing = active && now.playing;
   const time = active ? now.time : 0;
   const length = active && now.length ? now.length : (duration ?? 0);
@@ -55,11 +55,10 @@ function SentVoicePlayer({ url, mine, waveform, duration, title, subtitle, conve
         title: title || t('Voice message'),
         subtitle: subtitle ?? '',
         length: duration,
+        from: at,
         conversationId,
         messageId,
       });
-      // Playback starts at the beginning; jump to where the waveform was tapped.
-      if (at != null) setTimeout(() => seekVoice(at), 250);
     } finally {
       setLoading(false);
     }
