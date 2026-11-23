@@ -158,7 +158,8 @@ export function IconButton({
   label: string;
   style?: StyleProp<ViewStyle>;
   disabled?: boolean;
-  rounded?: 'pill' | 'lg';
+  /** 'pill', 'lg' (16), or an exact radius, e.g. nestedRadius() inside a rounded box. */
+  rounded?: 'pill' | 'lg' | number;
 }) {
   return (
     <Pressable
@@ -170,7 +171,7 @@ export function IconButton({
         {
           width: size,
           height: size,
-          borderRadius: rounded === 'pill' ? radius.pill : radius.lg,
+          borderRadius: typeof rounded === 'number' ? rounded : rounded === 'pill' ? radius.pill : radius.lg,
           alignItems: 'center',
           justifyContent: 'center',
           backgroundColor: pressed || hovered ? activeBg : bg,

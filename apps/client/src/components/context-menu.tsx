@@ -3,7 +3,7 @@
 import type { ReactNode } from 'react';
 import { Modal, Pressable, View, useWindowDimensions } from 'react-native';
 
-import { colors, radius } from '@/theme';
+import { colors, nestedRadius, radius } from '@/theme';
 import { Icon, PushPin, T, type IconName } from './ui';
 import { t } from '@/lib/i18n';
 
@@ -64,7 +64,7 @@ export function ContextMenu({
             borderRadius: radius.lg,
             borderWidth: 1,
             borderColor: colors.surfaceHigh,
-            paddingVertical: 6,
+            paddingVertical: 4,
             ...(shadow as object),
           }}>
           {!!title && (
@@ -89,7 +89,7 @@ export function ContextMenu({
                 paddingHorizontal: 14,
                 marginHorizontal: 4,
                 height: ROW_H - 4,
-                borderRadius: radius.md,
+                borderRadius: nestedRadius(radius.lg, 5),
                 backgroundColor: pressed ? colors.surfaceHighest : hovered ? colors.surfaceHigh : 'transparent',
                 opacity: item.disabled ? 0.4 : 1,
               })}>

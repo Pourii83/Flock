@@ -272,6 +272,8 @@ export function useThemeMode() {
 }
 
 export const radius = { sm: 4, md: 8, lg: 16, xl: 24, pill: 9999 } as const;
+/** Radius of a shape inset `gap` px inside a rounded container, so both curves share one center. */
+export const nestedRadius = (outer: number, gap: number) => Math.max(0, outer - gap);
 export const space = { xs: 4, sm: 8, md: 16, lg: 24, xl: 32 } as const;
 
 // On web the browser falls back per glyph, so Persian inside English UI (messages, names, the

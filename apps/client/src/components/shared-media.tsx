@@ -13,7 +13,7 @@ import { requestJump } from '@/lib/jump';
 import { shortTime } from '@/lib/format';
 import { num, t } from '@/lib/i18n';
 import type { Conversation, Message } from '@/lib/types';
-import { colors, radius } from '@/theme';
+import { colors, nestedRadius, radius } from '@/theme';
 import { MediaViewer, type ViewerMedia } from './media-viewer';
 import { Icon, IconButton, T, Tooltip, type IconName } from './ui';
 import { VideoThumb } from './video-thumb';
@@ -219,7 +219,7 @@ export function SharedMedia({ conversation }: { conversation: Conversation }) {
                     alignItems: 'center',
                     gap: 12,
                     padding: 10,
-                    borderRadius: radius.lg,
+                    borderRadius: nestedRadius(radius.lg, 1), // fills its card, inside the 1px border
                     backgroundColor: hovered ? colors.surfaceHigh : 'transparent',
                   })}>
                   <View style={iconTile()}>

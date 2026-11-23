@@ -33,7 +33,7 @@ import type { Conversation, Message } from '@/lib/types';
 import { useAuth } from '@/state/auth';
 import { useCalls } from '@/state/calls';
 import { chatStore, useChat, useConversation, useMessages, usePinned, usePinnedList, useTyping } from '@/state/chat-store';
-import { colors, fonts, radius } from '@/theme';
+import { colors, fonts, nestedRadius, radius } from '@/theme';
 import { Avatar, ConversationAvatar, MegaphoneIcon } from './avatar';
 import { EmojiPicker } from './emoji-picker';
 import { LinkedText } from './linked-text';
@@ -1339,7 +1339,7 @@ function Bubble({
                 flexDirection: 'row',
                 gap: 10,
                 backgroundColor: mine ? (hovered ? colors.amberSoftFillStrong : colors.amberSoftFill) : hovered ? colors.surfaceHighest : colors.surfaceHigh,
-                borderRadius: 10,
+                borderRadius: framedMedia ? nestedRadius(r, 6 + 1.5) : 10, // in a photo bubble it sits 6px + the 1.5px border from the corner
                 padding: 10,
                 margin: framedMedia ? 6 : 0,
               })}>
@@ -2223,16 +2223,16 @@ function Composer({
             // (the delete button's side gets less, the waveform's end a little more; RTL mirrors it).
             // Start/end (not left/right) so Persian mirrors it: the text side gets the room, the
             // emoji side stays tight.
-            paddingStart: voice.recording || voiceClip ? 6 : desktop ? 8 : 20,
-            paddingEnd: voice.recording || voiceClip ? 14 : 8,
+            paddingStart: voice.recording || voiceClip ? 6 : desktop ? COMPOSER_PAD : 20,
+            paddingEnd: voice.recording || voiceClip ? 14 : desktop ? COMPOSER_PAD : 5, // phone: the 40px emoji circle is 6.5px from the pill on every side, sharing its end's center
             minHeight: 52,
           }}>
           {/* Every icon sits in a box as tall as one line of text, so it lines up with the text on
               the first line and stays on the bottom line as the message grows. */}
           {desktop && (
             <View style={lineBox}>
-              {filesAllowed && <IconButton name="paperclip" label={t('Upload file')} onPress={() => void pickFile()} disabled={uploading} color={colors.textMuted} />}
-              <IconButton name="smile" label={t('Emoji')} onPress={toggleEmoji} color={emojiOpen ? colors.amberText : colors.textMuted} />
+              {filesAllowed && <IconButton name="paperclip" label={t('Upload file')} onPress={() => void pickFile()} disabled={uploading} size={44} rounded={COMPOSER_INNER_RADIUS} color={colors.textMuted} />}
+              <IconButton name="smile" label={t('Emoji')} onPress={toggleEmoji} size={44} rounded={COMPOSER_INNER_RADIUS} color={emojiOpen ? colors.amberText : colors.textMuted} />
             </View>
           )}
           {voice.recording && (
@@ -2319,7 +2319,7 @@ function Composer({
               style={{
                 width: 44,
                 height: 44,
-                borderRadius: 14,
+                borderRadius: COMPOSER_INNER_RADIUS,
                 backgroundColor: mainEnabled ? colors.amber : colors.surfaceHigh,
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -2372,6 +2372,12 @@ function Composer({
 
 /** One composer text line tall (the input's single-line height): icons centered on it. */
 const lineBox = { height: 50, flexDirection: 'row', alignItems: 'center' } as const;
+// Desktop composer: its 44px buttons sit the same distance from the box on every side (half of
+// lineBox minus the button, plus the 1.5px border), so their corners share the box's centers.
+const COMPOSER_BORDER = 1.5;
+const COMPOSER_GAP = (lineBox.height - 44) / 2 + COMPOSER_BORDER;
+const COMPOSER_PAD = COMPOSER_GAP - COMPOSER_BORDER;
+const COMPOSER_INNER_RADIUS = nestedRadius(radius.lg, COMPOSER_GAP);
 
 /** What the composer shows when editing: a photo's caption (empty when it only has the file name). */
 function editableText(m: Message) {

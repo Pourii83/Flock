@@ -6,7 +6,7 @@ import { Platform, Pressable, View } from "react-native";
 
 import { num, t } from "@/lib/i18n";
 import { saveDevice, savedDevice } from "@/state/calls";
-import { colors, radius } from "@/theme";
+import { colors, nestedRadius, radius } from "@/theme";
 import { Button, Icon, T } from "./ui";
 
 const SEGMENTS = 20;
@@ -258,7 +258,7 @@ export function MicTest() {
                   gap: 10,
                   paddingHorizontal: 10,
                   paddingVertical: 9,
-                  borderRadius: radius.md,
+                  borderRadius: nestedRadius(radius.lg, 5),
                   backgroundColor: on
                     ? colors.amberTint
                     : hovered

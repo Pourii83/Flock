@@ -17,7 +17,7 @@ import {
 import { EMOJI_ALIASES, EMOJI_CATEGORY_TABS, EMOJI_GROUPS, EMOJI_NAMES, type EmojiCategoryId } from '@/lib/emoji';
 import { t } from '@/lib/i18n';
 import { getItem, setItem } from '@/lib/storage';
-import { colors, fonts, radius } from '@/theme';
+import { colors, fonts, nestedRadius, radius } from '@/theme';
 import { Icon, T, Tooltip, noOutline, persianFont } from './ui';
 
 const RECENT_KEY = 'flock.emoji.recent';
@@ -169,7 +169,7 @@ export function EmojiPicker({
             gap: 8,
             height: 38,
             backgroundColor: colors.canvas,
-            borderRadius: radius.md,
+            borderRadius: nestedRadius(radius.lg, 11),
             borderWidth: 1,
             borderColor: colors.surfaceHigh,
             paddingHorizontal: 10,
