@@ -738,6 +738,14 @@ server {
     # so an oversize file is cut off by Flock as soon as it passes the limit.
     client_max_body_size 0;
     proxy_request_buffering off;
+    # Nginx compresses only text/html by default; the app's scripts, fonts and data would go out raw
+    # (a first visit is about three times larger, and every update downloads the app again).
+    gzip on;
+    gzip_vary on;
+    gzip_comp_level 5;
+    gzip_min_length 1024;
+    gzip_proxied any;
+    gzip_types text/javascript application/javascript application/json application/manifest+json application/wasm font/ttf application/x-font-ttf image/svg+xml text/css text/plain;
 
     location / {
         proxy_pass http://127.0.0.1:$PORT;
