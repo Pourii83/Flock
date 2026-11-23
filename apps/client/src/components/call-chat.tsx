@@ -158,7 +158,7 @@ export function CallChatPanel({
                   {item.author}
                 </T>
               )}
-              <LinkedText color={item.mine ? colors.onAmber : colors.text} linkColor={item.mine ? '#5A3A00' : colors.amberText} selectable>
+              <LinkedText color={item.mine ? colors.onAmberSoft : colors.text} linkColor={item.mine ? colors.amberSoftLink : colors.amberText} selectable>
                 {item.text}
               </LinkedText>
             </View>

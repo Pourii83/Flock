@@ -555,7 +555,7 @@ function CallsList() {
     if (!seen || !focused || calls === null) return;
     const newest = data.reduce((max, c) => Math.max(max, c.startedAt), 0);
     if (newest <= seen[filter]) return;
-    setLocal((prev) => (prev ? { ...prev, [filter]: newest } : prev));
+    // setMark updates the store at once, so `seen` (the larger of local and the mark) follows without local state.
     void setItem(filter === 'all' ? SEEN_ALL_KEY : SEEN_MISSED_KEY, String(newest));
     chatStore.setMark(filter === 'all' ? 'callsSeenAll' : 'callsSeenMissed', newest);
   }, [seen, focused, calls, data, filter]);
@@ -574,18 +574,13 @@ function CallsList() {
           <MeetingsCard />
           <SectionLabel
             right={
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                <T variant="label" color={colors.textMuted}>
-                  {Intl.DateTimeFormat().resolvedOptions().timeZone}
-                </T>
-                {data.length > 0 && !selecting && (
-                  <Pressable onPress={() => beginSelect()} accessibilityRole="button" hitSlop={8}>
-                    <T variant="label" color={colors.amberText}>
-                      {t('Select')}
-                    </T>
-                  </Pressable>
-                )}
-              </View>
+              data.length > 0 && !selecting ? (
+                <Pressable onPress={() => beginSelect()} accessibilityRole="button" hitSlop={8}>
+                  <T variant="label" color={colors.amberText}>
+                    {t('Select')}
+                  </T>
+                </Pressable>
+              ) : undefined
             }>
             {t('Recent activity')}
           </SectionLabel>
