@@ -351,7 +351,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
    * Sends what puts me into a call (room:join, call:invite, call:accept). Hanging up can come before
    * the answer, when the server has already added me and there may be no callId to end: such an
    * answer ends that call. One at a time, so that this end arrives before a new join of the same call
-   * and can't take that one out. Resolves null when there is nothing left to do with the answer.
+   * and can't take that one out. Resolves null when there is nothing left to do with the answer; a lost
+   * connection is an answer with ok: false.
    */
   const requestJoin = useCallback((event: string, payload: { callId?: string; [key: string]: unknown }, stillHere: () => boolean) => {
     const socket = chatStore.socket;
@@ -361,8 +362,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
       () =>
         new Promise<any>((resolve) => {
           if (!stillHere()) return resolve(null);
-          // No answer comes over a lost connection; the server then drops me after its grace period.
-          const lost = () => resolve(null);
+          // No answer comes over a lost connection. The server drops me after its grace period, so here
+          // the call ends with the reason instead of a call screen that nobody else is in.
+          const lost = () => resolve(stillHere() ? { ok: false, error: "Can't reach the Flock server. Check your connection." } : null);
           socket.once('disconnect', lost);
           // From here the server may have me in: hanging up is an end, no longer a decline.
           ringingHere.current = null;
