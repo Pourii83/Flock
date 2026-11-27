@@ -33,6 +33,8 @@ const dark = {
   amber: '#FFB84D',
   amberSoft: '#FFDCB0',
   amberGlow: 'rgba(255, 184, 77, 0.25)',
+  /** The accent, fully transparent: the far end of an accent fade (scroll edges). */
+  amberClear: 'rgba(255, 184, 77, 0)',
   amberTint: 'rgba(255, 184, 77, 0.12)',
   /** Accent used as text or icon color on a plain surface. */
   amberText: '#FFB84D',
@@ -90,6 +92,7 @@ const light: Palette = {
   amber: '#FFB84D',
   amberSoft: '#FFE3BC',
   amberGlow: 'rgba(245, 158, 11, 0.22)',
+  amberClear: 'rgba(245, 158, 11, 0)',
   amberTint: 'rgba(245, 158, 11, 0.14)',
   amberText: '#B26A00',
   amberSoftText: '#7A5418',
@@ -167,6 +170,7 @@ function applyAccentTokens() {
   const p = mode === 'dark' ? dark : light;
   p.amber = accent;
   p.amberGlow = alpha(accent, mode === 'dark' ? 0.25 : 0.22);
+  p.amberClear = alpha(accent, 0);
   p.amberTint = alpha(accent, mode === 'dark' ? 0.12 : 0.14);
   p.onAmber = onColor(accent);
   if (mode === 'dark') {

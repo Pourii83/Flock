@@ -1,6 +1,7 @@
 import { compareConversations } from '@/lib/conversation-order';
 import { router } from 'expo-router';
-import { useCallback, useEffect, useMemo, useRef, useState, type ComponentRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentRef, type ReactNode } from 'react';
+import { LinearGradient } from 'expo-linear-gradient';
 import { ActivityIndicator, FlatList, Modal, Platform, Pressable, ScrollView, View } from 'react-native';
 
 import { ContextMenu, type ContextMenuItem } from '@/components/context-menu';
@@ -306,6 +307,54 @@ export function ChatRow({
   );
 }
 
+/**
+ * The filter chips: one row that scrolls sideways when they don't fit, instead of wrapping onto a second
+ * line. An edge with more chips beyond it glows in the accent color, so it's clear the row goes on
+ * (user request). Desktop web also shows a thin scrollbar under the chips on hover (CSS in index.html);
+ * phones (and the apps) swipe it, with no scrollbar and no space kept for one.
+ */
+function ChipRow({ desktop, children }: { desktop: boolean; children: ReactNode }) {
+  const [box, setBox] = useState({ view: 0, content: 0, x: 0 });
+  // RTL web reports the offset as negative from the start edge, so only its size counts.
+  const room = box.content - box.view;
+  const moreAtStart = room > 1 && Math.abs(box.x) > 1;
+  const moreAtEnd = room > 1 && Math.abs(box.x) < room - 1;
+  const rtl = isRTL();
+  const fade = (edge: 'start' | 'end') => (
+    <LinearGradient
+      pointerEvents="none"
+      colors={[colors.amberGlow, colors.amberClear]}
+      // From the edge inward: the physical direction flips in Persian, where "start" is the right side.
+      start={{ x: (edge === 'start') !== rtl ? 0 : 1, y: 0 }}
+      end={{ x: (edge === 'start') !== rtl ? 1 : 0, y: 0 }}
+      style={{ position: 'absolute', top: 0, bottom: 0, width: 28, [edge]: 0, borderRadius: radius.pill }}
+    />
+  );
+  return (
+    <View style={{ flexGrow: desktop ? 1 : 0, flexShrink: 1, minWidth: 0 }}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={Platform.OS === 'web' && desktop}
+        {...(desktop ? ({ dataSet: { hscroll: 'hover' } } as object) : {})}
+        onLayout={(e) => {
+          const view = e.nativeEvent.layout.width;
+          setBox((b) => (b.view === view ? b : { ...b, view }));
+        }}
+        onContentSizeChange={(content) => setBox((b) => (b.content === content ? b : { ...b, content }))}
+        onScroll={(e) => {
+          const x = e.nativeEvent.contentOffset.x;
+          setBox((b) => (b.x === x ? b : { ...b, x }));
+        }}
+        scrollEventThrottle={16}
+        contentContainerStyle={{ gap: 8 }}>
+        {children}
+      </ScrollView>
+      {moreAtStart && fade('start')}
+      {moreAtEnd && fade('end')}
+    </View>
+  );
+}
+
 export function ChatList({
   variant,
   selectedId,
@@ -400,21 +449,13 @@ export function ChatList({
     </>
   );
 
-  /* One row that scrolls sideways when the chips don't fit, instead of wrapping onto a second line. */
-  /* Desktop web: a thin scrollbar appears under the chips on hover, so it's clear the row scrolls with a
-     mouse (CSS in index.html). Phones (and the apps) swipe it: no scrollbar and no space kept for one. */
   const chips = (
-    <ScrollView
-      horizontal
-      showsHorizontalScrollIndicator={Platform.OS === 'web' && desktop}
-      {...(desktop ? ({ dataSet: { hscroll: 'hover' } } as object) : {})}
-      style={{ flexGrow: desktop ? 1 : 0, flexShrink: 1 }}
-      contentContainerStyle={{ gap: 8 }}>
+    <ChipRow desktop={desktop}>
       <Chip label={t('All')} count={all.length} active={filter === 'all'} onPress={() => setFilter('all')} />
       <Chip label={t('Unread')} dot={unreadCount > 0} active={filter === 'unread'} onPress={() => setFilter('unread')} />
       <Chip label={t('Groups')} count={groupCount} active={filter === 'groups'} onPress={() => setFilter('groups')} />
       <Chip label={t('Channels')} count={channelCount} active={filter === 'channels'} onPress={() => setFilter('channels')} />
-    </ScrollView>
+    </ChipRow>
   );
 
   const header = (
