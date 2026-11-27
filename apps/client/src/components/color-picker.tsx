@@ -1,5 +1,5 @@
 import { LinearGradient } from 'expo-linear-gradient';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { PanResponder, View, type LayoutChangeEvent } from 'react-native';
 import Svg, { Circle, Defs, Path, RadialGradient, Stop } from 'react-native-svg';
 
@@ -42,29 +42,34 @@ export function hexToHsv(hex: string): HSV | null {
  * same on touch screens and with a mouse (locationX is unreliable while a drag leaves the element).
  */
 function useDrag(onMove: (x: number, y: number, width: number, height: number) => void) {
-  const size = useRef({ width: 1, height: 1 });
-  const start = useRef({ x: 0, y: 0 });
-  const handler = useRef(onMove);
-  useEffect(() => {
-    handler.current = onMove;
-  });
-  const [responder] = useState(() =>
-    PanResponder.create({
+  // Made once: the responder keeps its drag bookkeeping in this closure (not refs read at render),
+  // and an effect hands it the latest onMove.
+  const [drag] = useState(() => {
+    let handler = onMove;
+    let size = { width: 1, height: 1 };
+    let start = { x: 0, y: 0 };
+    const responder = PanResponder.create({
       onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponder: () => true,
       onPanResponderTerminationRequest: () => false,
       onPanResponderGrant: (event) => {
-        start.current = { x: event.nativeEvent.locationX, y: event.nativeEvent.locationY };
-        handler.current(start.current.x, start.current.y, size.current.width, size.current.height);
+        start = { x: event.nativeEvent.locationX, y: event.nativeEvent.locationY };
+        handler(start.x, start.y, size.width, size.height);
       },
-      onPanResponderMove: (_event, gesture) =>
-        handler.current(start.current.x + gesture.dx, start.current.y + gesture.dy, size.current.width, size.current.height),
-    }),
-  );
-  const onLayout = (event: LayoutChangeEvent) => {
-    size.current = { width: event.nativeEvent.layout.width || 1, height: event.nativeEvent.layout.height || 1 };
-  };
-  return { panHandlers: responder.panHandlers, onLayout };
+      onPanResponderMove: (_event, gesture) => handler(start.x + gesture.dx, start.y + gesture.dy, size.width, size.height),
+    });
+    const onLayout = (event: LayoutChangeEvent) => {
+      size = { width: event.nativeEvent.layout.width || 1, height: event.nativeEvent.layout.height || 1 };
+    };
+    const setHandler = (next: typeof onMove) => {
+      handler = next;
+    };
+    return { panHandlers: responder.panHandlers, onLayout, setHandler };
+  });
+  useEffect(() => {
+    drag.setHandler(onMove);
+  });
+  return { panHandlers: drag.panHandlers, onLayout: drag.onLayout };
 }
 
 const HUES = ['#FF0000', '#FFFF00', '#00FF00', '#00FFFF', '#0000FF', '#FF00FF', '#FF0000'] as const;
@@ -77,11 +82,13 @@ export function ColorPicker({ value, onChange }: { value: string; onChange: (hex
   const [strip, setStrip] = useState(1);
 
   // A hex typed (or a preset tapped) elsewhere moves the thumbs; our own drags don't loop back.
-  useEffect(() => {
+  // Adjusted while rendering, not in an effect, so the thumbs never paint a frame behind.
+  const [outsideValue, setOutsideValue] = useState(value);
+  if (value !== outsideValue) {
+    setOutsideValue(value);
     const parsed = hexToHsv(value);
     if (parsed && hsvToHex(hsv) !== value.toUpperCase()) setHsv(parsed);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- only react to the outside value
-  }, [value]);
+  }
 
   const update = (next: HSV) => {
     setHsv(next);

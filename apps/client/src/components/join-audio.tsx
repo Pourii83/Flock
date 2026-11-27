@@ -18,7 +18,7 @@ import {
   saveStartMuted,
   saveStartSpeakerMuted,
 } from '@/state/calls';
-import { colors, radius } from '@/theme';
+import { colors, nestedRadius, radius } from '@/theme';
 import { LevelMeter } from './call/level-meter';
 import { Button, Icon, T } from './ui';
 
@@ -345,7 +345,7 @@ export function JoinAudio({ joining }: { joining: boolean }) {
                       gap: 10,
                       paddingHorizontal: 10,
                       paddingVertical: 9,
-                      borderRadius: radius.md,
+                      borderRadius: nestedRadius(radius.lg, 5),
                       backgroundColor: on ? colors.amberTint : hovered ? colors.surfaceHigh : 'transparent',
                     })}>
                     <Icon name={on ? 'check' : glyph} size={16} color={on ? colors.amberText : colors.textMuted} />

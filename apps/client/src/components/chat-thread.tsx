@@ -33,7 +33,7 @@ import type { Conversation, Message } from '@/lib/types';
 import { useAuth } from '@/state/auth';
 import { useCalls } from '@/state/calls';
 import { chatStore, useChat, useConversation, useMessages, usePinned, usePinnedList, useTyping } from '@/state/chat-store';
-import { colors, fonts, radius } from '@/theme';
+import { colors, fonts, nestedRadius, radius } from '@/theme';
 import { Avatar, ConversationAvatar, MegaphoneIcon } from './avatar';
 import { EmojiPicker } from './emoji-picker';
 import { LinkedText } from './linked-text';
@@ -162,7 +162,8 @@ export function ChatThread({
       }
     }
     if (!top) return;
-    setFloatingDay(top.type === 'day' ? top.label : dayDivider(top.message.createdAt));
+    // The day's own divider is on screen: it already says the date, so the float would only repeat it.
+    setFloatingDay(top.type === 'day' ? null : dayDivider(top.message.createdAt));
   });
   const desktop = variant === 'desktop';
   // Android edge-to-edge windows can report the IME without resizing the React tree,
@@ -924,11 +925,12 @@ function ThreadHeader({
         <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
             {!!conversation.secret && <Icon name="lock" size={desktop ? 18 : 15} color={colors.teal} />}
-            <T variant="headlineSm" numberOfLines={1} style={{ fontSize: desktop ? 22 : 18, flexShrink: 0, maxWidth: '75%' }}>
+            <T variant="headlineSm" numberOfLines={1} style={{ fontSize: desktop ? 22 : 18, flexShrink: 1 }}>
               {title}
             </T>
+            {/* The name gives way first: "G…" says nothing, a short "GROUP" always fits. Long contact titles stay capped. */}
             {desktop && !!pill && (
-              <View style={{ flexShrink: 1, backgroundColor: colors.tealTint, borderRadius: radius.sm, paddingHorizontal: 8, paddingVertical: 2 }}>
+              <View style={{ flexShrink: 0, maxWidth: '45%', backgroundColor: colors.tealTint, borderRadius: radius.sm, paddingHorizontal: 8, paddingVertical: 2 }}>
                 <T variant="labelSm" color={colors.teal} numberOfLines={1}>
                   {pill}
                 </T>
@@ -1276,7 +1278,7 @@ function Bubble({
   const sender = conversation.members.find((u) => u.id === m.senderId);
   const showSender = !mine && first && conversation.type !== 'channel' && (conversation.type === 'group' || desktop);
   const bubbleBg = mine ? colors.amberSoft : colors.bubble;
-  const fg = mine ? colors.onAmber : colors.text;
+  const fg = mine ? colors.onAmberSoft : colors.text;
   // Stitch bubbles: 16px corners, the speaker's corner pinched to 4px on the last of a run.
   const r = 16;
   // A photo or video fills its bubble: only the bubble's thin edge shows around it (no padding).
@@ -1429,17 +1431,17 @@ function Bubble({
               style={({ hovered }: any) => ({
                 flexDirection: 'row',
                 gap: 10,
-                backgroundColor: mine ? (hovered ? 'rgba(61,38,0,0.14)' : 'rgba(61,38,0,0.08)') : hovered ? colors.surfaceHighest : colors.surfaceHigh,
-                borderRadius: 10,
+                backgroundColor: mine ? (hovered ? colors.amberSoftFillStrong : colors.amberSoftFill) : hovered ? colors.surfaceHighest : colors.surfaceHigh,
+                borderRadius: framedMedia ? nestedRadius(r, 6 + 1.5) : 10, // in a photo bubble it sits 6px + the 1.5px border from the corner
                 padding: 10,
                 margin: framedMedia ? 6 : 0,
               })}>
               <View style={{ width: 3, borderRadius: 2, backgroundColor: colors.amber }} />
               <View style={{ flexShrink: 1 }}>
-                <T variant="label" color={mine ? '#8A5A00' : colors.amberText}>
+                <T variant="label" color={mine ? colors.amberSoftInk : colors.amberText}>
                   {m.replyTo.senderName}
                 </T>
-                <T variant="body" color={mine ? colors.onAmber : colors.textMuted} numberOfLines={2} {...({ dataSet: contentDirection(m.replyTo.body).dataSet } as object)} style={[{ fontStyle: 'italic' }, contentDirection(m.replyTo.body).style]}>
+                <T variant="body" color={mine ? colors.onAmberSoft : colors.textMuted} numberOfLines={2} {...({ dataSet: contentDirection(m.replyTo.body).dataSet } as object)} style={[{ fontStyle: 'italic' }, contentDirection(m.replyTo.body).style]}>
                   {m.replyTo.body}
                 </T>
               </View>
@@ -1447,8 +1449,8 @@ function Bubble({
           )}
           {!!m.forwardedFrom && (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, ...(framedMedia ? { paddingHorizontal: 12, paddingVertical: 7 } : {}) }}>
-              <Icon name="corner-up-right" size={13} color={mine ? '#8A5A00' : colors.amberText} />
-              <T variant="label" color={mine ? '#8A5A00' : colors.amberText} numberOfLines={1} style={{ flexShrink: 1 }}>
+              <Icon name="corner-up-right" size={13} color={mine ? colors.amberSoftInk : colors.amberText} />
+              <T variant="label" color={mine ? colors.amberSoftInk : colors.amberText} numberOfLines={1} style={{ flexShrink: 1 }}>
                 {t('Forwarded from {name}', { name: m.forwardedFrom })}
               </T>
             </View>
@@ -1461,8 +1463,8 @@ function Bubble({
             <LinkedText
               variant="bodyLg"
               color={fg}
-              linkColor={mine ? '#5A3A00' : colors.amberText}
-              codeBackground={mine ? 'rgba(61,38,0,0.12)' : colors.surface}
+              linkColor={mine ? colors.amberSoftLink : colors.amberText}
+              codeBackground={mine ? colors.amberSoftFill : colors.surface}
               codeColor={fg}
               style={{ fontSize: 16, lineHeight: 24 }}
               selectable={desktop}>
@@ -1518,15 +1520,15 @@ function AttachmentCard({ message, mine, framed }: { message: Message; mine: boo
   const [viewing, setViewing] = useState(false);
   // The video's own proportions (known once its first frame is read); 16:9 until then.
   const [videoRatio, setVideoRatio] = useState(16 / 9);
-  if (!attachment) return <T color={mine ? colors.onAmber : colors.textMuted}>{t('File unavailable')}</T>;
-  if (message.secret === 'locked') return <T color={mine ? colors.onAmber : colors.textMuted}>{message.body}</T>;
+  if (!attachment) return <T color={mine ? colors.onAmberSoft : colors.textMuted}>{t('File unavailable')}</T>;
+  if (message.secret === 'locked') return <T color={mine ? colors.onAmberSoft : colors.textMuted}>{message.body}</T>;
   if (attachment.sealed && !attachment.expired && !attachment.url)
     return (
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, minWidth: 200 }}>
-        {sealedFile.error ? <Icon name="alert-circle" size={18} color={colors.danger} /> : <ActivityIndicator color={mine ? colors.onAmber : colors.amberText} />}
+        {sealedFile.error ? <Icon name="alert-circle" size={18} color={colors.danger} /> : <ActivityIndicator color={mine ? colors.onAmberSoft : colors.amberText} />}
         <View style={{ flex: 1, minWidth: 0 }}>
-          <T variant="labelLg" color={mine ? colors.onAmber : colors.text} numberOfLines={1}>{attachment.name}</T>
-          <T variant="bodySm" color={sealedFile.error ? colors.danger : mine ? '#72521B' : colors.textMuted}>
+          <T variant="labelLg" color={mine ? colors.onAmberSoft : colors.text} numberOfLines={1}>{attachment.name}</T>
+          <T variant="bodySm" color={sealedFile.error ? colors.danger : mine ? colors.amberSoftMuted : colors.textMuted}>
             {sealedFile.error || t('Decrypting…')}
           </T>
         </View>
@@ -1627,12 +1629,12 @@ function AttachmentCard({ message, mine, framed }: { message: Message; mine: boo
         </View>
       ) : (
         <Pressable onPress={press} disabled={expired || opening} style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-          <View style={{ width: 42, height: 42, borderRadius: 13, alignItems: 'center', justifyContent: 'center', backgroundColor: mine ? 'rgba(61,38,0,0.10)' : colors.surface }}>
-            {opening ? <ActivityIndicator color={mine ? colors.onAmber : colors.amberText} /> : <Icon name={expired ? 'clock' : image ? 'image' : video ? 'film' : 'file'} size={20} color={mine ? colors.onAmber : colors.amberText} />}
+          <View style={{ width: 42, height: 42, borderRadius: 13, alignItems: 'center', justifyContent: 'center', backgroundColor: mine ? colors.amberSoftFill : colors.surface }}>
+            {opening ? <ActivityIndicator color={mine ? colors.onAmberSoft : colors.amberText} /> : <Icon name={expired ? 'clock' : image ? 'image' : video ? 'film' : 'file'} size={20} color={mine ? colors.onAmberSoft : colors.amberText} />}
           </View>
           <View style={{ flex: 1, minWidth: 0 }}>
-            <T variant="labelLg" color={mine ? colors.onAmber : colors.text} numberOfLines={2}>{attachment.name}</T>
-            <T variant="bodySm" color={mine ? '#72521B' : colors.textMuted}>
+            <T variant="labelLg" color={mine ? colors.onAmberSoft : colors.text} numberOfLines={2}>{attachment.name}</T>
+            <T variant="bodySm" color={mine ? colors.amberSoftMuted : colors.textMuted}>
               {expired ? t('File expired') : `${bytesLabel(attachment.size)} · ${t('Original quality')}`}
             </T>
           </View>
@@ -1642,8 +1644,8 @@ function AttachmentCard({ message, mine, framed }: { message: Message; mine: boo
               label={t('Download')}
               size={36}
               iconSize={18}
-              color={mine ? colors.onAmber : colors.amberText}
-              activeBg={mine ? 'rgba(61,38,0,0.10)' : colors.surface}
+              color={mine ? colors.onAmberSoft : colors.amberText}
+              activeBg={mine ? colors.amberSoftFill : colors.surface}
               disabled={opening}
               onPress={() => void download()}
             />
@@ -1653,10 +1655,10 @@ function AttachmentCard({ message, mine, framed }: { message: Message; mine: boo
       {!!caption && (
         <LinkedText
           variant="bodyLg"
-          color={mine ? colors.onAmber : colors.text}
-          linkColor={mine ? '#5A3A00' : colors.amberText}
-          codeBackground={mine ? 'rgba(61,38,0,0.12)' : colors.surface}
-          codeColor={mine ? colors.onAmber : colors.text}
+          color={mine ? colors.onAmberSoft : colors.text}
+          linkColor={mine ? colors.amberSoftLink : colors.amberText}
+          codeBackground={mine ? colors.amberSoftFill : colors.surface}
+          codeColor={mine ? colors.onAmberSoft : colors.text}
           style={{ fontSize: 16, lineHeight: 24, ...(framed ? { paddingHorizontal: 14, paddingTop: 8, paddingBottom: 10 } : {}) }}>
           {caption}
         </LinkedText>
@@ -1702,16 +1704,16 @@ function CallInviteCard({ message, mine }: { message: Message; mine: boolean }) 
   return (
     <View style={{ minWidth: 230, gap: 10 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-        <View style={{ width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: mine ? 'rgba(61,38,0,0.10)' : colors.tealTint }}>
-          <Icon name="phone-call" size={20} color={mine ? colors.onAmber : colors.teal} />
+        <View style={{ width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: mine ? colors.amberSoftFill : colors.tealTint }}>
+          <Icon name="phone-call" size={20} color={mine ? colors.onAmberSoft : colors.teal} />
         </View>
         <View style={{ flex: 1 }}>
-          <T variant="labelLg" color={mine ? colors.onAmber : colors.text}>{t('Group call invitation')}</T>
-          <T variant="bodySm" color={mine ? '#72521B' : colors.textMuted} numberOfLines={1}>{data.title ?? t('Group call')}</T>
+          <T variant="labelLg" color={mine ? colors.onAmberSoft : colors.text}>{t('Group call invitation')}</T>
+          <T variant="bodySm" color={mine ? colors.amberSoftMuted : colors.textMuted} numberOfLines={1}>{data.title ?? t('Group call')}</T>
         </View>
       </View>
       {active === false ? (
-        <T variant="bodySm" color={mine ? '#72521B' : colors.textMuted}>{t('This call has ended')}</T>
+        <T variant="bodySm" color={mine ? colors.amberSoftMuted : colors.textMuted}>{t('This call has ended')}</T>
       ) : (
         <Button
           title={active === null ? t('Checking call…') : t('Join call')}
@@ -2318,8 +2320,8 @@ function Composer({
             // (the delete button's side gets less, the waveform's end a little more; RTL mirrors it).
             // Start/end (not left/right) so Persian mirrors it: the text side gets the room, the
             // emoji side stays tight.
-            paddingStart: voice.recording || voiceClip ? 6 : desktop ? 8 : 20,
-            paddingEnd: voice.recording || voiceClip ? 14 : 8,
+            paddingStart: voice.recording || voiceClip ? 6 : desktop ? COMPOSER_PAD : 20,
+            paddingEnd: voice.recording || voiceClip ? 14 : desktop ? COMPOSER_PAD : 5, // phone: the 40px emoji circle is 6.5px from the pill on every side, sharing its end's center
             minHeight: 52,
           }}>
           {/* Every icon sits in a box as tall as one line of text, so it lines up with the text on
@@ -2328,11 +2330,11 @@ function Composer({
             <View style={lineBox}>
               {filesAllowed && (
                 <Tooltip label={t('Upload file')} style={{ alignSelf: 'center' }}>
-                  <IconButton name="paperclip" label={t('Upload file')} onPress={() => void pickFile()} disabled={uploading} color={colors.textMuted} />
+                  <IconButton name="paperclip" label={t('Upload file')} onPress={() => void pickFile()} disabled={uploading} size={44} rounded={COMPOSER_INNER_RADIUS} color={colors.textMuted} />
                 </Tooltip>
               )}
               <Tooltip label={t('Emoji')} style={{ alignSelf: 'center' }}>
-                <IconButton name="smile" label={t('Emoji')} onPress={toggleEmoji} color={emojiOpen ? colors.amberText : colors.textMuted} />
+                <IconButton name="smile" label={t('Emoji')} onPress={toggleEmoji} size={44} rounded={COMPOSER_INNER_RADIUS} color={emojiOpen ? colors.amberText : colors.textMuted} />
               </Tooltip>
             </View>
           )}
@@ -2421,7 +2423,7 @@ function Composer({
               style={{
                 width: 44,
                 height: 44,
-                borderRadius: 14,
+                borderRadius: COMPOSER_INNER_RADIUS,
                 backgroundColor: mainEnabled ? colors.amber : colors.surfaceHigh,
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -2475,6 +2477,12 @@ function Composer({
 
 /** One composer text line tall (the input's single-line height): icons centered on it. */
 const lineBox = { height: 50, flexDirection: 'row', alignItems: 'center' } as const;
+// Desktop composer: its 44px buttons sit the same distance from the box on every side (half of
+// lineBox minus the button, plus the 1.5px border), so their corners share the box's centers.
+const COMPOSER_BORDER = 1.5;
+const COMPOSER_GAP = (lineBox.height - 44) / 2 + COMPOSER_BORDER;
+const COMPOSER_PAD = COMPOSER_GAP - COMPOSER_BORDER;
+const COMPOSER_INNER_RADIUS = nestedRadius(radius.lg, COMPOSER_GAP);
 
 /** What the composer shows when editing: a photo's caption (empty when it only has the file name). */
 function editableText(m: Message) {

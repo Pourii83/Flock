@@ -11,7 +11,7 @@ import type { Conversation, Message } from '@/lib/types';
 import { t } from '@/lib/i18n';
 import { useAuth } from '@/state/auth';
 import { chatStore, useChat } from '@/state/chat-store';
-import { colors, radius } from '@/theme';
+import { colors, nestedRadius, radius } from '@/theme';
 import { Avatar, ConversationAvatar } from './avatar';
 import { ContextMenu, type ContextMenuItem } from './context-menu';
 import { EmojiPickerModal } from './emoji-picker';
@@ -388,7 +388,7 @@ function ForwardRow({
         marginHorizontal: 8,
         paddingHorizontal: 10,
         paddingVertical: 8,
-        borderRadius: radius.md,
+        borderRadius: nestedRadius(radius.xl, 8 + 1), // 8px in from the sheet (and its 1px border), so the end rows follow its corners
         backgroundColor: pressed ? colors.surfaceHighest : hovered ? colors.surfaceHigh : 'transparent',
         opacity: disabled && !busy ? 0.5 : 1,
       })}>

@@ -40,6 +40,17 @@ const dark = {
   amberSoftText: '#FFDCB0',
   onAmber: '#3D2600',
   onAmberMuted: '#72521B',
+  /** Your own message bubbles sit on amberSoft, which is always light: these stay dark whatever the accent. */
+  onAmberSoft: '#3D2600',
+  /** Names, reply quotes and icons on your own bubbles. */
+  amberSoftInk: '#8A5A00',
+  /** Times and secondary lines on your own bubbles. */
+  amberSoftMuted: '#72521B',
+  amberSoftLink: '#5A3A00',
+  /** Fills and tracks drawn on your own bubbles (quote box, play button, waveform rest). */
+  amberSoftFill: 'rgba(61, 38, 0, 0.10)',
+  amberSoftFillStrong: 'rgba(61, 38, 0, 0.14)',
+  amberSoftTrack: 'rgba(61, 38, 0, 0.32)',
 
   online: '#10B981',
   accept: '#22C55E',
@@ -82,6 +93,13 @@ const light: Palette = {
   amberSoftText: '#7A5418',
   onAmber: '#3D2600',
   onAmberMuted: '#7A5418',
+  onAmberSoft: '#3D2600',
+  amberSoftInk: '#8A5A00',
+  amberSoftMuted: '#72521B',
+  amberSoftLink: '#5A3A00',
+  amberSoftFill: 'rgba(61, 38, 0, 0.10)',
+  amberSoftFillStrong: 'rgba(61, 38, 0, 0.14)',
+  amberSoftTrack: 'rgba(61, 38, 0, 0.32)',
 
   online: '#059669',
   accept: '#16A34A',
@@ -159,6 +177,16 @@ function applyAccentTokens() {
     p.amberSoftText = mix(accent, '#000000', 0.52);
     p.onAmberMuted = mix(accent, onColor(accent), 0.6);
   }
+  // amberSoft is a pale accent in both themes, so its text is a dark shade of the accent, never
+  // onAmber (which turns white on a dark accent and would vanish on the pale bubble).
+  const ink = mix(accent, '#000000', 0.8);
+  p.onAmberSoft = ink;
+  p.amberSoftInk = mix(accent, '#000000', 0.5);
+  p.amberSoftMuted = mix(accent, '#000000', 0.58);
+  p.amberSoftLink = mix(accent, '#000000', 0.68);
+  p.amberSoftFill = alpha(ink, 0.1);
+  p.amberSoftFillStrong = alpha(ink, 0.14);
+  p.amberSoftTrack = alpha(ink, 0.32);
 }
 
 function paintColors() {
@@ -252,6 +280,8 @@ export function useThemeMode() {
 }
 
 export const radius = { sm: 4, md: 8, lg: 16, xl: 24, pill: 9999 } as const;
+/** Radius of a shape inset `gap` px inside a rounded container, so both curves share one center. */
+export const nestedRadius = (outer: number, gap: number) => Math.max(0, outer - gap);
 export const space = { xs: 4, sm: 8, md: 16, lg: 24, xl: 32 } as const;
 
 // On web the browser falls back per glyph, so Persian inside English UI (messages, names, the

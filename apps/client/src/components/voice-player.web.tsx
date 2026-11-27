@@ -107,8 +107,8 @@ export function VoicePlayer({
       <Pressable
         onPress={toggle}
         accessibilityLabel={playing ? t('Pause') : t('Play voice message')}
-        style={{ width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: mine ? 'rgba(61,38,0,0.14)' : colors.amber }}>
-        {loading ? <ActivityIndicator color={colors.onAmber} size="small" /> : <Icon name={playing ? 'pause' : 'play'} size={18} color={colors.onAmber} />}
+        style={{ width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: mine ? colors.amberSoftFillStrong : colors.amber }}>
+        {loading ? <ActivityIndicator color={mine ? colors.onAmberSoft : colors.onAmber} size="small" /> : <Icon name={playing ? 'pause' : 'play'} size={18} color={mine ? colors.onAmberSoft : colors.onAmber} />}
       </Pressable>
       {/* Play, the timeline and the time on one line; only a failure gets a line of its own. */}
       <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
@@ -117,12 +117,12 @@ export function VoicePlayer({
             <WaveBars
               levels={levels}
               progress={progress}
-              played={mine ? colors.onAmber : colors.amber}
-              rest={mine ? 'rgba(61,38,0,0.32)' : colors.textDim}
+              played={mine ? colors.onAmberSoft : colors.amber}
+              rest={mine ? colors.amberSoftTrack : colors.textDim}
               onSeek={seek}
             />
           </View>
-          <T variant="bodySm" color={mine ? '#72521B' : colors.textMuted} style={{ fontVariant: ['tabular-nums'] }}>
+          <T variant="bodySm" color={mine ? colors.amberSoftMuted : colors.textMuted} style={{ fontVariant: ['tabular-nums'] }}>
             {playing || time > 0 ? shape : length ? clockOf(length) : t('Voice message')}
           </T>
         </View>

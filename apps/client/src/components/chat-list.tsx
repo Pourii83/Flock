@@ -162,7 +162,7 @@ function ChatPreviewDialog({ c, visible, onClose, onOpen }: { c: Conversation; v
                           {sender}
                         </T>
                       )}
-                      <T variant="body" color={mine ? colors.onAmber : colors.text}>
+                      <T variant="body" color={mine ? colors.onAmberSoft : colors.text}>
                         {text}
                       </T>
                     </View>

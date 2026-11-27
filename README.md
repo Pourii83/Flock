@@ -11,7 +11,7 @@
 
 **Self-hosted chats and calls for you and your friends**
 
-[Website](https://flock.beer) · [Live demo](https://app.flock.beer) · [Documentation](https://docs.flock.beer)
+[Website](https://flock.beer) · [Live demo](https://app.flock.beer) · [Documentation](https://docs.flock.beer) · [Telegram](https://t.me/flock_beer)
 
 <!-- Star request: keep both languages in sync -->
 ⭐ **If you like Flock, click the Star button at the top of the repository page. That alone is a big help to the project.**

@@ -81,7 +81,7 @@ function RootStack() {
   const restored = useRef(false);
   // While the fresh navigator is still on its initial route it stays invisible, so changing the
   // accent/theme never flashes Chats before returning to the screen the user was on.
-  const [shown, setShown] = useState(!restoreTo.current || restoreTo.current === '/');
+  const [shown, setShown] = useState(() => !currentPath || currentPath === '/');
   useEffect(() => {
     if (!ready || !fontsLoaded || restored.current) return;
     restored.current = true;

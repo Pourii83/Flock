@@ -11,7 +11,7 @@
 
 **گفتگو و تماس روی سرور خودتان، برای شما و دوستانتان**
 
-[وب‌سایت](https://flock.beer) · [دموی زنده](https://app.flock.beer) · [مستندات](https://docs.flock.beer/fa/)
+[وب‌سایت](https://flock.beer) · [دموی زنده](https://app.flock.beer) · [مستندات](https://docs.flock.beer/fa/) · [تلگرام](https://t.me/flock_beer)
 
 <!-- Star request: keep both languages in sync -->
 ⭐ **اگر از فلاک خوشتان آمد، در [صفحهٔ اصلی مخزن](https://github.com/Pourii83/Flock) دکمهٔ Star را بزنید؛ همین خودش کمک بزرگی به پروژه است.**
