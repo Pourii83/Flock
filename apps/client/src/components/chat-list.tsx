@@ -15,6 +15,7 @@ import { colors, fonts, radius } from '@/theme';
 import { ConversationAvatar, MegaphoneIcon, isSavedConversation } from './avatar';
 import { Button, Chip, Icon, IconButton, PushPin, SearchBar, T, Tooltip, UnreadBadge } from './ui';
 import { VoiceBar } from './voice-bar';
+import { ConnectionBanner, MobileHeader } from './shell';
 import { t, num, isRTL } from '@/lib/i18n';
 
 type Filter = 'all' | 'unread' | 'groups' | 'channels';
@@ -363,50 +364,69 @@ export function ChatList({
     { glyph: (color) => <MegaphoneIcon size={16} color={color} />, label: t('New channel'), onPress: () => router.push({ pathname: '/new-group', params: { kind: 'channel' } }) },
   ];
 
+  // Search and "+": in the phone's top header beside the "Chats" title; on a desktop at the end of the
+  // filter row, since the title sits in the window's top bar.
+  const actions = (
+    <>
+      <Tooltip label={searchOpen ? t('Close search') : t('Search')} side="bottom" style={{ alignSelf: 'center' }}>
+        <IconButton
+          name={searchOpen ? 'x' : 'search'}
+          label={searchOpen ? t('Close search') : t('Search')}
+          onPress={() => (searchOpen ? closeSearch() : setSearchOpen(true))}
+          bg={colors.surface}
+          size={desktop ? 34 : 38}
+          iconSize={desktop ? 16 : 17}
+          color={colors.text}
+        />
+      </Tooltip>
+      <Tooltip label={t('New chat')} side="bottom" style={{ alignSelf: 'center' }}>
+        <Pressable
+          ref={plusRef}
+          accessibilityRole="button"
+          accessibilityLabel={t('New chat')}
+          onPress={openNewMenu}
+          style={({ pressed }: any) => ({
+            width: desktop ? 34 : 38,
+            height: desktop ? 34 : 38,
+            borderRadius: radius.pill,
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: colors.amber,
+            transform: [{ scale: pressed ? 0.94 : 1 }],
+          })}>
+          <Icon name="plus" size={desktop ? 18 : 19} color={colors.onAmber} />
+        </Pressable>
+      </Tooltip>
+    </>
+  );
+
+  /* One row that scrolls sideways when the chips don't fit, instead of wrapping onto a second line. */
+  /* Desktop web: a thin scrollbar appears under the chips on hover, so it's clear the row scrolls with a
+     mouse (CSS in index.html). Phones (and the apps) swipe it: no scrollbar and no space kept for one. */
+  const chips = (
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={Platform.OS === 'web' && desktop}
+      {...(desktop ? ({ dataSet: { hscroll: 'hover' } } as object) : {})}
+      style={{ flexGrow: desktop ? 1 : 0, flexShrink: 1 }}
+      contentContainerStyle={{ gap: 8 }}>
+      <Chip label={t('All')} count={all.length} active={filter === 'all'} onPress={() => setFilter('all')} />
+      <Chip label={t('Unread')} dot={unreadCount > 0} active={filter === 'unread'} onPress={() => setFilter('unread')} />
+      <Chip label={t('Groups')} count={groupCount} active={filter === 'groups'} onPress={() => setFilter('groups')} />
+      <Chip label={t('Channels')} count={channelCount} active={filter === 'channels'} onPress={() => setFilter('channels')} />
+    </ScrollView>
+  );
+
   const header = (
-    <View style={{ gap: 14, paddingBottom: 12 }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-        <T variant="headline" style={{ fontSize: desktop ? 26 : 30, lineHeight: desktop ? undefined : 42, letterSpacing: 0, paddingHorizontal: 4 }}>
-          {t('Chats')}
-        </T>
-        {!desktop && unreadCount > 0 && (
-          <View style={{ backgroundColor: colors.surface, borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 3 }}>
-            <T variant="labelLg" color={colors.textMuted}>
-              {t('{n} unread', { n: num(unreadCount) })}
-            </T>
-          </View>
-        )}
-        <View style={{ flex: 1 }} />
-        <Tooltip label={searchOpen ? t('Close search') : t('Search')} side="bottom" style={{ alignSelf: 'center' }}>
-          <IconButton
-            name={searchOpen ? 'x' : 'search'}
-            label={searchOpen ? t('Close search') : t('Search')}
-            onPress={() => (searchOpen ? closeSearch() : setSearchOpen(true))}
-            bg={colors.surface}
-            size={38}
-            iconSize={17}
-            color={colors.text}
-          />
-        </Tooltip>
-        <Tooltip label={t('New chat')} side="bottom" style={{ alignSelf: 'center' }}>
-          <Pressable
-            ref={plusRef}
-            accessibilityRole="button"
-            accessibilityLabel={t('New chat')}
-            onPress={openNewMenu}
-            style={({ pressed }: any) => ({
-              width: 38,
-              height: 38,
-              borderRadius: 19,
-              alignItems: 'center',
-              justifyContent: 'center',
-              backgroundColor: colors.amber,
-              transform: [{ scale: pressed ? 0.94 : 1 }],
-            })}>
-            <Icon name="plus" size={19} color={colors.onAmber} />
-          </Pressable>
-        </Tooltip>
-      </View>
+    <View style={{ gap: 12, paddingBottom: 12 }}>
+      {desktop ? (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          {chips}
+          {actions}
+        </View>
+      ) : (
+        chips
+      )}
 
       {/* New version box: takes the place the sidebar search used to occupy. */}
       <UpdateBanner />
@@ -421,34 +441,25 @@ export function ChatList({
           style={!desktop && { height: 52 }}
         />
       )}
-
-      {/* One row that scrolls sideways when the chips don't fit, instead of wrapping onto a second line. */}
-      {/* Desktop web: a thin scrollbar appears under the chips on hover, so it's clear the row scrolls with a
-          mouse (CSS in index.html). Phones (and the apps) swipe it: no scrollbar and no space kept for one. */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={Platform.OS === 'web' && desktop}
-        {...(desktop ? ({ dataSet: { hscroll: 'hover' } } as object) : {})}
-        style={{ flexGrow: 0 }}
-        contentContainerStyle={{ gap: 8 }}>
-        <Chip label={t('All')} count={all.length} active={filter === 'all'} onPress={() => setFilter('all')} />
-        <Chip label={t('Unread')} dot={unreadCount > 0} active={filter === 'unread'} onPress={() => setFilter('unread')} />
-        <Chip label={t('Groups')} count={groupCount} active={filter === 'groups'} onPress={() => setFilter('groups')} />
-        <Chip label={t('Channels')} count={channelCount} active={filter === 'channels'} onPress={() => setFilter('channels')} />
-      </ScrollView>
     </View>
   );
 
   return (
     <View style={{ flex: 1 }}>
-      {/* Phones: the list owns the screen, so the voice player sits here; inside a chat the thread
-          shows it under the header. */}
-      {!desktop && <VoiceBar />}
+      {!desktop && (
+        <>
+          <MobileHeader title={t('Chats')} actions={actions} />
+          <ConnectionBanner />
+          {/* Phones: the list owns the screen, so the voice player sits here; inside a chat the thread
+              shows it under the header. */}
+          <VoiceBar />
+        </>
+      )}
       <FlatList
         data={list}
         keyExtractor={(c) => c.id}
         ListHeaderComponent={header}
-        contentContainerStyle={{ padding: desktop ? 16 : 16, paddingTop: desktop ? 20 : 8, gap: desktop ? 2 : 8, paddingBottom: 24 }}
+        contentContainerStyle={{ padding: 16, paddingTop: desktop ? 16 : 4, gap: desktop ? 2 : 8, paddingBottom: 24 }}
         renderItem={({ item }) => (
           <ChatRow
             c={item}

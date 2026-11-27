@@ -14,7 +14,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { Avatar } from "@/components/avatar";
 import { EmptyStage } from "@/components/empty-state";
-import { DesktopTopBar, MobileHeader, PageTitle } from "@/components/shell";
+import { DesktopTopBar, MobileHeader } from "@/components/shell";
 import {
   Icon,
   IconButton,
@@ -412,10 +412,7 @@ export default function ContactsScreen() {
         edges={["top"]}
         style={{ flex: 1, backgroundColor: colors.canvas }}
       >
-        <MobileHeader />
-        <View style={{ paddingHorizontal: 20, paddingTop: 4 }}>
-          <PageTitle title={t("Contacts")} />
-        </View>
+        <MobileHeader title={t("Contacts")} />
         <PeopleList wide={false} />
       </SafeAreaView>
     );
@@ -423,12 +420,9 @@ export default function ContactsScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.canvas }}>
-      <DesktopTopBar />
+      <DesktopTopBar title={t("Contacts")} />
       <View style={{ flex: 1, flexDirection: "row" }}>
         <SidebarPane>
-          <View style={{ paddingHorizontal: 20, paddingTop: 20 }}>
-            <PageTitle title={t("Contacts")} />
-          </View>
           <PeopleList wide />
         </SidebarPane>
         <EmptyStage

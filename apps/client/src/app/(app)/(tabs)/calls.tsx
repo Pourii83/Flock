@@ -7,7 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Avatar } from '@/components/avatar';
 import { EmptyStage } from '@/components/empty-state';
-import { DesktopTopBar, MobileHeader, PageTitle } from '@/components/shell';
+import { DesktopTopBar, MobileHeader } from '@/components/shell';
 import { Button, Field, Icon, IconButton, SectionLabel, T, Tooltip } from '@/components/ui';
 import { useIsWide } from '@/hooks/use-layout';
 import { api } from '@/lib/api';
@@ -665,15 +665,25 @@ export default function CallsScreen() {
   if (!wide) {
     return (
       <SafeAreaView edges={['top']} style={{ flex: 1, backgroundColor: colors.canvas }}>
-        <MobileHeader />
-        <View style={{ paddingHorizontal: 20, paddingTop: 4 }}>
-          <PageTitle
-            title={t('Calls')}
-            pill={connected ? t('Synced') : t('Offline')}
-            pillColor={connected ? colors.teal : colors.amber}
-            action={<Button title={t('New Call')} icon="phone-call" size="sm" onPress={() => router.push('/new-chat')} />}
-          />
-        </View>
+        <MobileHeader
+          title={t('Calls')}
+          pill={connected ? t('Synced') : t('Offline')}
+          pillColor={connected ? colors.teal : colors.amber}
+          actions={
+            <Tooltip label={t('New Call')} side="bottom" style={{ alignSelf: 'center' }}>
+              <IconButton
+                name="phone-call"
+                label={t('New Call')}
+                onPress={() => router.push('/new-chat')}
+                bg={colors.amber}
+                activeBg={colors.amber}
+                color={colors.onAmber}
+                size={38}
+                iconSize={17}
+              />
+            </Tooltip>
+          }
+        />
         <CallsList />
       </SafeAreaView>
     );
@@ -681,12 +691,9 @@ export default function CallsScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.canvas }}>
-      <DesktopTopBar />
+      <DesktopTopBar title={t('Calls')} pill={connected ? t('Synced') : t('Offline')} pillColor={connected ? colors.teal : colors.amber} />
       <View style={{ flex: 1, flexDirection: 'row' }}>
         <SidebarPane>
-          <View style={{ paddingHorizontal: 20, paddingTop: 20 }}>
-            <PageTitle title={t('Calls')} pill={connected ? t('Synced') : t('Offline')} pillColor={connected ? colors.teal : colors.amber} />
-          </View>
           <CallsList />
         </SidebarPane>
         <EmptyStage

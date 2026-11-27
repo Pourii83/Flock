@@ -8,7 +8,7 @@ import { ChatList } from '@/components/chat-list';
 import { ChatThread } from '@/components/chat-thread';
 import { ContactPanel } from '@/components/contact-panel';
 import { EmptyStage } from '@/components/empty-state';
-import { ConnectionBanner, DesktopTopBar, MobileHeader } from '@/components/shell';
+import { DesktopTopBar } from '@/components/shell';
 import { useIsWide, useShowDetailsPanel } from '@/hooks/use-layout';
 import { useChat } from '@/state/chat-store';
 import { colors } from '@/theme';
@@ -41,8 +41,6 @@ export default function ChatsScreen() {
   if (!wide) {
     return (
       <SafeAreaView edges={['top']} style={{ flex: 1, backgroundColor: colors.canvas }}>
-        <MobileHeader />
-        <ConnectionBanner />
         <ChatList variant="mobile" onOpen={(c) => router.push(`/chat/${c.id}`)} onNewChat={newChat} />
       </SafeAreaView>
     );
@@ -52,7 +50,7 @@ export default function ChatsScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.canvas }}>
-      <DesktopTopBar />
+      <DesktopTopBar title={t('Chats')} />
       <View style={{ flex: 1, flexDirection: 'row' }}>
         <SidebarPane>
           <ChatList variant="desktop" selectedId={selected} onOpen={(c) => router.setParams({ c: c.id })} onNewChat={newChat} />

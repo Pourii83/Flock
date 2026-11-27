@@ -9,11 +9,25 @@ import { AppInfoDialog } from './app-info-dialog';
 import { Avatar } from './avatar';
 import { FlockMark } from './logo';
 import { ServerUpdateButton } from './server-update';
-import { Icon, IconButton, T, Tooltip } from './ui';
+import { Icon, T, Tooltip } from './ui';
 import { t } from '@/lib/i18n';
 
-/** Desktop top bar: app name + connection status. */
-export function DesktopTopBar({ right }: { right?: ReactNode }) {
+/** A short status pill next to a page title ("Synced", "Offline"). */
+function TitlePill({ label, color }: { label: string; color?: string }) {
+  return (
+    <View style={{ backgroundColor: colors.surface, borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 3 }}>
+      <T variant="label" color={color ?? colors.textMuted} numberOfLines={1}>
+        {label}
+      </T>
+    </View>
+  );
+}
+
+/**
+ * Desktop top bar: the app name, then the page's own title, then the connection status. The page title
+ * lives here so the list column below can start straight with its tools.
+ */
+export function DesktopTopBar({ title, pill, pillColor, right }: { title?: string; pill?: string; pillColor?: string; right?: ReactNode }) {
   const connected = useChat((s) => s.connected);
   return (
     <View
@@ -30,6 +44,16 @@ export function DesktopTopBar({ right }: { right?: ReactNode }) {
       <T variant="headlineSm" style={{ fontSize: 22 }}>
         {t('Flock')}
       </T>
+      {title ? (
+        <>
+          <View style={{ width: 1, height: 24, backgroundColor: colors.surfaceHigh }} />
+          {/* No negative tracking: Persian glyphs overhang their box and were clipped at the edge. */}
+          <T variant="headlineSm" style={{ fontSize: 22, letterSpacing: 0 }} numberOfLines={1}>
+            {title}
+          </T>
+          {pill && <TitlePill label={pill} color={pillColor} />}
+        </>
+      ) : null}
       <View style={{ flex: 1 }} />
       <View
         style={{
@@ -51,64 +75,54 @@ export function DesktopTopBar({ right }: { right?: ReactNode }) {
   );
 }
 
-/** Phone header: brand (opens app info), optional search toggle and profile avatar. */
-export function MobileHeader({ onSearch }: { onSearch?: () => void }) {
+/**
+ * Phone header: the Flock mark (opens app info) with the page's title beside it, the page's own buttons,
+ * and the profile avatar. One row, so the page content starts right under it.
+ */
+export function MobileHeader({ title, pill, pillColor, actions }: { title?: string; pill?: string; pillColor?: string; actions?: ReactNode }) {
   const { user } = useAuth();
   const [about, setAbout] = useState(false);
   const aboutLabel = t('About {name}', { name: t('Flock') });
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 8, gap: 10 }}>
-      <Pressable
-        onPress={() => setAbout(true)}
-        accessibilityRole="button"
-        accessibilityLabel={aboutLabel}
-        style={({ hovered }: any) => ({
-          flex: 1,
-          flexDirection: 'row',
-          alignItems: 'center',
-          gap: 10,
-          borderRadius: radius.lg,
-          backgroundColor: hovered ? colors.surface : 'transparent',
-        })}>
-        <FlockMark size={32} tint={colors.text} />
-        <T variant="headlineSm" style={{ fontSize: 24 }}>
-          {t('Flock')}
-        </T>
-      </Pressable>
-      {onSearch && (
-        <Tooltip label={t('Search')} side="bottom" style={{ alignSelf: 'center' }}>
-          <IconButton name="search" label={t('Search')} onPress={onSearch} iconSize={22} />
+    <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 8, gap: 8, minHeight: 56 }}>
+      <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, minWidth: 0 }}>
+        <Tooltip label={aboutLabel} side="bottom" style={{ alignSelf: 'center' }}>
+          <Pressable
+            onPress={() => setAbout(true)}
+            accessibilityRole="button"
+            accessibilityLabel={aboutLabel}
+            hitSlop={6}
+            style={({ hovered }: any) => ({
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 10,
+              borderRadius: radius.lg,
+              backgroundColor: hovered ? colors.surface : 'transparent',
+            })}>
+            <FlockMark size={30} tint={colors.text} />
+            {!title && (
+              <T variant="headlineSm" style={{ fontSize: 24 }}>
+                {t('Flock')}
+              </T>
+            )}
+          </Pressable>
         </Tooltip>
-      )}
+        {title ? (
+          <T variant="headlineSm" numberOfLines={1} style={{ fontSize: 24, letterSpacing: 0, flexShrink: 1 }}>
+            {title}
+          </T>
+        ) : null}
+        {pill && <TitlePill label={pill} color={pillColor} />}
+      </View>
+      {actions}
       {/* Admin-only: a new server release is available on GitHub (hidden when up to date). */}
       <ServerUpdateButton variant="header" />
       <Tooltip label={t('Your profile')} side="bottom" style={{ alignSelf: 'center' }}>
         <Pressable onPress={() => router.navigate('/profile')} accessibilityRole="button" accessibilityLabel={t('Your profile')}>
-          <Avatar user={user} size={40} />
+          <Avatar user={user} size={38} />
         </Pressable>
       </Tooltip>
       <AppInfoDialog visible={about} onClose={() => setAbout(false)} />
-    </View>
-  );
-}
-
-/** Large page title with an inline count pill and optional trailing action. */
-export function PageTitle({ title, pill, pillColor, action }: { title: string; pill?: string; pillColor?: string; action?: ReactNode }) {
-  return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-      {/* Padding + no negative tracking: Persian glyphs overhang their box and were clipped at the edge. */}
-      <T variant="headline" style={{ fontSize: 30, lineHeight: 42, letterSpacing: 0, paddingHorizontal: 8, paddingVertical: 2 }}>
-        {title}
-      </T>
-      {pill && (
-        <View style={{ backgroundColor: colors.surface, borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 3 }}>
-          <T variant="labelLg" color={pillColor ?? colors.text}>
-            {pill}
-          </T>
-        </View>
-      )}
-      <View style={{ flex: 1 }} />
-      {action}
     </View>
   );
 }

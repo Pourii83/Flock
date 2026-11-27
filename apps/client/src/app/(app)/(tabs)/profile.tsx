@@ -4,7 +4,7 @@ import { ActivityIndicator, Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Avatar } from '@/components/avatar';
-import { DesktopTopBar, MobileHeader, PageTitle } from '@/components/shell';
+import { DesktopTopBar, MobileHeader } from '@/components/shell';
 import { Button, Card, Field, Icon, SectionLabel, T } from '@/components/ui';
 import { useIsWide } from '@/hooks/use-layout';
 import { pickAvatar } from '@/lib/avatar-upload';
@@ -204,20 +204,14 @@ export default function ProfileScreen() {
   if (!wide) {
     return (
       <SafeAreaView edges={['top']} style={{ flex: 1, backgroundColor: colors.canvas }}>
-        <MobileHeader />
-        <View style={{ paddingHorizontal: 20, paddingTop: 4 }}>
-          <PageTitle title={t('Profile')} />
-        </View>
+        <MobileHeader title={t('Profile')} />
         <ProfileBody />
       </SafeAreaView>
     );
   }
   return (
     <View style={{ flex: 1, backgroundColor: colors.canvas }}>
-      <DesktopTopBar />
-      <View style={{ paddingHorizontal: 20, paddingTop: 24, maxWidth: 720, width: '100%', alignSelf: 'center' }}>
-        <PageTitle title={t('Profile')} />
-      </View>
+      <DesktopTopBar title={t('Profile')} />
       <ProfileBody />
     </View>
   );

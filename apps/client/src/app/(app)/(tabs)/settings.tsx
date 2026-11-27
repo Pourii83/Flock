@@ -11,7 +11,7 @@ import { ColorPicker, ColorWheel } from '@/components/color-picker';
 import { LanguagePicker } from '@/components/language-picker';
 import { NoisePicker } from '@/components/noise-picker';
 import { ThemePicker } from '@/components/theme-picker';
-import { DesktopTopBar, MobileHeader, PageTitle } from '@/components/shell';
+import { DesktopTopBar, MobileHeader } from '@/components/shell';
 import { Button, Card, Icon, SectionLabel, T, noOutline, type IconName } from '@/components/ui';
 import { useIsWide } from '@/hooks/use-layout';
 import { ServerField, useServerField } from '@/components/server-field';
@@ -548,20 +548,14 @@ export default function SettingsScreen() {
   if (!wide) {
     return (
       <SafeAreaView edges={['top']} style={{ flex: 1, backgroundColor: colors.canvas }}>
-        <MobileHeader />
-        <View style={{ paddingHorizontal: 20, paddingTop: 4 }}>
-          <PageTitle title={t('Settings')} />
-        </View>
+        <MobileHeader title={t('Settings')} />
         <SettingsBody />
       </SafeAreaView>
     );
   }
   return (
     <View style={{ flex: 1, backgroundColor: colors.canvas }}>
-      <DesktopTopBar />
-      <View style={{ paddingHorizontal: 20, paddingTop: 24, maxWidth: 1040, width: '100%', alignSelf: 'center' }}>
-        <PageTitle title={t('Settings')} />
-      </View>
+      <DesktopTopBar title={t('Settings')} />
       <SettingsBody />
     </View>
   );
