@@ -2,7 +2,7 @@ import { compareConversations } from '@/lib/conversation-order';
 import { router } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentRef, type ReactNode } from 'react';
 import { LinearGradient } from 'expo-linear-gradient';
-import { ActivityIndicator, FlatList, Modal, Platform, Pressable, ScrollView, View } from 'react-native';
+import { ActivityIndicator, FlatList, Modal, Platform, Pressable, ScrollView, View, type StyleProp, type ViewStyle } from 'react-native';
 
 import { ContextMenu, type ContextMenuItem } from '@/components/context-menu';
 import { ChangelogModal, UpdateBanner } from '@/components/update-banner';
@@ -313,7 +313,18 @@ export function ChatRow({
  * (user request). Desktop web also shows a thin scrollbar under the chips on hover (CSS in index.html);
  * phones (and the apps) swipe it, with no scrollbar and no space kept for one.
  */
-function ChipRow({ desktop, children }: { desktop: boolean; children: ReactNode }) {
+function ChipRow({
+  desktop,
+  children,
+  cueHeight = CHIP_HEIGHT,
+  contentStyle,
+}: {
+  desktop: boolean;
+  children: ReactNode;
+  /** Height of the edge lines: the items' own height. */
+  cueHeight?: number;
+  contentStyle?: StyleProp<ViewStyle>;
+}) {
   const [box, setBox] = useState({ view: 0, content: 0, x: 0 });
   // RTL web reports the offset as negative from the start edge, so only its size counts.
   const room = box.content - box.view;
@@ -328,8 +339,8 @@ function ChipRow({ desktop, children }: { desktop: boolean; children: ReactNode 
       // From the edge inward: the physical direction flips in Persian, where "start" is the right side.
       start={{ x: (edge === 'start') !== rtl ? 0 : 1, y: 0 }}
       end={{ x: (edge === 'start') !== rtl ? 1 : 0, y: 0 }}
-      // As tall as the pills (the row's desktop scrollbar space below them stays clear).
-      style={{ position: 'absolute', top: 0, height: CHIP_HEIGHT, width: 4, [edge]: 0, borderRadius: 2 }}
+      // As tall as the items (the row's desktop scrollbar space below them stays clear).
+      style={{ position: 'absolute', top: 0, height: cueHeight, width: 4, [edge]: 0, borderRadius: 2 }}
     />
   );
   return (
@@ -348,11 +359,61 @@ function ChipRow({ desktop, children }: { desktop: boolean; children: ReactNode 
           setBox((b) => (b.x === x ? b : { ...b, x }));
         }}
         scrollEventThrottle={16}
-        contentContainerStyle={{ gap: 8 }}>
+        contentContainerStyle={[{ gap: 8 }, contentStyle]}>
         {children}
       </ScrollView>
       {moreAtStart && fade('start')}
       {moreAtEnd && fade('end')}
+    </View>
+  );
+}
+
+const TAB_HEIGHT = 38;
+
+/**
+ * Desktop filters as text tabs under the search field (user request: a cleaner desktop header than
+ * the phone's pills). They share the width evenly; on a narrow column they scroll like the pills,
+ * with the same accent edge lines. The active tab is underlined in the accent color.
+ */
+function FilterTabs({ tabs, active, onPick }: { tabs: { id: Filter; label: string; count?: number; badge?: number }[]; active: Filter; onPick: (id: Filter) => void }) {
+  return (
+    <View style={{ borderBottomWidth: 1, borderBottomColor: colors.surfaceHigh }}>
+      <ChipRow desktop={false} cueHeight={TAB_HEIGHT} contentStyle={{ gap: 0, flexGrow: 1 }}>
+        {tabs.map((tab) => {
+          const on = tab.id === active;
+          return (
+            <Pressable
+              key={tab.id}
+              onPress={() => onPick(tab.id)}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: on }}
+              style={({ hovered }: any) => ({
+                flexGrow: 1,
+                height: TAB_HEIGHT,
+                paddingHorizontal: 10,
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6,
+                borderTopLeftRadius: radius.md,
+                borderTopRightRadius: radius.md,
+                backgroundColor: hovered && !on ? colors.surface : 'transparent',
+              })}>
+              <T variant="label" color={on ? colors.amberText : colors.textMuted} numberOfLines={1}>
+                {tab.label}
+              </T>
+              {!!tab.badge && <UnreadBadge count={tab.badge} style={{ minWidth: 18, height: 18, paddingHorizontal: 5 }} />}
+              {!tab.badge && !!tab.count && (
+                <T variant="labelSm" color={on ? colors.amberText : colors.textDim} style={{ fontVariant: ['tabular-nums'] }}>
+                  {num(tab.count)}
+                </T>
+              )}
+              {/* The underline sits on the row's hairline, so the active tab reads as part of it. */}
+              {on && <View style={{ position: 'absolute', start: 8, end: 8, bottom: 0, height: 2, borderRadius: 1, backgroundColor: colors.amber }} />}
+            </Pressable>
+          );
+        })}
+      </ChipRow>
     </View>
   );
 }
@@ -415,8 +476,7 @@ export function ChatList({
     { glyph: (color) => <MegaphoneIcon size={16} color={color} />, label: t('New channel'), onPress: () => router.push({ pathname: '/new-group', params: { kind: 'channel' } }) },
   ];
 
-  // Search and "+": in the phone's top header beside the "Chats" title; on a desktop at the end of the
-  // filter row, since the title sits in the window's top bar.
+  // Phones: search and "+" in the top header beside the "Chats" title (the desktop has its own row).
   const actions = (
     <>
       <Tooltip label={searchOpen ? t('Close search') : t('Search')} side="bottom" style={{ alignSelf: 'center' }}>
@@ -425,8 +485,8 @@ export function ChatList({
           label={searchOpen ? t('Close search') : t('Search')}
           onPress={() => (searchOpen ? closeSearch() : setSearchOpen(true))}
           bg={colors.surface}
-          size={desktop ? 34 : 38}
-          iconSize={desktop ? 16 : 17}
+          size={38}
+          iconSize={17}
           color={colors.text}
         />
       </Tooltip>
@@ -437,15 +497,15 @@ export function ChatList({
           accessibilityLabel={t('New chat')}
           onPress={openNewMenu}
           style={({ pressed }: any) => ({
-            width: desktop ? 34 : 38,
-            height: desktop ? 34 : 38,
+            width: 38,
+            height: 38,
             borderRadius: radius.pill,
             alignItems: 'center',
             justifyContent: 'center',
             backgroundColor: colors.amber,
             transform: [{ scale: pressed ? 0.94 : 1 }],
           })}>
-          <Icon name="plus" size={desktop ? 18 : 19} color={colors.onAmber} />
+          <Icon name="plus" size={19} color={colors.onAmber} />
         </Pressable>
       </Tooltip>
     </>
@@ -460,28 +520,59 @@ export function ChatList({
     </ChipRow>
   );
 
+  // Desktop: search is always there (Esc clears it) with "+" beside it, and the filters sit under it as tabs.
+  const desktopTop = (
+    <>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <SearchBar value={query} onChangeText={setQuery} onEscape={() => setQuery('')} placeholder={t('Search chats…')} style={{ flex: 1, height: 40 }} />
+        <Tooltip label={t('New chat')} side="bottom" style={{ alignSelf: 'center' }}>
+          <Pressable
+            ref={plusRef}
+            accessibilityRole="button"
+            accessibilityLabel={t('New chat')}
+            onPress={openNewMenu}
+            style={({ pressed, hovered }: any) => ({
+              width: 40,
+              height: 40,
+              borderRadius: radius.lg,
+              alignItems: 'center',
+              justifyContent: 'center',
+              backgroundColor: colors.amber,
+              opacity: hovered ? 0.9 : 1,
+              transform: [{ scale: pressed ? 0.94 : 1 }],
+            })}>
+            <Icon name="plus" size={19} color={colors.onAmber} />
+          </Pressable>
+        </Tooltip>
+      </View>
+      <FilterTabs
+        active={filter}
+        onPick={setFilter}
+        tabs={[
+          { id: 'all', label: t('All'), count: all.length },
+          { id: 'unread', label: t('Unread'), badge: unreadCount },
+          { id: 'groups', label: t('Groups'), count: groupCount },
+          { id: 'channels', label: t('Channels'), count: channelCount },
+        ]}
+      />
+    </>
+  );
+
   const header = (
     <View style={{ gap: 12, paddingBottom: 12 }}>
-      {desktop ? (
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-          {chips}
-          {actions}
-        </View>
-      ) : (
-        chips
-      )}
+      {desktop ? desktopTop : chips}
 
       {/* New version box: takes the place the sidebar search used to occupy. */}
       <UpdateBanner />
 
-      {searchOpen && (
+      {!desktop && searchOpen && (
         <SearchBar
           autoFocus
           value={query}
           onChangeText={setQuery}
           onEscape={closeSearch}
-          placeholder={desktop ? t('Search chats…') : t('Search chats, messages, people…')}
-          style={!desktop && { height: 52 }}
+          placeholder={t('Search chats, messages, people…')}
+          style={{ height: 52 }}
         />
       )}
     </View>
