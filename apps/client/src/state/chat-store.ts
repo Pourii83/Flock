@@ -11,7 +11,7 @@ import type { Conversation, Message, Reaction, User, ActiveCall } from '@/lib/ty
 import { t } from '@/lib/i18n';
 import { notifyMessage } from '@/lib/notifications';
 import { parseSealedMeta, sealFile } from '@/lib/sealed-files';
-import { systemText } from '@/lib/system-message';
+import { plainPreview, systemText } from '@/lib/system-message';
 import { refreshUpdateInfo } from '@/lib/update';
 
 type State = {
@@ -591,12 +591,12 @@ class ChatStore {
         m.kind === 'file' && m.attachment?.mimeType.startsWith('audio/')
           ? `🎤 ${t('Voice message')}`
           : m.kind === 'file'
-          ? `📎 ${m.body && m.body !== m.attachment?.name ? m.body : (m.attachment?.name ?? t('File'))}`
+          ? `📎 ${m.body && m.body !== m.attachment?.name ? plainPreview(m.body) : (m.attachment?.name ?? t('File'))}`
           : m.kind === 'system'
             ? systemText(m.body)
             : m.kind === 'call_invite'
               ? t('Group call invitation')
-              : m.body;
+              : plainPreview(m.body);
       notifyMessage({
         conversationId: c.id,
         title: c.name,

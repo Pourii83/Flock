@@ -3,6 +3,7 @@
 // a push subscription; for every new message the server sends a small, already-written notification
 // to the recipients' devices through their browser's push service.
 import webpush from 'web-push';
+import { plainPreview } from './preview.js';
 
 import { one, query, now } from './db.js';
 import { MAIN_REPO_URL } from './settings.js';
@@ -110,8 +111,8 @@ export async function pushMessage(message) {
     if (conv.secret) text = w.encrypted;
     else if (message.kind === 'call_invite') text = w.invite;
     else if (message.kind === 'file')
-      text = mime.startsWith('audio/') ? `🎤 ${w.voice}` : `${mime.startsWith('image/') ? `🖼 ${w.photo}` : mime.startsWith('video/') ? `🎬 ${w.video}` : `📎 ${w.file}`}${message.body && message.body !== message.attachment?.name ? `: ${message.body}` : ''}`;
-    else text = message.body;
+      text = mime.startsWith('audio/') ? `🎤 ${w.voice}` : `${mime.startsWith('image/') ? `🖼 ${w.photo}` : mime.startsWith('video/') ? `🎬 ${w.video}` : `📎 ${w.file}`}${message.body && message.body !== message.attachment?.name ? `: ${plainPreview(message.body)}` : ''}`;
+    else text = plainPreview(message.body);
     const direct = conv.type === 'direct';
     const title = direct ? who : conv.name || who;
     const body = row.preview ? `${direct ? '' : `${who}: `}${text}` : direct ? w.newMessage : who;

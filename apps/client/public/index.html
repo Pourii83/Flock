@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no, viewport-fit=cover, interactive-widget=resizes-content" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, shrink-to-fit=no, viewport-fit=cover, interactive-widget=resizes-content" />
     <title>Flock</title>
     <meta name="description" content="Flock — stay together, wherever you are. Real-time chat and video calls." />
     <meta name="theme-color" content="#0A0D14" />
@@ -32,6 +32,10 @@
         overflow: hidden;
         margin: 0;
       }
+      /* An app, not a page: no pinch or double-tap zoom on a phone, where a zoomed page slid sideways and
+         up and down under the finger (user report). maximum-scale/user-scalable in the viewport tag stop it
+         on Android; iOS ignores those, so the pinch gesture is cancelled below and double-tap is off here. */
+      html, body { touch-action: manipulation; overscroll-behavior: none; }
       #root {
         display: flex;
         height: 100%;
@@ -55,6 +59,8 @@
       }
     </style>
     <script>
+      // iOS Safari zooms on a pinch whatever the viewport tag says.
+      document.addEventListener('gesturestart', function (e) { e.preventDefault(); }, { passive: false });
       // Register the PWA service worker for built apps (skipped on the Metro dev server).
       if ('serviceWorker' in navigator && !/^(8081|8090)$/.test(location.port)) {
         window.addEventListener('load', function () {

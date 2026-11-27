@@ -1,5 +1,6 @@
+import * as Clipboard from 'expo-clipboard';
 import { useEffect, useRef, useState } from 'react';
-import { FlatList, Keyboard, Platform, Pressable, TextInput, View, type FlatList as FlatListType } from 'react-native';
+import { FlatList, Keyboard, Platform, Pressable, TextInput, View, type FlatList as FlatListType, type TextInputInstance } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useIsWide } from '@/hooks/use-layout';
@@ -7,6 +8,7 @@ import { clock } from '@/lib/format';
 import { t } from '@/lib/i18n';
 import { useCalls } from '@/state/calls';
 import { colors, fonts, radius } from '@/theme';
+import { EmojiPicker } from './emoji-picker';
 import { LinkedText } from './linked-text';
 import { Icon, IconButton, noOutline, persianFont, PushPin, T, Tooltip } from './ui';
 
@@ -57,6 +59,11 @@ export function CallChatPanel({
   const keyboard = useKeyboardHeight();
   const insets = useSafeAreaInsets();
   const [text, setText] = useState('');
+  const [emojiOpen, setEmojiOpen] = useState(false);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const inputRef = useRef<TextInputInstance>(null);
+  // Where the caret is, so an emoji goes in there and not always at the end.
+  const caret = useRef({ start: 0, end: 0 });
   const listRef = useRef<FlatListType<(typeof call.chat)[number]>>(null);
 
   // Tells the call that the panel is open: no notification sound for messages read on screen.
@@ -76,6 +83,41 @@ export function CallChatPanel({
     if (!text.trim()) return;
     sendChat(text);
     setText('');
+    caret.current = { start: 0, end: 0 };
+  };
+
+  // Emoji and copying in the call chat, like the main chat (user request).
+  const insertEmoji = (emoji: string) => {
+    const { start, end } = caret.current;
+    const a = Math.min(start, text.length);
+    const b = Math.min(Math.max(end, a), text.length);
+    setText(text.slice(0, a) + emoji + text.slice(b));
+    caret.current = { start: a + emoji.length, end: a + emoji.length };
+    if (wide) inputRef.current?.focus();
+  };
+  /** Phones: the panel takes the keyboard's place, never both. */
+  const toggleEmoji = () => {
+    if (emojiOpen) {
+      setEmojiOpen(false);
+      if (!wide) inputRef.current?.focus();
+      return;
+    }
+    if (!wide) {
+      inputRef.current?.blur();
+      Keyboard.dismiss();
+    }
+    setEmojiOpen(true);
+  };
+  const copiedTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(copiedTimer.current), []);
+  const copy = (id: string, body: string) => {
+    Clipboard.setStringAsync(body)
+      .then(() => {
+        setCopiedId(id);
+        clearTimeout(copiedTimer.current);
+        copiedTimer.current = setTimeout(() => setCopiedId(null), 1500);
+      })
+      .catch(() => {});
   };
 
   return (
@@ -145,34 +187,76 @@ export function CallChatPanel({
         }
         renderItem={({ item }) => (
           <View style={{ alignItems: item.mine ? 'flex-end' : 'flex-start' }}>
-            <View
-              style={{
-                maxWidth: '85%',
-                paddingHorizontal: 12,
-                paddingVertical: 8,
-                borderRadius: 14,
-                backgroundColor: item.mine ? colors.amberSoft : colors.surfaceHigh,
-              }}>
-              {!item.mine && !!item.author && (
-                <T variant="labelSm" color={colors.amberText} numberOfLines={1}>
-                  {item.author}
-                </T>
+            {/* Long press (phone) or right click copies the message; on a desktop a copy button shows on hover. */}
+            <Pressable
+              onLongPress={() => copy(item.id, item.text)}
+              delayLongPress={450}
+              accessibilityHint={t('Copy text')}
+              {...(Platform.OS === 'web'
+                ? ({
+                    onContextMenu: (e: { preventDefault: () => void }) => {
+                      e.preventDefault();
+                      copy(item.id, item.text);
+                    },
+                  } as object)
+                : {})}
+              style={{ maxWidth: '85%', flexDirection: item.mine ? 'row-reverse' : 'row', alignItems: 'center', gap: 4 }}>
+              {({ hovered }: any) => (
+                <>
+                  <View
+                    style={{
+                      flexShrink: 1,
+                      paddingHorizontal: 12,
+                      paddingVertical: 8,
+                      borderRadius: 14,
+                      backgroundColor: item.mine ? colors.amberSoft : colors.surfaceHigh,
+                    }}>
+                    {!item.mine && !!item.author && (
+                      <T variant="labelSm" color={colors.amberText} numberOfLines={1}>
+                        {item.author}
+                      </T>
+                    )}
+                    <LinkedText color={item.mine ? colors.onAmberSoft : colors.text} linkColor={item.mine ? colors.amberSoftLink : colors.amberText} selectable>
+                      {item.text}
+                    </LinkedText>
+                  </View>
+                  {Platform.OS === 'web' && wide && (
+                    <View style={{ opacity: hovered ? 1 : 0, transition: 'opacity 140ms ease' } as object}>
+                      <Tooltip label={t('Copy text')}>
+                        <IconButton name="copy" label={t('Copy text')} onPress={() => copy(item.id, item.text)} size={28} iconSize={14} color={colors.textMuted} />
+                      </Tooltip>
+                    </View>
+                  )}
+                </>
               )}
-              <LinkedText color={item.mine ? colors.onAmberSoft : colors.text} linkColor={item.mine ? colors.amberSoftLink : colors.amberText} selectable>
-                {item.text}
-              </LinkedText>
-            </View>
-            <T variant="labelSm" color={colors.textDim} style={{ marginTop: 2, paddingHorizontal: 4 }}>
-              {clock(item.at)}
+            </Pressable>
+            <T variant="labelSm" color={copiedId === item.id ? colors.amberText : colors.textDim} style={{ marginTop: 2, paddingHorizontal: 4 }}>
+              {copiedId === item.id ? t('Copied') : clock(item.at)}
             </T>
           </View>
         )}
       />
 
+      {emojiOpen && (
+        <View style={{ borderTopWidth: 1, borderTopColor: colors.hairline }}>
+          <EmojiPicker onPick={insertEmoji} onClose={() => setEmojiOpen(false)} maxHeight={wide ? 260 : 220} style={{ maxWidth: '100%' }} />
+        </View>
+      )}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, padding: 10, borderTopWidth: 1, borderTopColor: colors.hairline }}>
+        <Tooltip label={t('Emoji')}>
+          <IconButton name="smile" label={t('Emoji')} onPress={toggleEmoji} size={42} iconSize={20} color={emojiOpen ? colors.amberText : colors.textMuted} />
+        </Tooltip>
         <TextInput
+          ref={inputRef}
           value={text}
           onChangeText={setText}
+          onSelectionChange={(e) => {
+            caret.current = e.nativeEvent.selection;
+          }}
+          onFocus={() => {
+            // Phones: the keyboard takes the emoji panel's place.
+            if (!wide) setEmojiOpen(false);
+          }}
           placeholder={t('Write a message…')}
           placeholderTextColor={colors.textMuted}
           onSubmitEditing={send}

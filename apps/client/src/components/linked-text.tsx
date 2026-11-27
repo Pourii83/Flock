@@ -168,14 +168,15 @@ export function LinkedText({
 function Spoiler({ children, color }: { children: ReactNode; color?: string }) {
   const [open, setOpen] = useState(false);
   // Web: Telegram's look, a cloud of drifting dots over the hidden words that dissolves when tapped
-  // (user request; styled in theme.ts). The dots are light on dark text backgrounds and dark on light.
+  // (user request; styled in theme.ts). The dots are light on dark text backgrounds and dark on light, and
+  // keep their tone while they scatter (open-light / open-dark).
   if (Platform.OS === 'web') {
     return (
       <Text
         onPress={open ? undefined : () => setOpen(true)}
         accessibilityRole={open ? undefined : 'button'}
         accessibilityLabel={open ? undefined : t('Show hidden text')}
-        {...({ dataSet: { spoiler: open ? 'open' : isLight(color) ? 'light' : 'dark' } } as object)}>
+        {...({ dataSet: { spoiler: `${open ? 'open-' : ''}${isLight(color) ? 'light' : 'dark'}` } } as object)}>
         {children}
       </Text>
     );
