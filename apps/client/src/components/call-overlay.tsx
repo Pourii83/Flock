@@ -532,6 +532,27 @@ function Notice({ text }: { text: string }) {
 const TOAST_MS = 4500;
 /** How long the controls a tap brought up stay before they fade away over a shared screen. */
 const CONTROLS_HIDE_MS = 4000;
+/** One duration and one curve for the controls: they fade, and the stage and its pills follow them. */
+const CHROME_MS = 240;
+const CHROME_EASE = 'cubic-bezier(0.2, 0, 0, 1)';
+
+/** A style the browser transitions by itself; null on a phone, where Animated does the same work. */
+const webTransition = (...props: string[]) =>
+  Platform.OS === 'web' ? { transition: props.map((p) => `${p} ${CHROME_MS}ms ${CHROME_EASE}`).join(', ') } : null;
+
+/**
+ * The controls' fade as one value: null in the browser, where the transition above is enough, and an
+ * Animated value on a phone, which the stage padding rides too (padding can't be driven natively).
+ */
+function useChromeFade(hidden: boolean) {
+  const web = Platform.OS === 'web';
+  const [fade] = useState(() => new Animated.Value(hidden ? 0 : 1));
+  useEffect(() => {
+    if (web) return;
+    Animated.timing(fade, { toValue: hidden ? 0 : 1, duration: CHROME_MS, easing: Easing.out(Easing.cubic), useNativeDriver: false }).start();
+  }, [hidden, fade, web]);
+  return web ? null : fade;
+}
 
 /**
  * Messages that arrive in the call chat while it is closed: a short card above the controls that
@@ -627,7 +648,8 @@ function ActiveCall() {
   // Tap the stage to hide the controls (less visual noise), tap again to bring them back.
   const [controlsHidden, setControlsHidden] = useState(false);
   // They fade instead of snapping (user request), on phones as well as in the browser.
-  const [chromeFade] = useState(() => new Animated.Value(1));
+  const fade = useChromeFade(controlsHidden);
+  const chrome = fade ? { opacity: fade } : { opacity: controlsHidden ? 0 : 1, ...webTransition('opacity') };
   /** I chose not to see my own camera (it still goes out to the others). */
   const [selfHidden, setSelfHidden] = useState(false);
   // One panel at a time.
@@ -656,21 +678,6 @@ function ActiveCall() {
   const stageBox = { width: Math.max(0, stage.width - stageEnd), height: stage.height };
   const [dockHeight, setDockHeight] = useState(180);
   const [headerHeight, setHeaderHeight] = useState(116);
-  const web = Platform.OS === 'web';
-  // 240ms, one curve, both the fade and the stage's padding: the browser transitions styles by
-  // itself on web, and on a phone the same values are animated with Animated.
-  const chrome = web
-    ? { opacity: controlsHidden ? 0 : 1, transitionProperty: 'opacity', transitionDuration: '240ms', transitionTimingFunction: 'cubic-bezier(0.2,0,0,1)' }
-    : { opacity: chromeFade };
-  useEffect(() => {
-    if (Platform.OS === 'web') return;
-    Animated.timing(chromeFade, {
-      toValue: controlsHidden ? 0 : 1,
-      duration: 240,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: false,
-    }).start();
-  }, [controlsHidden, chromeFade]);
   const chromePointer = controlsHidden ? 'none' : 'box-none';
   const elapsed = useElapsed(call.answeredAt);
   // Each participant announces when their video slot carries camera or screen.
@@ -743,26 +750,19 @@ function ActiveCall() {
   const fullBleed = !shownScreen && !!single && hasVideo(single) && !single.screen;
   // The front/back toggle sits on that floating preview; without it, it stays in the dock.
   const selfViewShown = fullBleed && camOn && !selfHidden;
-  // With the controls hidden, the stage takes the room they leave. The padding rides the same
-  // 240ms curve as the fade, so the video grows with the controls instead of jumping (user report).
+  // With the controls hidden, the stage takes the room they leave. Both pads ride the fade above, so
+  // the video grows with the controls instead of jumping (user report).
   // Clear the status pill and tags (they can wrap to a second line), with a little air below them.
   const padTopShown = insets.top + headerHeight + 6;
   const padTopHidden = insets.top + 12;
   const padBottomShown = dockHeight + insets.bottom + 4;
   const padBottomHidden = insets.bottom + 12;
-  const padTopAnim = chromeFade.interpolate({ inputRange: [0, 1], outputRange: [padTopHidden, padTopShown] });
-  const padBottomAnim = chromeFade.interpolate({ inputRange: [0, 1], outputRange: [padBottomHidden, padBottomShown] });
-  // One style for the stage: real numbers the browser transitions on web, the animated values on a phone.
-  const stagePad = web
-    ? {
-        paddingTop: controlsHidden ? padTopHidden : padTopShown,
-        paddingBottom: controlsHidden ? padBottomHidden : padBottomShown,
-        transitionProperty: 'padding-top, padding-bottom',
-        transitionDuration: '240ms',
-        transitionTimingFunction: 'cubic-bezier(0.2,0,0,1)',
-      }
-    : { paddingTop: padTopAnim, paddingBottom: padBottomAnim };
-  const padBottom = web ? (controlsHidden ? padBottomHidden : padBottomShown) : padBottomAnim;
+  // The resting number the browser transitions, or the interpolation the phone animates.
+  const pad = (shown: number, hidden: number) =>
+    fade ? fade.interpolate({ inputRange: [0, 1], outputRange: [hidden, shown] }) : controlsHidden ? hidden : shown;
+  const padTop = pad(padTopShown, padTopHidden);
+  const padBottom = pad(padBottomShown, padBottomHidden);
+  const stagePad = { paddingTop: padTop, paddingBottom: padBottom, ...webTransition('padding-top', 'padding-bottom') };
   // Overlays that only take a number (the floating self view) use the resting position.
   const padBottomNow = controlsHidden ? padBottomHidden : padBottomShown;
 
@@ -846,12 +846,12 @@ function ActiveCall() {
         ) : fullBleed && single ? (
           <View style={{ flex: 1, borderWidth: 2, borderColor: single.speaking ? colors.amber : 'transparent' }}>
             <VideoView key={`remote-${single.userId}-${call.mediaVersion}`} stream={single.stream} />
-            <Animated.View style={[styles.glass, { position: 'absolute', start: 16, bottom: padBottom, paddingHorizontal: 12, paddingVertical: 5, flexDirection: 'row', gap: 6, alignItems: 'center' }]}>
+            <Animated.View style={[styles.glass, { position: 'absolute', start: 16, bottom: padBottom, paddingHorizontal: 12, paddingVertical: 5, flexDirection: 'row', gap: 6, alignItems: 'center' }, webTransition('bottom') as object]}>
               <T variant="label">{callName(call, single.user)}</T>
               {single.muted && <Icon name="mic-off" size={14} color={colors.danger} />}
               <NetBadge q={single.net} size={18} label={netBadgeLabel(single.net, single.user?.displayName)} />
             </Animated.View>
-            <Animated.View style={{ position: 'absolute', end: 16, bottom: padBottom }}>
+            <Animated.View style={[{ position: 'absolute', end: 16, bottom: padBottom }, webTransition('bottom') as object]}>
               <LevelMeter stream={single.stream} speaking={single.speaking} version={call.mediaVersion} height={36} />
             </Animated.View>
           </View>
