@@ -606,7 +606,16 @@ class ChatStore {
     }
   }
 
+  /**
+   * Sends text. The server takes at most 4000 characters per message, so a longer text goes out as
+   * several messages, split on a line break or a space where possible (user request).
+   */
   async send(conversationId: string, body: string, replyTo?: Message | null) {
+    const parts = splitBody(body);
+    for (let i = 0; i < parts.length; i++) await this.sendOne(conversationId, parts[i], i === 0 ? replyTo : null);
+  }
+
+  private async sendOne(conversationId: string, body: string, replyTo?: Message | null) {
     const me = this.me;
     if (!me) return;
     const tempId = `tmp-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -728,6 +737,17 @@ class ChatStore {
     return saved;
   }
 
+  /** Drops a message that never reached the server ("Cancel sending" in its menu). */
+  discard(m: Message) {
+    this.set((s) => {
+      const list = (s.messages[m.conversationId] ?? []).filter((x) => x.id !== m.id);
+      return {
+        messages: { ...s.messages, [m.conversationId]: list },
+        conversations: s.conversations.map((c) => (c.id === m.conversationId ? { ...c, lastMessage: list[list.length - 1] ?? null } : c)),
+      };
+    });
+  }
+
   async retry(m: Message) {
     this.set((s) => ({
       messages: { ...s.messages, [m.conversationId]: (s.messages[m.conversationId] ?? []).filter((x) => x.id !== m.id) },
@@ -762,6 +782,27 @@ class ChatStore {
     if (next.length === current.length && next.every((id, i) => id === current[i])) return;
     this.set((s) => ({ typing: { ...s.typing, [conversationId]: next } }));
   }
+}
+
+/** The server's per-message limit (server/src/routes.js); longer text is sent in pieces. */
+const MAX_BODY = 4000;
+
+/** Cuts text into message-sized pieces, preferring a line break, then a space, near the limit. */
+function splitBody(body: string, max = MAX_BODY): string[] {
+  if (body.length <= max) return [body];
+  const parts: string[] = [];
+  let rest = body;
+  while (rest.length > max) {
+    const window = rest.slice(0, max);
+    const line = window.lastIndexOf('\n');
+    const space = window.lastIndexOf(' ');
+    const cut = line > max * 0.6 ? line + 1 : space > max * 0.6 ? space + 1 : max;
+    const piece = rest.slice(0, cut).trimEnd();
+    if (piece) parts.push(piece);
+    rest = rest.slice(cut).replace(/^\n/, '');
+  }
+  if (rest) parts.push(rest);
+  return parts.length ? parts : [body];
 }
 
 export const chatStore = new ChatStore();

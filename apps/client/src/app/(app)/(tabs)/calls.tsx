@@ -255,6 +255,9 @@ function MeetingsCard() {
               );
             })}
           </View>
+          {/* A hairline marks where the choices end and the actions begin: without it the buttons
+              read as two more options of "stays valid for" (user request). */}
+          <View style={{ height: 1, backgroundColor: colors.surfaceHighest }} />
           {/* Side by side when there's room; on narrow screens they stack full width instead of spilling out of the card. */}
           {roomy ? (
             <View style={{ flexDirection: 'row', gap: 8, justifyContent: 'flex-end' }}>
@@ -434,12 +437,15 @@ function CallRow({
         </View>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
           <Icon name={directionIcon} size={15} color={directionColor} />
-          <T variant="body" color={colors.textMuted} numberOfLines={1} style={{ flexShrink: 1 }}>
-            {dayAndTime(log.startedAt)} •{' '}
-            <T variant="body" color={colors.text} style={{ fontVariant: ['tabular-nums'] }}>
-              {detail}
+          {/* The line is cut short in a narrow column; the tooltip always carries all of it. */}
+          <Tooltip label={`${dayAndTime(log.startedAt)} · ${detail}`} style={{ flexShrink: 1, alignSelf: 'center' }}>
+            <T variant="body" color={colors.textMuted} numberOfLines={1} style={{ flexShrink: 1 }}>
+              {dayAndTime(log.startedAt)} •{' '}
+              <T variant="body" color={colors.text} style={{ fontVariant: ['tabular-nums'] }}>
+                {detail}
+              </T>
             </T>
-          </T>
+          </Tooltip>
         </View>
       </View>
       {selectable ? (
@@ -570,7 +576,6 @@ function CallsList() {
       contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: 24 }}
       ListHeaderComponent={
         <View style={{ gap: 18, marginBottom: 6 }}>
-          <Segmented value={filter} onChange={setFilter} total={unseenAll} missed={unseenMissed} />
           <MeetingsCard />
           <SectionLabel
             right={
@@ -584,6 +589,8 @@ function CallsList() {
             }>
             {t('Recent activity')}
           </SectionLabel>
+          {/* The two views belong to the history under this heading, not to the page above it. */}
+          <Segmented value={filter} onChange={setFilter} total={unseenAll} missed={unseenMissed} />
           {selecting && (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, padding: 8, borderRadius: radius.lg, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.surfaceHigh }}>
               <Pressable

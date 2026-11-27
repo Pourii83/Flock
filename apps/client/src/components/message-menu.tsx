@@ -120,7 +120,14 @@ export function MessageMenu({
   };
 
   // Only offer what actually applies to this message: disabled rows are noise (user request).
-  const menuItems: ContextMenuItem[] = [{ icon: 'corner-up-left', label: t('Reply'), onPress: onReply }];
+  // A message that never reached the server gets the two things that make sense for it: take its
+  // text, or drop it.
+  const menuItems: ContextMenuItem[] = message.failed
+    ? [
+        { icon: 'copy', label: t('Copy text'), onPress: () => void copy() },
+        { icon: 'x', label: t('Cancel sending'), danger: true, onPress: () => chatStore.discard(message) },
+      ]
+    : [{ icon: 'corner-up-left', label: t('Reply'), onPress: onReply }];
   // Text, or the caption of my own photo/file.
   // The server can't read (or re-encrypt) a secret file's caption, so those aren't editable.
   if (canAct && mine && (isText || (message.kind === 'file' && !conversation.secret))) menuItems.push({ icon: 'edit-2', label: t('Edit'), onPress: onEdit });
@@ -140,7 +147,7 @@ export function MessageMenu({
         point={menuPoint}
         onClose={() => setMenuPoint(null)}
         items={menuItems}
-        emoji={QUICK_REACTIONS}
+        emoji={message.failed ? undefined : QUICK_REACTIONS}
         onEmoji={react}
         onEmojiMore={() => {
           setMenuPoint(null);

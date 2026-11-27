@@ -21,6 +21,7 @@ import { Avatar, ConversationAvatar } from './avatar';
 import { Button, HandIcon, Icon, T, Tooltip, type IconName, UnreadBadge } from './ui';
 import type { User } from '@/lib/types';
 import { CallChatPanel } from './call-chat';
+import { TypingDots } from './typing-dots';
 import { RemoteAudio } from './remote-audio';
 import { Slider } from './slider';
 import { VideoView } from './video-view';
@@ -359,6 +360,24 @@ function RingingCall() {
   const conversation = useConversation(call.conversationId ?? undefined);
   const pulse = usePulse();
   const incoming = call.phase === 'incoming';
+  // A phone held sideways has very little height: the avatar and the type shrink so the
+  // accept/decline buttons always stay on screen (user report).
+  const { height } = useWindowDimensions();
+  const compact = height < 560;
+  const actionSize = compact ? 58 : 72;
+  // Only the middle block gives way, so the buttons always keep their room: the ring follows
+  // whatever height is left after the name and the line under it (a phone held sideways).
+  // Start from an estimate of the room the middle block gets, so the ring never has to jump from one
+  // size to another on the first frame (user report). The real measurement only fine-tunes it, under
+  // a short fade, so the correction is never visible.
+  const [middleHeight, setMiddleHeight] = useState(() => Math.max(0, height - (compact ? 210 : 360)));
+  const textHeight = compact ? 84 : 150;
+  const ringSize = Math.max(72, Math.min(240, (middleHeight || (compact ? 150 : 240)) - textHeight));
+  const avatarSize = Math.round(ringSize * 0.75);
+  const [ringFade] = useState(() => new Animated.Value(0));
+  useEffect(() => {
+    Animated.timing(ringFade, { toValue: 1, duration: 220, easing: Easing.out(Easing.cubic), useNativeDriver: Platform.OS !== 'web' }).start();
+  }, [ringFade]);
   const ringScale = pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.25] });
   const ringOpacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.5, 0] });
 
@@ -368,8 +387,8 @@ function RingingCall() {
         colors={[colors.amberTint, `${colors.canvas}00`]}
         style={{ position: 'absolute', left: 0, right: 0, top: 0, height: '60%' }}
       />
-      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'space-between', padding: 24, maxWidth: 520, width: '100%', alignSelf: 'center' }}>
-        <View style={{ alignItems: 'center', gap: 8, paddingTop: 16 }}>
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'space-between', padding: compact ? 14 : 24, maxWidth: 520, width: '100%', alignSelf: 'center' }}>
+        <View style={{ alignItems: 'center', gap: 8, paddingTop: compact ? 4 : 16 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.surface, borderRadius: radius.pill, paddingHorizontal: 18, paddingVertical: 8 }}>
             <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: colors.amber }} />
             <T variant="overline" color={colors.amberText} style={{ fontSize: 14 }}>
@@ -384,43 +403,55 @@ function RingingCall() {
           </View>
         </View>
 
-        <View style={{ alignItems: 'center', gap: 14 }}>
-          <View style={{ width: 240, height: 240, alignItems: 'center', justifyContent: 'center' }}>
+        <Animated.View
+          style={{ flex: 1, minHeight: 0, alignItems: 'center', justifyContent: 'center', gap: compact ? 8 : 14, opacity: ringFade }}
+          onLayout={(e) => setMiddleHeight(e.nativeEvent.layout.height)}>
+          <View style={{ width: ringSize, height: ringSize, alignItems: 'center', justifyContent: 'center' }}>
             <Animated.View
               style={{
                 position: 'absolute',
-                width: 240,
-                height: 240,
-                borderRadius: 120,
-                borderWidth: 18,
+                width: ringSize,
+                height: ringSize,
+                borderRadius: ringSize / 2,
+                borderWidth: compact ? 12 : 18,
                 borderColor: colors.amberGlow,
                 opacity: ringOpacity,
                 transform: [{ scale: ringScale }],
               }}
             />
-            <View style={{ position: 'absolute', width: 230, height: 230, borderRadius: 115, borderWidth: 14, borderColor: colors.amberGlow }} />
+            <View
+              style={{
+                position: 'absolute',
+                width: ringSize - 10,
+                height: ringSize - 10,
+                borderRadius: (ringSize - 10) / 2,
+                borderWidth: compact ? 10 : 14,
+                borderColor: colors.amberGlow,
+              }}
+            />
             {call.isGroup && conversation ? (
-              <ConversationAvatar conversation={conversation} meId={user?.id} size={180} />
+              <ConversationAvatar conversation={conversation} meId={user?.id} size={avatarSize} />
             ) : (
-              <Avatar user={call.peer} size={180} ring={colors.teal} ringBg={colors.canvas} />
+              <Avatar user={call.peer} size={avatarSize} ring={colors.teal} ringBg={colors.canvas} />
             )}
           </View>
-          <T variant="display" style={{ fontSize: 40, textAlign: 'center' }}>
+          <T variant="display" style={{ fontSize: compact ? 26 : 40, textAlign: 'center' }}>
             {callName(call)}
           </T>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <T variant="bodyLg" color={colors.amberSoftText} style={{ fontSize: 18, textAlign: 'center' }}>
+            <T variant="bodyLg" color={colors.amberSoftText} style={{ fontSize: compact ? 15 : 18, textAlign: 'center' }}>
               {incoming
                 ? call.isGroup && call.peer
                   ? t('{name} is calling the group', { name: call.peer.displayName })
                   : call.video
                     ? t('Flock Video Calling')
                     : t('Flock Voice Calling')
-                : t('Ringing…')}
+                : t('Ringing')}
             </T>
+            {!incoming && <TypingDots size={5} color={colors.amberText} />}
             <Icon name="bar-chart-2" size={18} color={colors.amberText} />
           </View>
-          {!call.isGroup && !!call.peer?.title && (
+          {!compact && !call.isGroup && !!call.peer?.title && (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.surface, borderRadius: radius.pill, paddingHorizontal: 14, paddingVertical: 6 }}>
               <Icon name="briefcase" size={14} color={colors.textMuted} />
               <T variant="body" color={colors.amberSoftText}>
@@ -428,9 +459,9 @@ function RingingCall() {
               </T>
             </View>
           )}
-        </View>
+        </Animated.View>
 
-        <View style={{ width: '100%', gap: 32, paddingBottom: 12 }}>
+        <View style={{ width: '100%', gap: compact ? 14 : 32, paddingBottom: 12 }}>
           {incoming && (
             <View style={{ flexDirection: 'row', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
               {[
@@ -460,10 +491,10 @@ function RingingCall() {
           <View style={{ flexDirection: 'row', justifyContent: 'space-evenly', alignItems: 'flex-start' }}>
             {incoming ? (
               <>
-                <RoundAction icon="phone-off" label={t('Decline')} bg={colors.dangerDeep} color={colors.dangerText} glow={colors.danger} onPress={() => decline()} />
+                <RoundAction icon="phone-off" label={t('Decline')} bg={colors.dangerDeep} color={colors.dangerText} glow={colors.danger} size={actionSize} onPress={() => decline()} />
                 {call.video && (
-                  <View style={{ paddingTop: 10 }}>
-                    <RoundAction icon="video-off" label={t('Audio only')} bg={colors.surfaceHigh} size={52} onPress={() => accept(true)} />
+                  <View style={{ paddingTop: compact ? 4 : 10 }}>
+                    <RoundAction icon="video-off" label={t('Audio only')} bg={colors.surfaceHigh} size={Math.round(actionSize * 0.72)} onPress={() => accept(true)} />
                   </View>
                 )}
                 <RoundAction
@@ -472,11 +503,12 @@ function RingingCall() {
                   bg={colors.online}
                   color="#003824"
                   glow={colors.accept}
+                  size={actionSize}
                   onPress={() => accept()}
                 />
               </>
             ) : (
-              <RoundAction icon="phone-off" label={t('Cancel')} bg={colors.dangerDeep} color={colors.dangerText} glow={colors.danger} onPress={hangUp} />
+              <RoundAction icon="phone-off" label={t('Cancel')} bg={colors.dangerDeep} color={colors.dangerText} glow={colors.danger} size={actionSize} onPress={hangUp} />
             )}
           </View>
           {!!call.notice && <Notice text={call.notice} />}
@@ -498,6 +530,29 @@ function Notice({ text }: { text: string }) {
 }
 
 const TOAST_MS = 4500;
+/** How long the controls a tap brought up stay before they fade away over a shared screen. */
+const CONTROLS_HIDE_MS = 4000;
+/** One duration and one curve for the controls: they fade, and the stage and its pills follow them. */
+const CHROME_MS = 240;
+const CHROME_EASE = 'cubic-bezier(0.2, 0, 0, 1)';
+
+/** A style the browser transitions by itself; null on a phone, where Animated does the same work. */
+const webTransition = (...props: string[]) =>
+  Platform.OS === 'web' ? { transition: props.map((p) => `${p} ${CHROME_MS}ms ${CHROME_EASE}`).join(', ') } : null;
+
+/**
+ * The controls' fade as one value: null in the browser, where the transition above is enough, and an
+ * Animated value on a phone, which the stage padding rides too (padding can't be driven natively).
+ */
+function useChromeFade(hidden: boolean) {
+  const web = Platform.OS === 'web';
+  const [fade] = useState(() => new Animated.Value(hidden ? 0 : 1));
+  useEffect(() => {
+    if (web) return;
+    Animated.timing(fade, { toValue: hidden ? 0 : 1, duration: CHROME_MS, easing: Easing.out(Easing.cubic), useNativeDriver: false }).start();
+  }, [hidden, fade, web]);
+  return web ? null : fade;
+}
 
 /**
  * Messages that arrive in the call chat while it is closed: a short card above the controls that
@@ -592,6 +647,9 @@ function ActiveCall() {
   const insets = useSafeAreaInsets();
   // Tap the stage to hide the controls (less visual noise), tap again to bring them back.
   const [controlsHidden, setControlsHidden] = useState(false);
+  // They fade instead of snapping (user request), on phones as well as in the browser.
+  const fade = useChromeFade(controlsHidden);
+  const chrome = fade ? { opacity: fade } : { opacity: controlsHidden ? 0 : 1, ...webTransition('opacity') };
   /** I chose not to see my own camera (it still goes out to the others). */
   const [selfHidden, setSelfHidden] = useState(false);
   // One panel at a time.
@@ -620,11 +678,6 @@ function ActiveCall() {
   const stageBox = { width: Math.max(0, stage.width - stageEnd), height: stage.height };
   const [dockHeight, setDockHeight] = useState(180);
   const [headerHeight, setHeaderHeight] = useState(116);
-  // Plain opacity (+ a CSS fade on web); Animated's JS driver doesn't apply reliably on web here.
-  const chrome = {
-    opacity: controlsHidden ? 0 : 1,
-    ...(Platform.OS === 'web' ? ({ transitionProperty: 'opacity', transitionDuration: '220ms' } as object) : {}),
-  };
   const chromePointer = controlsHidden ? 'none' : 'box-none';
   const elapsed = useElapsed(call.answeredAt);
   // Each participant announces when their video slot carries camera or screen.
@@ -684,16 +737,34 @@ function ActiveCall() {
   const shownRemote = call.remotes.find((r) => r.userId === shownScreen);
   // A full-width shared screen takes the whole stage: the people strip collapses and is not shown,
   // so the viewer can watch the stream without the tiles beside it.
+  // Someone's screen fills the stage: the controls a tap brings up fade away by themselves, so the
+  // shared screen is never left half covered (user request). An open panel keeps them up.
+  useEffect(() => {
+    if (controlsHidden || panel || !shownScreen) return;
+    const id = setTimeout(() => setControlsHidden(true), CONTROLS_HIDE_MS);
+    return () => clearTimeout(id);
+  }, [controlsHidden, panel, shownScreen]);
   const fullWidth = !!shownScreen && fullWidthSharer === shownScreen;
   const toggleFullWidth = () => setFullWidthSharer((current) => (current === shownScreen ? null : shownScreen));
   // One-to-one video: their camera fills the screen and mine floats in a corner.
   const fullBleed = !shownScreen && !!single && hasVideo(single) && !single.screen;
   // The front/back toggle sits on that floating preview; without it, it stays in the dock.
   const selfViewShown = fullBleed && camOn && !selfHidden;
-  // With the controls hidden, the stage takes the room they leave.
+  // With the controls hidden, the stage takes the room they leave. Both pads ride the fade above, so
+  // the video grows with the controls instead of jumping (user report).
   // Clear the status pill and tags (they can wrap to a second line), with a little air below them.
-  const padTop = controlsHidden ? insets.top + 12 : insets.top + headerHeight + 6;
-  const padBottom = controlsHidden ? insets.bottom + 12 : dockHeight + insets.bottom + 4;
+  const padTopShown = insets.top + headerHeight + 6;
+  const padTopHidden = insets.top + 12;
+  const padBottomShown = dockHeight + insets.bottom + 4;
+  const padBottomHidden = insets.bottom + 12;
+  // The resting number the browser transitions, or the interpolation the phone animates.
+  const pad = (shown: number, hidden: number) =>
+    fade ? fade.interpolate({ inputRange: [0, 1], outputRange: [hidden, shown] }) : controlsHidden ? hidden : shown;
+  const padTop = pad(padTopShown, padTopHidden);
+  const padBottom = pad(padBottomShown, padBottomHidden);
+  const stagePad = { paddingTop: padTop, paddingBottom: padBottom, ...webTransition('padding-top', 'padding-bottom') };
+  // Overlays that only take a number (the floating self view) use the resting position.
+  const padBottomNow = controlsHidden ? padBottomHidden : padBottomShown;
 
   // Meeting rooms are invited to by sharing their link; group calls by picking people.
   const canInvite = call.isGroup && !call.guest && !call.room;
@@ -763,8 +834,7 @@ function ActiveCall() {
             ownerSpeaking={shownScreen === 'local' ? !!call.localSpeaking : !!shownRemote?.speaking}
             people={people}
             version={call.mediaVersion}
-            padTop={padTop}
-            padBottom={padBottom}
+            padStyle={stagePad}
             fullWidth={fullWidth}
             onToggleFullWidth={toggleFullWidth}
             onClose={() => {
@@ -776,21 +846,20 @@ function ActiveCall() {
         ) : fullBleed && single ? (
           <View style={{ flex: 1, borderWidth: 2, borderColor: single.speaking ? colors.amber : 'transparent' }}>
             <VideoView key={`remote-${single.userId}-${call.mediaVersion}`} stream={single.stream} />
-            <View style={[styles.glass, { position: 'absolute', start: 16, bottom: padBottom, paddingHorizontal: 12, paddingVertical: 5, flexDirection: 'row', gap: 6, alignItems: 'center' }]}>
+            <Animated.View style={[styles.glass, { position: 'absolute', start: 16, bottom: padBottom, paddingHorizontal: 12, paddingVertical: 5, flexDirection: 'row', gap: 6, alignItems: 'center' }, webTransition('bottom') as object]}>
               <T variant="label">{callName(call, single.user)}</T>
               {single.muted && <Icon name="mic-off" size={14} color={colors.danger} />}
               <NetBadge q={single.net} size={18} label={netBadgeLabel(single.net, single.user?.displayName)} />
-            </View>
-            <View style={{ position: 'absolute', end: 16, bottom: padBottom }}>
+            </Animated.View>
+            <Animated.View style={[{ position: 'absolute', end: 16, bottom: padBottom }, webTransition('bottom') as object]}>
               <LevelMeter stream={single.stream} speaking={single.speaking} version={call.mediaVersion} height={36} />
-            </View>
+            </Animated.View>
           </View>
         ) : (
           <TileGrid
             people={people}
             version={call.mediaVersion}
-            padTop={padTop}
-            padBottom={padBottom}
+            padStyle={stagePad}
             onFlip={flipOnTile ? flipCamera : undefined}
             onOpenScreen={(id) => {
               setDismissedScreen(null);
@@ -809,7 +878,7 @@ function ActiveCall() {
 
       <SafeAreaView style={[{ flex: 1, justifyContent: 'space-between' }, stageEnd ? { marginEnd: stageEnd } : null]} pointerEvents="box-none">
         {/* Top status */}
-        <View
+        <Animated.View
           style={[{ padding: 16, gap: 8, alignItems: 'flex-start' }, chrome]}
           pointerEvents={chromePointer}
           onLayout={(e) => setHeaderHeight(e.nativeEvent.layout.height)}>
@@ -864,12 +933,12 @@ function ActiveCall() {
               </View>
             )}
           </View>
-        </View>
+        </Animated.View>
 
         {/* Bottom controls */}
         {/* Only the buttons set the stage's bottom space: notices and the raised-hand banner float above
             them over the video, so they never push the stage around. */}
-        <View style={[{ padding: wide ? 12 : 8, gap: 10, alignItems: 'center' }, chrome]} pointerEvents={chromePointer}>
+        <Animated.View style={[{ padding: wide ? 12 : 8, gap: 10, alignItems: 'center' }, chrome]} pointerEvents={chromePointer}>
           {!!call.notice && (
             <View style={[styles.glass, { paddingHorizontal: 14, paddingVertical: 8, maxWidth: '100%' }]}>
               <Notice text={call.notice} />
@@ -1034,14 +1103,14 @@ function ActiveCall() {
           </View>
           )}
           </View>
-        </View>
+        </Animated.View>
       </SafeAreaView>
 
       {selfViewShown && (
         <SelfView
           stage={stage}
           topReserve={controlsHidden ? insets.top + 16 : insets.top + (wide ? 16 : 108)}
-          bottomReserve={padBottom + 4}
+          bottomReserve={padBottomNow + 4}
           speaking={!!call.localSpeaking}
           onPress={() => {}}>
           <VideoView key={`local-cam-${call.mediaVersion}-${single?.stream?.id ?? ''}`} stream={call.localStream} mirror={call.frontCamera} muted overlay />
@@ -1274,26 +1343,27 @@ function SelfView({
   );
 }
 
-/** The small round handle on a dock button's corner that opens its menu. */
+/** The small round handle on a dock button's corner that opens its menu.
+ *  It sits inside the circle: hanging below it pushed into the dock's label row (user report). */
 function ChevronBadge({ label, open, onPress }: { label: string; open: boolean; onPress: () => void }) {
   return (
-    <View style={{ position: 'absolute', end: -4, bottom: -4 }}>
+    <View style={{ position: 'absolute', end: 0, bottom: 0 }}>
       <Tooltip label={label} side="bottom">
         <Pressable
           accessibilityLabel={label}
           onPress={onPress}
           hitSlop={6}
           style={({ pressed, hovered }: any) => ({
-            width: 24,
-            height: 24,
-            borderRadius: 12,
+            width: 22,
+            height: 22,
+            borderRadius: 11,
             borderWidth: 2,
             borderColor: colors.canvas,
             backgroundColor: open ? colors.amber : pressed || hovered ? colors.surfaceHighest : colors.surfaceHigh,
             alignItems: 'center',
             justifyContent: 'center',
           })}>
-          <Icon name={open ? 'chevron-down' : 'chevron-up'} size={13} color={open ? colors.onAmber : colors.text} />
+          <Icon name={open ? 'chevron-down' : 'chevron-up'} size={12} color={open ? colors.onAmber : colors.text} />
         </Pressable>
       </Tooltip>
     </View>
@@ -1602,12 +1672,17 @@ function MicPanel({ onClose, bottom, anchorX, stageWidth }: { onClose: () => voi
 
 type MenuItem = { icon?: IconName; hand?: boolean; label: string; active?: boolean; badge?: number; onPress: () => void; /** Spans both columns. */ full?: boolean };
 
-/** One column of the phone dock: a round control with its name underneath. */
+/** One column of the phone dock: a round control with its name underneath.
+ *  Every column is the same width and the name stays inside it, so the six buttons line up. */
 function DockTile({ label, on, danger, children }: { label: string; on?: boolean; danger?: boolean; children: ReactNode }) {
   return (
-    <View style={{ flex: 1, alignItems: 'center', gap: 6 }}>
+    <View style={{ flex: 1, minWidth: 0, alignItems: 'center', gap: 7 }}>
       {children}
-      <T variant="labelSm" color={danger ? colors.danger : on ? colors.amberText : colors.textMuted} numberOfLines={1}>
+      <T
+        variant="labelSm"
+        color={danger ? colors.danger : on ? colors.amberText : colors.textMuted}
+        numberOfLines={1}
+        style={{ alignSelf: 'stretch', textAlign: 'center' }}>
         {label}
       </T>
     </View>
@@ -1943,19 +2018,19 @@ function tileLayout(n: number, width: number, height: number, gap: number) {
 }
 
 /** Everyone as tiles, me first (Google Meet style). */
-function TileGrid({ people, version, padTop, padBottom, onOpenScreen, onFlip }: { people: Person[]; version: number; padTop: number; padBottom: number; onOpenScreen: (id: string) => void; onFlip?: () => void }) {
+function TileGrid({ people, version, padStyle, onOpenScreen, onFlip }: { people: Person[]; version: number; padStyle: object; onOpenScreen: (id: string) => void; onFlip?: () => void }) {
   const [area, setArea] = useState({ width: 0, height: 0 });
   const gap = 10;
   const { w, h } = tileLayout(people.length, area.width, area.height, gap);
   return (
-    <View style={{ flex: 1, paddingTop: padTop, paddingBottom: padBottom, paddingHorizontal: 10 }}>
+    <Animated.View style={[{ flex: 1, paddingHorizontal: 10 }, padStyle]}>
       <View
         style={{ flex: 1, flexDirection: 'row', flexWrap: 'wrap', alignContent: 'center', justifyContent: 'center', gap }}
         onLayout={(e) => setArea({ width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height })}>
         {area.width > 0 &&
           people.map((p) => <Tile key={p.id} p={p} width={w} height={h} version={version} onOpenScreen={p.screen ? () => onOpenScreen(p.id) : undefined} onFlip={p.self ? onFlip : undefined} />)}
       </View>
-    </View>
+    </Animated.View>
   );
 }
 
@@ -1967,8 +2042,7 @@ function ScreenStage({
   ownerSpeaking,
   people,
   version,
-  padTop,
-  padBottom,
+  padStyle,
   fullWidth,
   onToggleFullWidth,
   onClose,
@@ -1978,8 +2052,7 @@ function ScreenStage({
   ownerSpeaking: boolean;
   people: Person[];
   version: number;
-  padTop: number;
-  padBottom: number;
+  padStyle: object;
   fullWidth: boolean;
   onToggleFullWidth: () => void;
   onClose: () => void;
@@ -2012,7 +2085,7 @@ function ScreenStage({
     </ScrollView>
   );
   return (
-    <View style={{ flex: 1, minHeight: 0, flexDirection: wide && !fullWidth ? 'row' : 'column', paddingTop: padTop, paddingBottom: padBottom, paddingHorizontal: fullWidth ? 0 : 10, gap: fullWidth ? 0 : 10 }}>
+    <Animated.View style={[{ flex: 1, minHeight: 0, flexDirection: wide && !fullWidth ? 'row' : 'column', paddingHorizontal: fullWidth ? 0 : 10, gap: fullWidth ? 0 : 10 }, padStyle]}>
       <View style={{ flex: 1, minWidth: 0, minHeight: 0, borderRadius: fullWidth ? 0 : radius.lg, overflow: 'hidden', backgroundColor: '#05070A', borderWidth: fullWidth ? 0 : 2, borderColor: ownerSpeaking ? colors.amber : colors.hairline }}>
         {!!stream && <VideoView key={`focused-screen-${ownerName}-${version}-${returnedAt}`} stream={stream} contain />}
         <View style={{ position: 'absolute', top: 12, end: 12, flexDirection: 'row', gap: 8 }}>
@@ -2041,7 +2114,7 @@ function ScreenStage({
         </View>
       </View>
       {strip}
-    </View>
+    </Animated.View>
   );
 }
 

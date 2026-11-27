@@ -234,7 +234,15 @@ export function applyTheme(next: ThemeMode) {
     // The sideways filter row's bar (public/index.html) reads its colors from these variables.
     sheet.textContent = `html, body { background-color: ${colors.canvas}; }
       :root { --flock-hscroll: ${colors.textDim}; --flock-hscroll-hover: ${colors.amber}; }
-      ::-webkit-scrollbar-thumb { background: ${colors.surfaceHighest}; border-color: ${colors.canvas}; }`;
+      ::-webkit-scrollbar-thumb { background: ${colors.surfaceHighest}; border-color: ${colors.canvas}; }
+      /* Chat thread: the bar is not drawn, and while older messages sit above the viewport the top
+         edge fades out, so it reads as "there is more" instead of a hard cut. */
+      [data-chat-scroll] { scrollbar-width: none; -ms-overflow-style: none; }
+      [data-chat-scroll]::-webkit-scrollbar { width: 0; height: 0; display: none; }
+      [data-chat-scroll][data-scrolled='1'] {
+        -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 18px);
+        mask-image: linear-gradient(to bottom, transparent 0, #000 18px);
+      }`;
   }
   listeners.forEach((fn) => fn());
 }

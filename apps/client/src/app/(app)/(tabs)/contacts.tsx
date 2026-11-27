@@ -95,6 +95,8 @@ function PersonRow({
     return () => anim.stop();
   }, [open, progress]);
   const barShown = compact && (open || closing);
+  // The second line is the one a narrow column cuts; the tooltip has it whole.
+  const subtitle = `${person.title ? person.title : `@${person.username}`} · ${lastSeenLabel(person.online, person.lastSeen)}`;
 
   return (
     <View style={{ borderRadius: radius.lg }}>
@@ -138,14 +140,15 @@ function PersonRow({
           <T variant="labelLg" style={{ fontSize: 16 }} numberOfLines={1}>
             {person.displayName}
           </T>
-          <T
-            variant="body"
-            color={person.online ? colors.teal : colors.textMuted}
-            numberOfLines={1}
-          >
-            {person.title ? `${person.title} · ` : `@${person.username} · `}
-            {lastSeenLabel(person.online, person.lastSeen)}
-          </T>
+          <Tooltip label={subtitle} style={{ alignSelf: 'stretch' }}>
+            <T
+              variant="body"
+              color={person.online ? colors.teal : colors.textMuted}
+              numberOfLines={1}
+            >
+              {subtitle}
+            </T>
+          </Tooltip>
         </View>
         {compact ? (
           <Animated.View
