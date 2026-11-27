@@ -37,6 +37,7 @@ import { colors, fonts, radius } from '@/theme';
 import { Avatar, ConversationAvatar, MegaphoneIcon } from './avatar';
 import { EmojiPicker } from './emoji-picker';
 import { LinkedText } from './linked-text';
+import { TypingDots } from './typing-dots';
 import { MediaViewer } from './media-viewer';
 import { canOwnerRemove, MessageMenu } from './message-menu';
 import { ForwardDialog } from './message-menu';
@@ -361,6 +362,9 @@ export function ChatThread({
         <FlatList
           ref={listRef}
           inverted
+          // Web: no scrollbar inside the thread, and a soft fade at the top edge while there is
+          // older history above (both styled in theme.ts).
+          {...(Platform.OS === 'web' ? ({ dataSet: { chatScroll: '1', scrolled: scrolledUp ? '1' : '0' } } as object) : {})}
           data={rows}
           keyExtractor={(r) => (r.type === 'day' ? r.key : r.message.id)}
           onEndReached={() => hasMore && chatStore.loadOlder(conversationId)}
@@ -386,7 +390,12 @@ export function ChatThread({
             ) : item.type === 'system' ? (
               <SystemNote message={item.message} />
             ) : item.type === 'call' ? (
-              <CallNote message={item.message} meId={user?.id} />
+              <CallNote
+                message={item.message}
+                meId={user?.id}
+                menuOpen={menu?.message.id === item.message.id}
+                onOpenMenu={(point) => setMenu({ message: item.message, point })}
+              />
             ) : (
               <Bubble
                 row={item}
@@ -908,7 +917,7 @@ function ThreadHeader({
       }}>
       {onBack && <IconButton name="arrow-left" label={t('Back')} onPress={onBack} iconSize={24} />}
       <Pressable
-        onPress={conversation.isSaved ? undefined : onToggleDetails ?? (() => router.push(`/info/${conversation.id}`))}
+        onPress={onToggleDetails ?? (conversation.isSaved ? undefined : () => router.push(`/info/${conversation.id}`))}
         accessibilityLabel={conversation.type === 'group' ? t('Group Info') : conversation.type === 'channel' ? t('Channel Info') : t('Contact Info')}
         style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1, minWidth: 0 }}>
         <ConversationAvatar conversation={conversation} meId={user?.id} size={desktop ? 48 : 44} />
@@ -952,7 +961,7 @@ function ThreadHeader({
           <IconButton name="phone" label={t('Call')} onPress={() => startCall(conversation, false)} iconSize={20} />
         </Tooltip>
       )}
-      {onToggleDetails && desktop && !conversation.isSaved && (
+      {onToggleDetails && desktop && (
         <Tooltip label={t('Toggle details')}>
           <IconButton
             name="sidebar"
@@ -1096,13 +1105,50 @@ function SystemNote({ message }: { message: Message }) {
   );
 }
 
-/** A finished call, as a compact centered row: icon, what kind of call it was, and how it ended. */
-function CallNote({ message, meId }: { message: Message; meId: string | undefined }) {
+/**
+ * A finished call, as a compact centered row: icon, what kind of call it was, and how it ended.
+ * It opens the same message menu as a bubble (reply, react, delete), so a call log can be answered
+ * or cleared from the chat instead of sitting there for good (user request).
+ */
+function CallNote({
+  message,
+  meId,
+  menuOpen,
+  onOpenMenu,
+}: {
+  message: Message;
+  meId: string | undefined;
+  menuOpen: boolean;
+  onOpenMenu: (point: { x: number; y: number }) => void;
+}) {
   const line = callLine(message.call ?? parseCallLog(message, meId));
   const tone = line.missed ? colors.danger : colors.textMuted;
+  const openAtPointer = (event: any) => {
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
+    onOpenMenu({ x: event?.clientX ?? 24, y: event?.clientY ?? 120 });
+  };
+  const openAtTouch = (event: any) =>
+    onOpenMenu({ x: event?.nativeEvent?.pageX ?? 24, y: event?.nativeEvent?.pageY ?? 120 });
   return (
     <View style={{ alignItems: 'center', marginVertical: 8, paddingHorizontal: 24 }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.surface, borderRadius: radius.pill, paddingHorizontal: 14, paddingVertical: 7 }}>
+      <Pressable
+        onLongPress={openAtTouch}
+        delayLongPress={350}
+        accessibilityRole="button"
+        accessibilityLabel={t('Message actions')}
+        {...(Platform.OS === 'web' ? ({ onContextMenu: openAtPointer } as object) : {})}
+        style={({ hovered }: any) => ({
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 8,
+          backgroundColor: hovered ? colors.surfaceHigh : colors.surface,
+          borderRadius: radius.pill,
+          borderWidth: 1,
+          borderColor: menuOpen ? colors.amber : 'transparent',
+          paddingHorizontal: 14,
+          paddingVertical: 7,
+        })}>
         <Icon name={line.icon} size={15} color={line.missed ? colors.danger : colors.teal} />
         <T variant="bodySm" color={line.missed ? colors.danger : colors.text}>
           {line.title}
@@ -1115,7 +1161,8 @@ function CallNote({ message, meId }: { message: Message; meId: string | undefine
         <T variant="bodySm" color={colors.textDim}>
           {clock(message.createdAt)}
         </T>
-      </View>
+      </Pressable>
+      <ReactionChips message={message} mine={false} meId={meId} center />
     </View>
   );
 }
@@ -1141,6 +1188,48 @@ function DayDivider({ label, desktop }: { label: string; desktop: boolean }) {
         </T>
       </View>
       {desktop && <View style={{ flex: 1, height: 1, backgroundColor: colors.surfaceHigh }} />}
+    </View>
+  );
+}
+
+/** The emoji chips under a message: tapping one toggles my own reaction. */
+function ReactionChips({ message, mine, meId, center }: { message: Message; mine: boolean; meId?: string; center?: boolean }) {
+  const reactions = (message.reactions ?? []).filter((reaction) => reaction.userIds.length > 0);
+  if (!reactions.length) return null;
+  return (
+    <View
+      style={{
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 6,
+        justifyContent: center ? 'center' : mine ? 'flex-end' : 'flex-start',
+        ...(center ? { alignSelf: 'center', marginTop: 6 } : null),
+      }}>
+      {reactions.map((r) => {
+        const own = !!meId && r.userIds.includes(meId);
+        return (
+          <Pressable
+            key={r.emoji}
+            onPress={() => void chatStore.react(message, r.emoji)}
+            accessibilityLabel={r.emoji}
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 5,
+              paddingHorizontal: 9,
+              paddingVertical: 3,
+              borderRadius: radius.pill,
+              backgroundColor: own ? colors.amberTint : colors.rail,
+              borderWidth: 1,
+              borderColor: own ? colors.amber : colors.border,
+            }}>
+            <T style={{ fontSize: 15, lineHeight: 20 }}>{r.emoji}</T>
+            <T variant="label" color={own ? colors.amberText : colors.textMuted}>
+              {num(r.userIds.length)}
+            </T>
+          </Pressable>
+        );
+      })}
     </View>
   );
 }
@@ -1193,22 +1282,23 @@ function Bubble({
   // A photo or video fills its bubble: only the bubble's thin edge shows around it (no padding).
   const framedMedia =
     m.kind === 'file' && !!m.attachment && !m.attachment.expired && !!m.attachment.url && /^(image|video)\//.test(m.attachment.mimeType);
-  // Pending/failed messages don't exist on the server yet, so they have no menu.
+  // Pending messages don't exist on the server yet; a failed one has a small menu of its own
+  // (copy its text, or cancel the send).
   const canAct = !m.pending && !m.failed;
+  const menuable = canAct || !!m.failed;
   const web = Platform.OS === 'web';
-  const reactions = (m.reactions ?? []).filter((reaction) => reaction.userIds.length > 0);
   const editedAt = m.editedAt;
   const isPinned = !!m.pinnedAt;
 
   const openAtPointer = (event: any) => {
-    if (!canAct) return;
+    if (!menuable) return;
     event?.preventDefault?.();
     event?.stopPropagation?.();
     onOpenMenu({ x: event?.clientX ?? event?.nativeEvent?.pageX ?? 0, y: event?.clientY ?? event?.nativeEvent?.pageY ?? 0 });
   };
   // On the phone, tapping the empty space beside a bubble opens the same menu.
   const openAtTouch = (event: any) => {
-    if (!canAct || selectionMode) return;
+    if (!menuable || selectionMode) return;
     onOpenMenu({
       x: event?.clientX ?? event?.nativeEvent?.pageX ?? event?.nativeEvent?.locationX ?? 24,
       y: event?.clientY ?? event?.nativeEvent?.pageY ?? event?.nativeEvent?.locationY ?? 120,
@@ -1220,7 +1310,7 @@ function Bubble({
   };
   // The hover "more" button anchors the menu at its own press point.
   const openFromButton = (event: any) => {
-    if (!canAct) return;
+    if (!menuable) return;
     onOpenMenu({ x: event?.nativeEvent?.pageX ?? event?.clientX ?? 24, y: event?.nativeEvent?.pageY ?? event?.clientY ?? 120 });
   };
 
@@ -1244,12 +1334,15 @@ function Bubble({
     </Tooltip>
   );
   // Hover actions belong to the desktop layout; phones use long-press selection instead.
-  const hoverControls = web && desktop && canAct && !selectionMode && (
+  // A message that failed to send only offers its menu (no reply, no picking).
+  const hoverControls = web && desktop && menuable && !selectionMode && (
     <View style={{ flexDirection: 'row', alignSelf: 'center', gap: 4 }}>
-      {hoverButton('corner-up-left', t('Reply'), onReply)}
+      {canAct && hoverButton('corner-up-left', t('Reply'), onReply)}
       {hoverButton('more-horizontal', t('Message actions'), openFromButton)}
     </View>
   );
+  // Long-press on a phone: pick the message for multi-select, or open a failed one's menu.
+  const longPress = selectionMode && canAct ? toggleSelection : !web || !desktop ? (m.failed ? openAtTouch : canAct ? toggleSelection : undefined) : undefined;
 
   return (
     <Pressable
@@ -1303,9 +1396,9 @@ function Bubble({
         )}
         <Pressable
           onPress={selectionMode ? toggleSelection : m.failed ? () => chatStore.retry(m) : (selectionMode ? undefined : () => {})}
-          onLongPress={canAct ? (selectionMode ? toggleSelection : (!web || !desktop ? toggleSelection : undefined)) : undefined}
+          onLongPress={longPress}
           delayLongPress={350}
-          {...(web && canAct && !selectionMode ? ({ onDoubleClick: onReply, onContextMenu: openAtPointer } as object) : {})}
+          {...(web && menuable && !selectionMode ? ({ onDoubleClick: canAct ? onReply : undefined, onContextMenu: openAtPointer } as object) : {})}
           style={[
             {
               backgroundColor: bubbleBg,
@@ -1365,40 +1458,19 @@ function Bubble({
           ) : m.kind === 'call_invite' ? (
             <CallInviteCard message={m} mine={mine} />
           ) : (
-            <LinkedText variant="bodyLg" color={fg} linkColor={mine ? '#5A3A00' : colors.amberText} style={{ fontSize: 16, lineHeight: 24 }} selectable={desktop}>
+            <LinkedText
+              variant="bodyLg"
+              color={fg}
+              linkColor={mine ? '#5A3A00' : colors.amberText}
+              codeBackground={mine ? 'rgba(61,38,0,0.12)' : colors.surface}
+              codeColor={fg}
+              style={{ fontSize: 16, lineHeight: 24 }}
+              selectable={desktop}>
               {m.body}
             </LinkedText>
           )}
         </Pressable>
-        {reactions.length > 0 && (
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, justifyContent: mine ? 'flex-end' : 'flex-start' }}>
-            {reactions.map((r) => {
-              const own = !!meId && r.userIds.includes(meId);
-              return (
-                <Pressable
-                  key={r.emoji}
-                  onPress={() => void chatStore.react(m, r.emoji)}
-                  accessibilityLabel={r.emoji}
-                  style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    gap: 5,
-                    paddingHorizontal: 9,
-                    paddingVertical: 3,
-                    borderRadius: radius.pill,
-                    backgroundColor: own ? colors.amberTint : colors.rail,
-                    borderWidth: 1,
-                    borderColor: own ? colors.amber : colors.border,
-                  }}>
-                  <T style={{ fontSize: 15, lineHeight: 20 }}>{r.emoji}</T>
-                  <T variant="label" color={own ? colors.amberText : colors.textMuted}>
-                    {num(r.userIds.length)}
-                  </T>
-                </Pressable>
-              );
-            })}
-          </View>
-        )}
+        <ReactionChips message={m} mine={mine} meId={meId} />
         {/* Every message shows its own time; pin/edited state lives in the same row. */}
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 4 }}>
           {isPinned && <PushPin size={11} color={colors.textMuted} />}
@@ -1583,6 +1655,8 @@ function AttachmentCard({ message, mine, framed }: { message: Message; mine: boo
           variant="bodyLg"
           color={mine ? colors.onAmber : colors.text}
           linkColor={mine ? '#5A3A00' : colors.amberText}
+          codeBackground={mine ? 'rgba(61,38,0,0.12)' : colors.surface}
+          codeColor={mine ? colors.onAmber : colors.text}
           style={{ fontSize: 16, lineHeight: 24, ...(framed ? { paddingHorizontal: 14, paddingTop: 8, paddingBottom: 10 } : {}) }}>
           {caption}
         </LinkedText>
@@ -1686,11 +1760,7 @@ function TypingIndicator({ conversation }: { conversation: Conversation }) {
   const names = typing.map((id) => conversation.members.find((m) => m.id === id)?.displayName.split(' ')[0]).filter(Boolean);
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 24, paddingBottom: 6 }}>
-      <View style={{ flexDirection: 'row', gap: 3 }}>
-        {[0.4, 0.7, 1].map((o) => (
-          <View key={o} style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: colors.amber, opacity: o }} />
-        ))}
-      </View>
+      <TypingDots />
       <T variant="bodySm" color={colors.textMuted}>
         {t(names.length > 1 ? '{names} are typing…' : '{names} is typing…', { names: names.join(isRTL() ? '، ' : ', ') })}
       </T>
@@ -1767,16 +1837,27 @@ function Composer({
     });
   const holding = useRef(false);
   const heldPress = useRef(false);
+  // A recording locked by swiping up keeps going after the finger is lifted (user request).
+  const [locked, setLocked] = useState(false);
+  const lockedRef = useRef(false);
+  const holdStartY = useRef<number | null>(null);
+  const setLock = (value: boolean) => {
+    lockedRef.current = value;
+    setLocked(value);
+  };
   const showMic = canRecordVoice && filesAllowed && !text.trim() && !staged && !editing && !uploading && !voiceClip;
   const stopToPreview = async () => {
     const clip = await voice.stop();
     if (clip) setVoiceClip(clip);
     else setUploadError(t('Hold the microphone button to record'));
+    setLock(false);
   };
-  const startHold = async () => {
+  const startHold = async (event?: any) => {
     if (!showMic) return;
     holding.current = true;
     heldPress.current = true;
+    setLock(false);
+    holdStartY.current = event?.nativeEvent?.pageY ?? event?.nativeEvent?.clientY ?? null;
     // First use: the permission prompt would cut the hold short, so this touch only asks for it.
     try {
       if (!(await microphoneAllowed())) {
@@ -1797,13 +1878,29 @@ function Composer({
   };
   const endHold = () => {
     holding.current = false;
-    if (voice.recording) void stopToPreview();
+    // Locked: lifting the finger only ends the hold, not the recording.
+    if (voice.recording && !lockedRef.current) void stopToPreview();
     // The click that may follow this release must not send; one that never comes (a long touch
     // has none) mustn't swallow the next real tap either.
     setTimeout(() => {
       heldPress.current = false;
     }, 400);
   };
+  // Web: a finger (or the mouse) dragged up while recording locks it, so letting go keeps it going.
+  useEffect(() => {
+    if (Platform.OS !== 'web' || !voice.recording || locked) return;
+    const onMove = (event: PointerEvent) => {
+      const from = holdStartY.current;
+      if (from == null || lockedRef.current) return;
+      if (from - event.clientY > 60) {
+        lockedRef.current = true;
+        setLocked(true);
+      }
+    };
+    window.addEventListener('pointermove', onMove);
+    return () => window.removeEventListener('pointermove', onMove);
+  }, [voice.recording, locked]);
+
   const startVoice = async () => {
     setUploadError('');
     setEmojiOpen(false);
@@ -1854,7 +1951,7 @@ function Composer({
     }
     send();
   };
-  const mainIcon: IconName = voice.recording && desktop ? 'send' : voiceClip ? 'send' : showMic || voice.recording ? 'mic' : editing ? 'check' : 'send';
+  const mainIcon: IconName = voice.recording && (desktop || locked) ? 'send' : voiceClip ? 'send' : showMic || voice.recording ? 'mic' : editing ? 'check' : 'send';
   const mainEnabled = canSend || showMic || voice.recording || !!voiceClip;
 
   useLayoutEffect(() => {
@@ -2229,8 +2326,14 @@ function Composer({
               the first line and stays on the bottom line as the message grows. */}
           {desktop && (
             <View style={lineBox}>
-              {filesAllowed && <IconButton name="paperclip" label={t('Upload file')} onPress={() => void pickFile()} disabled={uploading} color={colors.textMuted} />}
-              <IconButton name="smile" label={t('Emoji')} onPress={toggleEmoji} color={emojiOpen ? colors.amberText : colors.textMuted} />
+              {filesAllowed && (
+                <Tooltip label={t('Upload file')} style={{ alignSelf: 'center' }}>
+                  <IconButton name="paperclip" label={t('Upload file')} onPress={() => void pickFile()} disabled={uploading} color={colors.textMuted} />
+                </Tooltip>
+              )}
+              <Tooltip label={t('Emoji')} style={{ alignSelf: 'center' }}>
+                <IconButton name="smile" label={t('Emoji')} onPress={toggleEmoji} color={emojiOpen ? colors.amberText : colors.textMuted} />
+              </Tooltip>
             </View>
           )}
           {voice.recording && (
@@ -2241,7 +2344,7 @@ function Composer({
                 {`${Math.floor(voice.seconds / 60)}:${String(voice.seconds % 60).padStart(2, '0')}`}
               </T>
               <T variant="bodySm" color={colors.textMuted} numberOfLines={1} style={{ flex: 1 }}>
-                {desktop ? t('Recording… tap send to finish') : t('Recording… let go to finish')}
+                {desktop || locked ? t('Recording… tap send to finish') : t('Recording… let go to finish')}
               </T>
             </View>
           )}
@@ -2310,6 +2413,7 @@ function Composer({
           )}
           {desktop && (
             <View style={lineBox}>
+            <Tooltip label={voice.recording ? t('Send voice message') : showMic ? t('Record a voice message') : editing ? t('Save changes') : t('Send')} style={{ alignSelf: 'center' }}>
             <Pressable
               onPress={mainAction}
               disabled={!mainEnabled}
@@ -2324,13 +2428,14 @@ function Composer({
               }}>
               {savingEdit ? <ActivityIndicator color={colors.onAmber} size="small" /> : <Icon name={mainIcon} size={18} color={mainEnabled ? colors.onAmber : colors.textMuted} />}
             </Pressable>
+            </Tooltip>
             </View>
           )}
         </View>
         {!desktop && (
           <Pressable
             onPress={mainAction}
-            onPressIn={showMic ? () => void startHold() : undefined}
+            onPressIn={showMic ? (event: any) => void startHold(event) : undefined}
             onPressOut={showMic || voice.recording ? endHold : undefined}
             // A long touch fires the browser's context menu, which would end the press (and the
             // recording) after half a second; handling the long press keeps it going. A finger that

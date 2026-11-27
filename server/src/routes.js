@@ -363,7 +363,8 @@ export function createRouter(realtime) {
     if (!emoji || emoji.length > 16 || !/\p{Extended_Pictographic}/u.test(emoji)) return res.status(400).json({ error: 'Pick an emoji' });
     const message = await visibleMessage(req, res);
     if (!message) return;
-    if (message.kind === 'system' || message.kind === 'call') return res.status(400).json({ error: 'You can’t react to this message' });
+    // Call logs take reactions like any other message ("✅ received" on a missed call); group notes don't.
+    if (message.kind === 'system') return res.status(400).json({ error: 'You can’t react to this message' });
     const on = typeof req.body?.on === 'boolean' ? req.body.on : undefined;
     const reactions = await repo.setReaction(message.id, req.userId, emoji, on);
     await realtime.notifyReactions(message.conversation_id, { conversationId: message.conversation_id, messageId: message.id, reactions });

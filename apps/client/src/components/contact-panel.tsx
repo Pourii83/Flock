@@ -77,7 +77,7 @@ export function ConversationInfo({ conversationId, onClose }: { conversationId: 
   return (
     <>
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, height: 72 }}>
-        <T variant="headlineSm">{peer ? t('Contact Info') : isChannel ? t('Channel Info') : t('Group Info')}</T>
+        <T variant="headlineSm">{conversation.isSaved ? t('Saved Messages') : peer ? t('Contact Info') : isChannel ? t('Channel Info') : t('Group Info')}</T>
         <IconButton name="x" label={t('Close panel')} onPress={onClose} />
       </View>
       <ScrollView contentContainerStyle={{ padding: 20, paddingTop: 4, gap: 24 }}>
@@ -118,7 +118,7 @@ export function ConversationInfo({ conversationId, onClose }: { conversationId: 
             active={conversation.pinned}
             onPress={() => chatStore.setPinned(conversation.id, !conversation.pinned)}
           />
-          {!isChannel && !conversation.blocked && <Action icon="phone" label={t('Call')} onPress={() => startCall(conversation, false)} />}
+          {!isChannel && !conversation.blocked && !conversation.isSaved && <Action icon="phone" label={t('Call')} onPress={() => startCall(conversation, false)} />}
         </View>
 
         {/* Secret chats are encrypted per device, so the server can't list what was shared in them. */}

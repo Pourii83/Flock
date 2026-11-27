@@ -72,7 +72,9 @@ export function lastSeenLabel(online: boolean, lastSeen: number | null) {
   if (!lastSeen) return t('Offline');
   const rel = shortTime(lastSeen);
   if (rel === t('now')) return t('Last seen just now');
-  const ago = Date.now() - lastSeen < DAY ? (locale() === 'fa-IR' ? ' پیش' : ' ago') : '';
+  // "ago" belongs to the counted forms (5m, 3h) only: "Yesterday ago" and "Sep 17 ago" are wrong.
+  const counted = Date.now() - lastSeen < 60 * MIN || lastSeen >= startOfDay(Date.now());
+  const ago = counted ? (locale() === 'fa-IR' ? ' پیش' : ' ago') : '';
   return t('Last seen {time}', { time: rel + ago });
 }
 

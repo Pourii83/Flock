@@ -110,17 +110,27 @@ export function VoicePlayer({
         style={{ width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: mine ? 'rgba(61,38,0,0.14)' : colors.amber }}>
         {loading ? <ActivityIndicator color={colors.onAmber} size="small" /> : <Icon name={playing ? 'pause' : 'play'} size={18} color={colors.onAmber} />}
       </Pressable>
-      <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
-        <WaveBars
-          levels={levels}
-          progress={progress}
-          played={mine ? colors.onAmber : colors.amber}
-          rest={mine ? 'rgba(61,38,0,0.32)' : colors.textDim}
-          onSeek={seek}
-        />
-        <T variant="bodySm" color={error ? colors.danger : mine ? '#72521B' : colors.textMuted} style={{ fontVariant: ['tabular-nums'] }}>
-          {error || (playing || time > 0 ? shape : length ? clockOf(length) : t('Voice message'))}
-        </T>
+      {/* Play, the timeline and the time on one line; only a failure gets a line of its own. */}
+      <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <WaveBars
+              levels={levels}
+              progress={progress}
+              played={mine ? colors.onAmber : colors.amber}
+              rest={mine ? 'rgba(61,38,0,0.32)' : colors.textDim}
+              onSeek={seek}
+            />
+          </View>
+          <T variant="bodySm" color={mine ? '#72521B' : colors.textMuted} style={{ fontVariant: ['tabular-nums'] }}>
+            {playing || time > 0 ? shape : length ? clockOf(length) : t('Voice message')}
+          </T>
+        </View>
+        {!!error && (
+          <T variant="bodySm" color={colors.danger} numberOfLines={2}>
+            {error}
+          </T>
+        )}
       </View>
     </View>
   );
