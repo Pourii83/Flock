@@ -45,6 +45,8 @@ export function useVoiceRecorder() {
   const [paused, setPaused] = useState(false);
   const before = useRef(0);
   const pausedNow = useRef(false);
+  // How loud the microphone is right now (0–1), read by the halo around the record button.
+  const meter = useRef<{ ctx: AudioContext; analyser: AnalyserNode; buffer: Uint8Array<ArrayBuffer> } | null>(null);
   const recorder = useRef<MediaRecorder | null>(null);
   const stream = useRef<MediaStream | null>(null);
   const chunks = useRef<Blob[]>([]);
@@ -73,6 +75,8 @@ export function useVoiceRecorder() {
   }, [recording, paused]);
 
   const release = () => {
+    void meter.current?.ctx.close().catch(() => {});
+    meter.current = null;
     stream.current?.getTracks().forEach((track) => track.stop());
     stream.current = null;
     recorder.current = null;
@@ -140,6 +144,15 @@ export function useVoiceRecorder() {
     };
     stream.current = mic;
     recorder.current = rec;
+    try {
+      const ctx = new AudioContext();
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 512;
+      ctx.createMediaStreamSource(mic).connect(analyser);
+      meter.current = { ctx, analyser, buffer: new Uint8Array(analyser.fftSize) };
+    } catch {
+      meter.current = null;
+    }
     startedAt.current = Date.now();
     before.current = 0;
     pausedNow.current = false;
@@ -187,5 +200,15 @@ export function useVoiceRecorder() {
     else release();
   };
 
-  return { recording, paused, seconds, start, stop, cancel, togglePause };
+  /** The microphone's loudness now, 0–1 (0 while paused or when it can't be measured). */
+  const level = () => {
+    const m = meter.current;
+    if (!m || pausedNow.current) return 0;
+    m.analyser.getByteTimeDomainData(m.buffer);
+    let sum = 0;
+    for (const v of m.buffer) sum += (v - 128) * (v - 128);
+    return Math.min(1, Math.sqrt(sum / m.buffer.length) / 40);
+  };
+
+  return { recording, paused, seconds, start, stop, cancel, togglePause, level };
 }

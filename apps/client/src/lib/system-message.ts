@@ -1,3 +1,4 @@
+import { stripInline } from './rich-text';
 import { isRTL, t } from './i18n';
 
 type SystemEvent = { e: string; actor?: string; name?: string; targets?: string[]; what?: string; ref?: string };
@@ -85,12 +86,12 @@ export function systemText(body: string): string {
   }
 }
 
-/** One line of a message for lists and previews: ```code``` fences lose their marks (and a language
+/** One line of a message for lists and previews: ```code``` fences and formatting lose their marks (and a language
  *  word after the opening one), and line breaks fold into spaces. */
 export function plainPreview(body: string | null | undefined): string {
-  return (body ?? '')
-    .replace(/```(?:[A-Za-z0-9+#._-]{1,20}\n)?([\s\S]*?)```/g,(_, code: string) => ` ${code.trim()} `)
-    .replace(/```/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
+  const unfenced = (body ?? '')
+    .replace(/```(?:[A-Za-z0-9+#._-]{1,20}\n)?([\s\S]*?)```/g, (_, code: string) => ` ${code.trim()} `)
+    .replace(/```/g, '');
+  // **bold** and the other formatting marks go too; a spoiler stays hidden.
+  return stripInline(unfenced).replace(/\s+/g, ' ').trim();
 }

@@ -5,15 +5,18 @@ import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentRef } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentRef, type ReactNode } from 'react';
 import {
   ActivityIndicator,
+  Animated,
+  Easing,
   FlatList,
   Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
   TextInput,
+  useWindowDimensions,
   View,
   type TextInputInstance,
 } from 'react-native';
@@ -30,6 +33,7 @@ import { callLine, parseCallLog } from '@/lib/call-log';
 import { confirm } from '@/lib/confirm';
 import { clearDraft, setDraft, useDraft } from '@/lib/drafts';
 import { ensureDevice, safetyCode, useDevice, useSecretStatus } from '@/lib/e2e';
+import { toggleMarker } from '@/lib/rich-text';
 import { pinNoteRef, quoteText, systemText } from '@/lib/system-message';
 import type { Conversation, Message } from '@/lib/types';
 import { useAuth } from '@/state/auth';
@@ -123,7 +127,7 @@ export function ChatThread({
   const [forwardOpen, setForwardOpen] = useState(false);
   const listRef = useRef<FlatList<Row>>(null);
   const scrollRetry = useRef(0);
-  const timers = useRef<{ highlight?: ReturnType<typeof setTimeout>; error?: ReturnType<typeof setTimeout> }>({});
+  const timers = useRef<{ highlight?: ReturnType<typeof setTimeout>; error?: ReturnType<typeof setTimeout>; settle?: ReturnType<typeof setTimeout>[] }>({});
 
   // Parents key this component by conversationId, so local state resets on switch.
   useEffect(() => {
@@ -157,9 +161,25 @@ export function ChatThread({
   }, [selecting]);
 
   const rows = useMemo(() => buildRows(messages), [messages]);
+  const rowsRef = useRef(rows);
+  useEffect(() => {
+    rowsRef.current = rows;
+  });
   // Floating date over the list while scrolled up: the day of the oldest row on screen.
   const [floatingDay, setFloatingDay] = useState<string | null>(null);
   const [scrolledUp, setScrolledUp] = useState(false);
+  // The "newest messages" button shows while the history is moving and slips away a few seconds after
+  // it stops; scrolling again brings it back (user request).
+  const [scrolling, setScrolling] = useState(false);
+  const scrollIdle = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const noteScroll = () => {
+    setScrolling(true);
+    if (scrollIdle.current) clearTimeout(scrollIdle.current);
+    scrollIdle.current = setTimeout(() => setScrolling(false), 2500);
+  };
+  useEffect(() => () => {
+    if (scrollIdle.current) clearTimeout(scrollIdle.current);
+  }, []);
   const [listTop, setListTop] = useState(0);
   // FlatList needs the same function for its whole life.
   const [onViewable] = useState(() => ({ viewableItems }: { viewableItems: { item: Row; index?: number | null }[] }) => {
@@ -265,17 +285,29 @@ export function ChatThread({
     if (!pendingJump) return;
     const index = rows.findIndex((row) => row.type === 'message' && row.message.id === pendingJump);
     if (index < 0) return;
-    const id = setTimeout(() => {
-      setPendingJump(null);
-      scrollRetry.current = 0;
+    const target = pendingJump;
+    const scrollTo = (animated: boolean) => {
+      const at = rowsRef.current.findIndex((row) => row.type === 'message' && row.message.id === target);
+      if (at < 0) return;
       try {
-        listRef.current?.scrollToIndex({ index, viewPosition: 0.5, animated: true });
+        listRef.current?.scrollToIndex({ index: at, viewPosition: 0.5, animated });
       } catch {
         // Variable-height rows can't always be located; onScrollToIndexFailed takes it from here.
       }
+    };
+    const id = setTimeout(() => {
+      setPendingJump(null);
+      scrollRetry.current = 0;
+      scrollTo(true);
+      // A far jump lands on estimated row heights; once the rows around the target are drawn their real
+      // heights are known, so aim again (twice) to settle exactly on it (user report: replies and quotes
+      // sometimes stopped short). A drag by the user cancels this.
+      timers.current.settle?.forEach(clearTimeout);
+      timers.current.settle = [setTimeout(() => scrollTo(true), 450), setTimeout(() => scrollTo(true), 950)];
     }, 0);
     return () => clearTimeout(id);
   }, [pendingJump, rows]);
+  useEffect(() => () => timers.current.settle?.forEach(clearTimeout), []);
   // "Show in chat" from the info panel's tabs: jump when asked (or right away for a request that
   // was waiting while the phone's info page was open).
   const jumpRef = useRef(jumpTo);
@@ -396,7 +428,11 @@ export function ChatThread({
           onLayout={(e) => setListTop(e.nativeEvent.layout.y)}
           onViewableItemsChanged={onViewable}
           viewabilityConfig={{ itemVisiblePercentThreshold: 10 }}
-          onScroll={(e) => setScrolledUp(e.nativeEvent.contentOffset.y > 120)}
+          onScroll={(e) => {
+            setScrolledUp(e.nativeEvent.contentOffset.y > 120);
+            noteScroll();
+          }}
+          onScrollBeginDrag={() => timers.current.settle?.forEach(clearTimeout)}
           scrollEventThrottle={100}
           onEndReachedThreshold={0.3}
           onScrollToIndexFailed={(info) => {
@@ -457,28 +493,7 @@ export function ChatThread({
         </View>
       )}
       {/* Read back in the history: one tap returns to the newest message. */}
-      {scrolledUp && loadedMessages && (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={t('Go to newest messages')}
-          onPress={() => listRef.current?.scrollToOffset({ offset: 0, animated: true })}
-          style={{
-            position: 'absolute',
-            bottom: 96,
-            end: 16,
-            zIndex: 6,
-            width: 40,
-            height: 40,
-            borderRadius: 20,
-            alignItems: 'center',
-            justifyContent: 'center',
-            backgroundColor: colors.surfaceHighest,
-            borderWidth: 1,
-            borderColor: colors.hairline,
-          }}>
-          <Icon name="arrow-down" size={18} color={colors.text} />
-        </Pressable>
-      )}
+      {loadedMessages && <JumpToNewest visible={scrolledUp && scrolling} onPress={() => listRef.current?.scrollToOffset({ offset: 0, animated: true })} />}
       <TypingIndicator conversation={conversation} />
       {conversation.blocked ? (
         <BlockedBar conversation={conversation} />
@@ -531,6 +546,133 @@ export function ChatThread({
 }
 
 /** Where the composer would be in a channel you only read. */
+/** The bar over the message box while words are selected: each button wraps them in Telegram's mark. */
+function FormatBar({ desktop, onFormat }: { desktop: boolean; onFormat: (marker: string) => void }) {
+  const items: { marker: string; label: string; icon?: IconName; glyph?: ReactNode }[] = [
+    { marker: '**', label: t('Bold'), icon: 'bold' },
+    { marker: '__', label: t('Italic'), icon: 'italic' },
+    { marker: '~~', label: t('Strikethrough'), glyph: <T style={{ fontSize: 16, lineHeight: 20, textDecorationLine: 'line-through', fontFamily: fonts.semibold }}>S</T> },
+    { marker: '||', label: t('Spoiler'), icon: 'eye-off' },
+    { marker: '`', label: t('Monospace'), icon: 'code' },
+  ];
+  return (
+    <View
+      style={{
+        position: 'absolute',
+        bottom: '100%',
+        start: desktop ? 24 : 12,
+        zIndex: 21,
+        marginBottom: 8,
+        flexDirection: 'row',
+        gap: 2,
+        padding: 4,
+        borderRadius: radius.pill,
+        backgroundColor: colors.panel,
+        borderWidth: 1,
+        borderColor: colors.surfaceHigh,
+        ...(Platform.OS === 'web' ? ({ boxShadow: '0 8px 24px rgba(0,0,0,0.35)' } as object) : {}),
+      }}>
+      {items.map((item) => (
+        <Tooltip key={item.marker} label={item.label}>
+          <Pressable
+            onPress={() => onFormat(item.marker)}
+            accessibilityRole="button"
+            accessibilityLabel={item.label}
+            // Keeps the selection in the box: a mouse press here would otherwise take the focus.
+            {...(Platform.OS === 'web' ? ({ onMouseDown: (e: any) => e.preventDefault?.() } as object) : {})}
+            style={({ hovered, pressed }: any) => ({
+              width: 36,
+              height: 36,
+              borderRadius: 18,
+              alignItems: 'center',
+              justifyContent: 'center',
+              backgroundColor: pressed ? colors.surfaceHighest : hovered ? colors.surfaceHigh : 'transparent',
+            })}>
+            {item.glyph ?? <Icon name={item.icon as IconName} size={17} />}
+          </Pressable>
+        </Tooltip>
+      ))}
+    </View>
+  );
+}
+
+/** The round "go to newest" button: it fades and slides in and out instead of popping (user request). */
+function JumpToNewest({ visible, onPress }: { visible: boolean; onPress: () => void }) {
+  const [shown] = useState(() => new Animated.Value(0));
+  const [mounted, setMounted] = useState(visible);
+  if (visible && !mounted) setMounted(true);
+  useEffect(() => {
+    const animation = Animated.timing(shown, { toValue: visible ? 1 : 0, duration: visible ? 180 : 320, easing: Easing.out(Easing.cubic), useNativeDriver: Platform.OS !== 'web' });
+    animation.start(({ finished }) => {
+      if (finished && !visible) setMounted(false);
+    });
+    return () => animation.stop();
+  }, [visible, shown]);
+  if (!mounted) return null;
+  return (
+    <Animated.View
+      pointerEvents={visible ? 'auto' : 'none'}
+      style={{
+        position: 'absolute',
+        bottom: 96,
+        end: 16,
+        zIndex: 6,
+        opacity: shown,
+        transform: [{ translateY: shown.interpolate({ inputRange: [0, 1], outputRange: [10, 0] }) }, { scale: shown.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1] }) }],
+      }}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={t('Go to newest messages')}
+        onPress={onPress}
+        style={({ pressed }) => ({
+          width: 40,
+          height: 40,
+          borderRadius: 20,
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: pressed ? colors.surfaceHigh : colors.surfaceHighest,
+          borderWidth: 1,
+          borderColor: colors.hairline,
+        })}>
+        <Icon name="arrow-down" size={18} color={colors.text} />
+      </Pressable>
+    </Animated.View>
+  );
+}
+
+/** A soft ring behind the record button that swells with the microphone's loudness, like Telegram's. */
+function RecordHalo({ level, paused }: { level: () => number; paused: boolean }) {
+  const [scale] = useState(() => new Animated.Value(1.15));
+  // The recorder hands a new function every render; the loop reads whichever is current.
+  const levelRef = useRef(level);
+  useEffect(() => {
+    levelRef.current = level;
+  });
+  useEffect(() => {
+    let frame = 0;
+    let smooth = 0;
+    let last = 0;
+    const tick = (now: number) => {
+      // About 30 updates a second is enough for a breathing ring.
+      if (now - last > 33) {
+        last = now;
+        const target = paused ? 0 : levelRef.current();
+        smooth += (target - smooth) * (target > smooth ? 0.45 : 0.12);
+        scale.setValue(1.15 + smooth * 0.55);
+      }
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [paused, scale]);
+  return (
+    <Animated.View
+      pointerEvents="none"
+      style={{ position: 'absolute', top: 0, start: 0, width: 52, height: 52, borderRadius: 26, backgroundColor: colors.amberGlow, transform: [{ scale }] }}
+    />
+  );
+}
+
 /** Replaces the composer in a one-to-one chat with someone I blocked. */
 function BlockedBar({ conversation }: { conversation: Conversation }) {
   const insets = useSafeAreaInsets();
@@ -1921,6 +2063,38 @@ function Composer({
   // The composer's edge lights up in amber while it has focus (Stitch).
   const [inputFocused, setInputFocused] = useState(false);
   const [inputHeight, setInputHeight] = useState(50);
+  // Selected words get a small formatting bar (bold, italic, …) above the box, like Telegram. It
+  // outlives a blur for a moment, so a tap on the bar (which can take the focus) still lands.
+  const selection = useRef({ start: 0, end: 0 });
+  const [formatting, setFormatting] = useState(false);
+  const formatBlur = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const readSelection = () => {
+    const node = inputRef.current as unknown as HTMLTextAreaElement | null;
+    if (Platform.OS === 'web' && node && typeof node.selectionStart === 'number') selection.current = { start: node.selectionStart, end: node.selectionEnd };
+    return selection.current;
+  };
+  const applyFormat = (marker: string) => {
+    const { start, end } = readSelection();
+    if (end <= start) return;
+    const next = toggleMarker(text, start, end, marker);
+    selection.current = { start: next.start, end: next.end };
+    pendingSelection.current = next;
+    onChange(next.text);
+  };
+  // Put the same words back under the selection once the new text is in the box (writing the value
+  // moves the caret to the end).
+  const pendingSelection = useRef<{ text: string; start: number; end: number } | null>(null);
+  useLayoutEffect(() => {
+    const want = pendingSelection.current;
+    if (!want || want.text !== text) return;
+    pendingSelection.current = null;
+    const node = inputRef.current as unknown as (HTMLTextAreaElement & { setSelection?: (a: number, b: number) => void }) | null;
+    node?.focus();
+    if (Platform.OS === 'web') node?.setSelectionRange?.(want.start, want.end);
+    else node?.setSelection?.(want.start, want.end);
+  }, [text]);
+  // A phone held sideways has little height: the emoji panel is shorter there.
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   // Which edge of a long message has more text past it: that edge fades instead of showing a bar.
   const [inputMore, setInputMore] = useState<'none' | 'top' | 'bottom' | 'both'>('none');
   const nativeInputContent = useRef(0);
@@ -2205,7 +2379,14 @@ function Composer({
   const openAttachMenu = () => {
     const node = attachRef.current;
     if (!node) return void pickFile();
-    node.measureInWindow((x, y, width) => setAttachMenu({ x: Math.max(8, x + width - 220), y: Math.max(8, y - 2 * 44 - 24) }));
+    // Right above the paperclip, lined up with whichever edge of it faces the middle of the window, so
+    // the menu opens over the button instead of off to one side (user report).
+    node.measureInWindow((x, y, width) => {
+      const menuWidth = 200;
+      const menuHeight = 10 + 2 * 44;
+      const towardEnd = x + width / 2 > windowWidth / 2;
+      setAttachMenu({ x: Math.max(8, towardEnd ? x + width - menuWidth : x), y: Math.max(8, y - menuHeight - 6) });
+    });
   };
   const pickMedia = async () => {
     setUploadError('');
@@ -2444,6 +2625,9 @@ function Composer({
           <EmojiPicker onPick={insertEmoji} onClose={() => setEmojiOpen(false)} maxHeight={300} />
         </View>
       )}
+      {formatting && !voice.recording && !voiceClip && (
+        <FormatBar desktop={desktop} onFormat={applyFormat} />
+      )}
       {!!uploadError && <T variant="bodySm" color={colors.danger}>{uploadError}</T>}
       <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: desktop ? 10 : 6 }}>
         <View
@@ -2488,8 +2672,21 @@ function Composer({
             </View>
           )}
           {voice.recording && (
-            <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 44, paddingHorizontal: 6 }}>
+            // Stretched to the box's full height so the time and Cancel sit on its middle line (user report).
+            <View style={{ flex: 1, alignSelf: 'stretch', flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 44, paddingHorizontal: 6 }}>
               {desktop && <IconButton name="x" label={t('Cancel recording')} onPress={voice.cancel} size={36} iconSize={18} color={colors.danger} />}
+              {desktop && (
+                <Tooltip label={voice.paused ? t('Resume recording') : t('Pause recording')} style={{ alignSelf: 'center' }}>
+                  <IconButton
+                    name={voice.paused ? 'mic' : 'pause'}
+                    label={voice.paused ? t('Resume recording') : t('Pause recording')}
+                    onPress={voice.togglePause}
+                    size={36}
+                    iconSize={17}
+                    color={voice.paused ? colors.danger : colors.text}
+                  />
+                </Tooltip>
+              )}
               <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: voice.paused ? colors.textMuted : colors.danger }} />
               <T variant="body" color={colors.text} style={{ fontVariant: ['tabular-nums'] }}>
                 {`${Math.floor(voice.seconds / 60)}:${String(voice.seconds % 60).padStart(2, '0')}`}
@@ -2513,7 +2710,7 @@ function Composer({
                 </View>
               ) : (
                 <T variant="bodySm" color={colors.textMuted} numberOfLines={1} style={{ flex: 1 }}>
-                  {voice.paused ? t('Paused') : desktop ? t('Recording… tap send to finish') : t('Recording… slide up to lock')}
+                  {voice.paused ? (desktop ? t('Paused — tap send to finish') : t('Paused')) : desktop ? t('Recording… tap send to finish') : t('Recording… slide up to lock')}
                 </T>
               )}
             </View>
@@ -2552,14 +2749,37 @@ function Composer({
                 setInputHeight(visible);
                 moreFrom(nativeInputOffset.current, visible, content);
               }}
+              onSelectionChange={(event) => {
+                const { start, end } = event.nativeEvent.selection;
+                selection.current = { start: Math.min(start, end), end: Math.max(start, end) };
+                setFormatting(end !== start);
+              }}
               onFocus={() => {
                 setInputFocused(true);
+                if (formatBlur.current) clearTimeout(formatBlur.current);
                 if (!desktop && emojiOpen) setEmojiOpen(false);
               }}
-              onBlur={() => setInputFocused(false)}
+              onBlur={() => {
+                setInputFocused(false);
+                if (formatBlur.current) clearTimeout(formatBlur.current);
+                formatBlur.current = setTimeout(() => setFormatting(false), 250);
+              }}
               onKeyPress={(e: any) => {
                 if (Platform.OS !== 'web') return;
                 const key = e.nativeEvent.key;
+                // Telegram Desktop's shortcuts for the selected words.
+                const mod = e.nativeEvent.ctrlKey || e.nativeEvent.metaKey;
+                const lower = typeof key === 'string' ? key.toLowerCase() : '';
+                const shortcut = !mod
+                  ? null
+                  : !e.nativeEvent.shiftKey
+                    ? lower === 'b' ? '**' : lower === 'i' ? '__' : null
+                    : lower === 'x' ? '~~' : lower === 'p' ? '||' : lower === 'm' ? '`' : null;
+                if (shortcut) {
+                  e.preventDefault();
+                  applyFormat(shortcut);
+                  return;
+                }
                 // Touch keyboards: Enter is a new line, the send button sends (like Telegram).
                 if (key === 'Enter' && !e.nativeEvent.shiftKey && !touchKeyboard()) {
                   e.preventDefault();
@@ -2626,7 +2846,7 @@ function Composer({
           {/* Holding the mic: a lock waits above it (slide up to keep recording hands-free). Once
               locked, a pause button takes its place (user request, like Telegram). */}
           {voice.recording && (
-            <View pointerEvents="box-none" style={{ position: 'absolute', bottom: 52 + 16, start: 6, alignItems: 'center' }}>
+            <View pointerEvents="box-none" style={{ position: 'absolute', bottom: 52 + 26, start: 6, alignItems: 'center', zIndex: 2 }}>
               {locked ? (
                 <Pressable
                   onPress={voice.togglePause}
@@ -2654,6 +2874,8 @@ function Composer({
               )}
             </View>
           )}
+          {/* The button keeps its size while recording; a halo behind it breathes with the voice (user request). */}
+          {voice.recording && <RecordHalo level={voice.level} paused={voice.paused} />}
           <Pressable
             onPress={mainAction}
             onPressIn={showMic ? (event: any) => void startHold(event) : undefined}
@@ -2675,7 +2897,7 @@ function Composer({
               opacity: mainEnabled ? 1 : 0.55,
               alignItems: 'center',
               justifyContent: 'center',
-              transform: [{ scale: voice.recording && !desktop ? 1.25 : pressed ? 0.94 : 1 }],
+              transform: [{ scale: pressed && !voice.recording ? 0.94 : 1 }],
               shadowColor: colors.amber,
               shadowOpacity: mainEnabled ? 0.4 : 0,
               shadowRadius: 12,
@@ -2697,7 +2919,7 @@ function Composer({
       />
       {emojiOpen && !desktop && (
         // Sits where the keyboard was.
-        <EmojiPicker onPick={insertEmoji} onClose={() => setEmojiOpen(false)} maxHeight={280} style={{ maxWidth: undefined }} />
+        <EmojiPicker onPick={insertEmoji} onClose={() => setEmojiOpen(false)} maxHeight={windowHeight < 500 ? 200 : 280} style={{ maxWidth: '100%' }} />
       )}
     </View>
   );

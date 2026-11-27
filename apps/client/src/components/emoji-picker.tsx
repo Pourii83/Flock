@@ -22,7 +22,9 @@ import { Icon, T, Tooltip, noOutline, persianFont } from './ui';
 
 const RECENT_KEY = 'flock.emoji.recent';
 const MAX_RECENT = 24;
+/** Columns in a phone-wide panel; a wider one (a phone held sideways) fits more instead of bigger emoji. */
 const COLUMNS = 8;
+const MAX_CELL = 46;
 const HEADER_H = 32;
 
 type Row = { key: string; header?: string; emojis?: string[] };
@@ -40,15 +42,15 @@ const chunk = (list: string[], size: number, prefix: string): Row[] => {
   return rows;
 };
 
-const categoryRows = (recents: string[]): Row[] => {
+const categoryRows = (recents: string[], columns: number): Row[] => {
   const rows: Row[] = [];
   if (recents.length) {
     rows.push({ key: 'header-recent', header: t('Recent') });
-    rows.push(...chunk(recents, COLUMNS, 'recent'));
+    rows.push(...chunk(recents, columns, 'recent'));
   }
   for (const group of EMOJI_GROUPS) {
     rows.push({ key: `header-${group.id}`, header: t(group.name) });
-    rows.push(...chunk(group.emojis, COLUMNS, group.id));
+    rows.push(...chunk(group.emojis, columns, group.id));
   }
   return rows;
 };
@@ -106,17 +108,20 @@ export function EmojiPicker({
   }, [onClose]);
 
   const panelWidth = width || 336;
-  const gridWidth = Math.max(200, panelWidth - 20);
-  const cell = Math.floor(gridWidth / COLUMNS);
+  // The room inside the panel's padding (10 each side) and border (1 each side); the last column used
+  // to be clipped because the border and the scrollbar weren't counted (user report).
+  const gridWidth = Math.max(200, panelWidth - 22);
+  const columns = Math.max(COLUMNS, Math.floor(gridWidth / MAX_CELL));
+  const cell = Math.floor(gridWidth / columns);
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (q) {
       const matches = ALL.filter((entry) => entry.haystack.includes(q)).map((entry) => entry.emoji);
-      return matches.length ? chunk(matches, COLUMNS, 'search') : [];
+      return matches.length ? chunk(matches, columns, 'search') : [];
     }
-    return categoryRows(recents);
-  }, [query, recents]);
+    return categoryRows(recents, columns);
+  }, [query, recents, columns]);
 
   // Fixed row heights let the list scroll to a category tab without measuring.
   const layout = useMemo(() => {
@@ -253,6 +258,7 @@ export function EmojiPicker({
         maxToRenderPerBatch={16}
         keyExtractor={(row) => row.key}
         style={{ maxHeight }}
+        showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: 4 }}
         keyboardShouldPersistTaps="handled"
         getItemLayout={(_, index) => ({

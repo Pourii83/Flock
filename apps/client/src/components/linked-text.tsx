@@ -1,11 +1,12 @@
 import * as Clipboard from 'expo-clipboard';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Linking, Platform, StyleSheet, Text, View, type TextProps, type TextStyle } from 'react-native';
 
 import { t } from '@/lib/i18n';
-import { radius } from '@/theme';
+import { parseInline, type Inline } from '@/lib/rich-text';
+import { fonts, radius } from '@/theme';
 
-import { contentDirection, IconButton, T } from './ui';
+import { contentDirection, IconButton, persianFont, T } from './ui';
 
 type TypeVariant = NonNullable<Parameters<typeof T>[0]['variant']>;
 
@@ -103,10 +104,39 @@ export function LinkedText({
     ];
   };
 
+  // **bold**, __italic__, ~~strike~~, ||spoiler|| and `mono`, like Telegram (user request); the plain
+  // runs inside them keep their links and the quote tint.
+  const rich = (text: string, key: string): ReturnType<typeof marked> => {
+    const draw = (nodes: Inline[], prefix: string): ReturnType<typeof marked> =>
+      nodes.flatMap((node, j) => {
+        const k = `${prefix}-${j}`;
+        if (node.kind === 'text') return marked(node.text, k);
+        if (node.kind === 'mono')
+          return [
+            <Text key={k} style={[monoFont, { fontSize: 14, backgroundColor: codeBackground ?? 'rgba(127,127,127,0.16)', color: codeColor ?? color, borderRadius: 4 }]}>
+              {Platform.OS === 'web' ? node.text : ` ${node.text} `}
+            </Text>,
+          ];
+        if (node.kind === 'spoiler') return [<Spoiler key={k} color={color}>{draw(node.children, k)}</Spoiler>];
+        const look: TextStyle =
+          node.kind === 'bold'
+            ? { fontFamily: fonts.bold, ...(persianFont(text, { fontFamily: fonts.bold }) ?? {}) }
+            : node.kind === 'italic'
+              ? { fontStyle: 'italic' }
+              : { textDecorationLine: 'line-through' };
+        return [
+          <Text key={k} style={look}>
+            {draw(node.children, k)}
+          </Text>,
+        ];
+      });
+    return draw(parseInline(text), key);
+  };
+
   if (!segments.some((segment) => segment.code)) {
     return (
       <T variant={variant} color={color} {...({ dataSet: direction.dataSet } as object)} style={[wrapAnywhere, direction.style, style]} {...rest}>
-        {marked(children, 'text')}
+        {rich(children, 'text')}
       </T>
     );
   }
@@ -126,11 +156,29 @@ export function LinkedText({
         const own = contentDirection(text);
         return (
           <T key={`text-${i}`} variant={variant} color={color} {...({ dataSet: own.dataSet } as object)} style={[wrapAnywhere, own.style, textStyle]} {...rest}>
-            {marked(text, `text-${i}`)}
+            {rich(text, `text-${i}`)}
           </T>
         );
       })}
     </View>
+  );
+}
+
+/** ||Hidden|| text: covered until tapped, like Telegram's spoilers. */
+function Spoiler({ children, color }: { children: ReactNode; color?: string }) {
+  const [open, setOpen] = useState(false);
+  if (open) return <Text>{children}</Text>;
+  return (
+    <Text
+      onPress={() => setOpen(true)}
+      accessibilityRole="button"
+      accessibilityLabel={t('Show hidden text')}
+      style={[
+        { color: 'transparent', backgroundColor: color ?? '#94A3B8', borderRadius: 4, opacity: 0.35 },
+        Platform.OS === 'web' ? ({ cursor: 'pointer', userSelect: 'none' } as object) : null,
+      ]}>
+      {children}
+    </Text>
   );
 }
 
