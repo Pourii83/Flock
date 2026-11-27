@@ -381,8 +381,9 @@ function RingingCall() {
   const incoming = call.phase === 'incoming';
   // A phone held sideways has very little height: the avatar and the type shrink so the
   // accept/decline buttons always stay on screen (user report).
-  const { height } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
   const compact = height < 560;
+  const landscape = compact && width > height;
   const actionSize = compact ? 58 : 72;
   // Only the middle block gives way, so the buttons always keep their room: the ring follows
   // whatever height is left after the name and the line under it (a phone held sideways).
@@ -391,7 +392,9 @@ function RingingCall() {
   // a short fade, so the correction is never visible.
   const [middleHeight, setMiddleHeight] = useState(() => Math.max(0, height - (compact ? 210 : 360)));
   const textHeight = compact ? 84 : 150;
-  const ringSize = Math.max(72, Math.min(240, (middleHeight || (compact ? 150 : 240)) - textHeight));
+  const ringSize = landscape
+    ? Math.max(72, Math.min(150, height - 210))
+    : Math.max(72, Math.min(240, (middleHeight || (compact ? 150 : 240)) - textHeight));
   const avatarSize = Math.round(ringSize * 0.75);
   const [ringFade] = useState(() => new Animated.Value(0));
   useEffect(() => {
@@ -399,6 +402,161 @@ function RingingCall() {
   }, [ringFade]);
   const ringScale = pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.25] });
   const ringOpacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.5, 0] });
+
+  const badge = (
+    <>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.surface, borderRadius: radius.pill, paddingHorizontal: 18, paddingVertical: 8 }}>
+        <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: colors.amber }} />
+        <T variant="overline" color={colors.amberText} style={{ fontSize: 14 }}>
+          {call.video ? t('FLOCK HD VIDEO') : t('FLOCK VOICE')}
+        </T>
+      </View>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+        <T variant="body" color={colors.amberSoftText}>
+          {t('Secure session')}
+        </T>
+        <Icon name="lock" size={14} color={colors.teal} />
+      </View>
+    </>
+  );
+  const ring = (
+    <View style={{ width: ringSize, height: ringSize, alignItems: 'center', justifyContent: 'center' }}>
+      <Animated.View
+        style={{
+          position: 'absolute',
+          width: ringSize,
+          height: ringSize,
+          borderRadius: ringSize / 2,
+          borderWidth: compact ? 12 : 18,
+          borderColor: colors.amberGlow,
+          opacity: ringOpacity,
+          transform: [{ scale: ringScale }],
+        }}
+      />
+      <View
+        style={{
+          position: 'absolute',
+          width: ringSize - 10,
+          height: ringSize - 10,
+          borderRadius: (ringSize - 10) / 2,
+          borderWidth: compact ? 10 : 14,
+          borderColor: colors.amberGlow,
+        }}
+      />
+      {call.isGroup && conversation ? (
+        <ConversationAvatar conversation={conversation} meId={user?.id} size={avatarSize} />
+      ) : (
+        <Avatar user={call.peer} size={avatarSize} ring={colors.teal} ringBg={colors.canvas} />
+      )}
+    </View>
+  );
+  const identity = (
+    <>
+      <T variant="display" style={{ fontSize: compact ? 26 : 40, textAlign: 'center' }}>
+        {callName(call)}
+      </T>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <T variant="bodyLg" color={colors.amberSoftText} style={{ fontSize: compact ? 15 : 18, textAlign: 'center' }}>
+          {incoming
+            ? call.isGroup && call.peer
+              ? t('{name} is calling the group', { name: call.peer.displayName })
+              : call.video
+                ? t('Flock Video Calling')
+                : t('Flock Voice Calling')
+            : t('Ringing')}
+        </T>
+        {!incoming && <TypingDots size={5} color={colors.amberText} />}
+        <Icon name="bar-chart-2" size={18} color={colors.amberText} />
+      </View>
+      {!compact && !call.isGroup && !!call.peer?.title && (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.surface, borderRadius: radius.pill, paddingHorizontal: 14, paddingVertical: 6 }}>
+          <Icon name="briefcase" size={14} color={colors.textMuted} />
+          <T variant="body" color={colors.amberSoftText}>
+            {call.peer.title}
+          </T>
+        </View>
+      )}
+    </>
+  );
+  const quick = (
+    <>
+      {incoming && (
+        <View style={{ flexDirection: 'row', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
+          {[
+            { icon: 'message-square' as const, text: t("Can't talk right now") },
+            { icon: 'clock' as const, text: t('Call you back?') },
+          ].map((q) => (
+            <Pressable
+              key={q.text}
+              onPress={() => decline(q.text)}
+              style={({ pressed }) => ({
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 8,
+                backgroundColor: pressed ? colors.surfaceHigh : colors.surface,
+                borderRadius: radius.pill,
+                paddingHorizontal: 16,
+                paddingVertical: 12,
+              })}>
+              <Icon name={q.icon} size={16} color={colors.amberText} />
+              <T variant="body" style={{ fontSize: 15 }}>
+                {q.text}
+              </T>
+            </Pressable>
+          ))}
+        </View>
+      )}
+    </>
+  );
+  const actions = (
+    <>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-evenly', alignItems: 'flex-start' }}>
+        {incoming ? (
+          <>
+            <RoundAction icon="phone-off" label={t('Decline')} bg={colors.dangerDeep} color={colors.dangerText} glow={colors.danger} size={actionSize} onPress={() => decline()} />
+            {call.video && (
+              <View style={{ paddingTop: compact ? 4 : 10 }}>
+                <RoundAction icon="video-off" label={t('Audio only')} bg={colors.surfaceHigh} size={Math.round(actionSize * 0.72)} onPress={() => accept(true)} />
+              </View>
+            )}
+            <RoundAction
+              icon={call.video ? 'video' : 'phone'}
+              label={t('Accept')}
+              bg={colors.online}
+              color="#003824"
+              glow={colors.accept}
+              size={actionSize}
+              onPress={() => accept()}
+            />
+          </>
+        ) : (
+          <RoundAction icon="phone-off" label={t('Cancel')} bg={colors.dangerDeep} color={colors.dangerText} glow={colors.danger} size={actionSize} onPress={hangUp} />
+        )}
+      </View>
+      {!!call.notice && <Notice text={call.notice} />}
+    </>
+  );
+
+  // A phone held sideways: who is calling on one side, the answers on the other, so nothing has to
+  // squeeze into the little height left (user report: the status ran into the avatar).
+  if (landscape) {
+    return (
+      <SafeAreaView style={{ flex: 1 }}>
+        <LinearGradient colors={[colors.amberTint, `${colors.canvas}00`]} style={{ position: 'absolute', left: 0, right: 0, top: 0, height: '60%' }} />
+        <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 24, paddingVertical: 12, gap: 24, maxWidth: 900, width: '100%', alignSelf: 'center' }}>
+          <Animated.View style={{ flex: 1, alignItems: 'center', gap: 8, opacity: ringFade }}>
+            {badge}
+            {ring}
+            {identity}
+          </Animated.View>
+          <View style={{ flex: 1, gap: 18, justifyContent: 'center' }}>
+            {quick}
+            {actions}
+          </View>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={{ flex: 1 }}>
@@ -408,129 +566,19 @@ function RingingCall() {
       />
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'space-between', padding: compact ? 14 : 24, maxWidth: 520, width: '100%', alignSelf: 'center' }}>
         <View style={{ alignItems: 'center', gap: 8, paddingTop: compact ? 4 : 16 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.surface, borderRadius: radius.pill, paddingHorizontal: 18, paddingVertical: 8 }}>
-            <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: colors.amber }} />
-            <T variant="overline" color={colors.amberText} style={{ fontSize: 14 }}>
-              {call.video ? t('FLOCK HD VIDEO') : t('FLOCK VOICE')}
-            </T>
-          </View>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-            <T variant="body" color={colors.amberSoftText}>
-              {t('Secure session')}
-            </T>
-            <Icon name="lock" size={14} color={colors.teal} />
-          </View>
+          {badge}
         </View>
 
         <Animated.View
           style={{ flex: 1, minHeight: 0, alignItems: 'center', justifyContent: 'center', gap: compact ? 8 : 14, opacity: ringFade }}
           onLayout={(e) => setMiddleHeight(e.nativeEvent.layout.height)}>
-          <View style={{ width: ringSize, height: ringSize, alignItems: 'center', justifyContent: 'center' }}>
-            <Animated.View
-              style={{
-                position: 'absolute',
-                width: ringSize,
-                height: ringSize,
-                borderRadius: ringSize / 2,
-                borderWidth: compact ? 12 : 18,
-                borderColor: colors.amberGlow,
-                opacity: ringOpacity,
-                transform: [{ scale: ringScale }],
-              }}
-            />
-            <View
-              style={{
-                position: 'absolute',
-                width: ringSize - 10,
-                height: ringSize - 10,
-                borderRadius: (ringSize - 10) / 2,
-                borderWidth: compact ? 10 : 14,
-                borderColor: colors.amberGlow,
-              }}
-            />
-            {call.isGroup && conversation ? (
-              <ConversationAvatar conversation={conversation} meId={user?.id} size={avatarSize} />
-            ) : (
-              <Avatar user={call.peer} size={avatarSize} ring={colors.teal} ringBg={colors.canvas} />
-            )}
-          </View>
-          <T variant="display" style={{ fontSize: compact ? 26 : 40, textAlign: 'center' }}>
-            {callName(call)}
-          </T>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <T variant="bodyLg" color={colors.amberSoftText} style={{ fontSize: compact ? 15 : 18, textAlign: 'center' }}>
-              {incoming
-                ? call.isGroup && call.peer
-                  ? t('{name} is calling the group', { name: call.peer.displayName })
-                  : call.video
-                    ? t('Flock Video Calling')
-                    : t('Flock Voice Calling')
-                : t('Ringing')}
-            </T>
-            {!incoming && <TypingDots size={5} color={colors.amberText} />}
-            <Icon name="bar-chart-2" size={18} color={colors.amberText} />
-          </View>
-          {!compact && !call.isGroup && !!call.peer?.title && (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.surface, borderRadius: radius.pill, paddingHorizontal: 14, paddingVertical: 6 }}>
-              <Icon name="briefcase" size={14} color={colors.textMuted} />
-              <T variant="body" color={colors.amberSoftText}>
-                {call.peer.title}
-              </T>
-            </View>
-          )}
+          {ring}
+          {identity}
         </Animated.View>
 
         <View style={{ width: '100%', gap: compact ? 14 : 32, paddingBottom: 12 }}>
-          {incoming && (
-            <View style={{ flexDirection: 'row', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
-              {[
-                { icon: 'message-square' as const, text: t("Can't talk right now") },
-                { icon: 'clock' as const, text: t('Call you back?') },
-              ].map((q) => (
-                <Pressable
-                  key={q.text}
-                  onPress={() => decline(q.text)}
-                  style={({ pressed }) => ({
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    gap: 8,
-                    backgroundColor: pressed ? colors.surfaceHigh : colors.surface,
-                    borderRadius: radius.pill,
-                    paddingHorizontal: 16,
-                    paddingVertical: 12,
-                  })}>
-                  <Icon name={q.icon} size={16} color={colors.amberText} />
-                  <T variant="body" style={{ fontSize: 15 }}>
-                    {q.text}
-                  </T>
-                </Pressable>
-              ))}
-            </View>
-          )}
-          <View style={{ flexDirection: 'row', justifyContent: 'space-evenly', alignItems: 'flex-start' }}>
-            {incoming ? (
-              <>
-                <RoundAction icon="phone-off" label={t('Decline')} bg={colors.dangerDeep} color={colors.dangerText} glow={colors.danger} size={actionSize} onPress={() => decline()} />
-                {call.video && (
-                  <View style={{ paddingTop: compact ? 4 : 10 }}>
-                    <RoundAction icon="video-off" label={t('Audio only')} bg={colors.surfaceHigh} size={Math.round(actionSize * 0.72)} onPress={() => accept(true)} />
-                  </View>
-                )}
-                <RoundAction
-                  icon={call.video ? 'video' : 'phone'}
-                  label={t('Accept')}
-                  bg={colors.online}
-                  color="#003824"
-                  glow={colors.accept}
-                  size={actionSize}
-                  onPress={() => accept()}
-                />
-              </>
-            ) : (
-              <RoundAction icon="phone-off" label={t('Cancel')} bg={colors.dangerDeep} color={colors.dangerText} glow={colors.danger} size={actionSize} onPress={hangUp} />
-            )}
-          </View>
-          {!!call.notice && <Notice text={call.notice} />}
+          {quick}
+          {actions}
         </View>
       </View>
     </SafeAreaView>
@@ -856,12 +904,6 @@ function ActiveCall() {
             version={call.mediaVersion}
             padStyle={stagePad}
             fullWidth={fullWidth}
-            onToggleFullWidth={toggleFullWidth}
-            onClose={() => {
-              setDismissedScreen(shownScreen);
-              setFocusedScreen(null);
-              setFullWidthSharer(null);
-            }}
           />
         ) : fullBleed && single ? (
           <View style={{ flex: 1, borderWidth: 2, borderColor: single.speaking ? colors.amber : 'transparent' }}>
@@ -899,60 +941,93 @@ function ActiveCall() {
       <SafeAreaView style={[{ flex: 1, justifyContent: 'space-between' }, stageEnd ? { marginEnd: stageEnd } : null]} pointerEvents="box-none">
         {/* Top status */}
         <Animated.View
-          style={[{ padding: 16, gap: 8, alignItems: 'flex-start' }, chrome]}
+          style={[{ padding: 16, flexDirection: 'row', alignItems: 'flex-start', gap: 12 }, chrome]}
           pointerEvents={chromePointer}
           onLayout={(e) => setHeaderHeight(e.nativeEvent.layout.height)}>
-          <View style={[styles.glass, { flexDirection: 'row', alignItems: 'center', gap: 10, paddingStart: 16, paddingEnd: 6, paddingVertical: 6, maxWidth: '100%' }]}>
-            <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: colors.amber }} />
-            <T variant="labelLg" style={{ fontSize: 16, fontVariant: ['tabular-nums'] }}>
-              {timer(elapsed)}
-            </T>
-            <T variant="labelLg" color={colors.textMuted}>
-              •
-            </T>
-            <T variant="labelLg" style={{ fontSize: 16, flexShrink: 1 }} numberOfLines={1}>
-              {callName(call, single?.user)}
-            </T>
-            <Tooltip label={t('Minimize call')}>
-              <Pressable
-                accessibilityLabel={t('Minimize call')}
-                onPress={() => setMinimized(true)}
-                hitSlop={8}
-                style={({ pressed }) => ({ padding: 7, borderRadius: 16, backgroundColor: pressed ? colors.surfaceHighest : colors.surfaceHigh })}>
-                <Icon name="minimize-2" size={16} color={colors.text} />
-              </Pressable>
-            </Tooltip>
-          </View>
-          <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
-            <View style={[styles.tag, { backgroundColor: colors.tealTint }]}>
-              <Icon name="wifi" size={13} color={colors.teal} />
-              <T variant="label" color={colors.teal}>
-                {anyScreen ? t('Screen') : anyVideo ? t('HD Video') : t('Voice')}
+          <View style={{ flex: 1, minWidth: 0, gap: 8, alignItems: 'flex-start' }}>
+            <View style={[styles.glass, { flexDirection: 'row', alignItems: 'center', gap: 10, paddingStart: 16, paddingEnd: 6, paddingVertical: 6, maxWidth: '100%' }]}>
+              <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: colors.amber }} />
+              <T variant="labelLg" style={{ fontSize: 16, fontVariant: ['tabular-nums'] }}>
+                {timer(elapsed)}
               </T>
+              <T variant="labelLg" color={colors.textMuted}>
+                •
+              </T>
+              <T variant="labelLg" style={{ fontSize: 16, flexShrink: 1 }} numberOfLines={1}>
+                {callName(call, single?.user)}
+              </T>
+              <Tooltip label={t('Minimize call')}>
+                <Pressable
+                  accessibilityLabel={t('Minimize call')}
+                  onPress={() => setMinimized(true)}
+                  hitSlop={8}
+                  style={({ pressed }) => ({ padding: 7, borderRadius: 16, backgroundColor: pressed ? colors.surfaceHighest : colors.surfaceHigh })}>
+                  <Icon name="minimize-2" size={16} color={colors.text} />
+                </Pressable>
+              </Tooltip>
             </View>
-            {call.isGroup && (
-              <View style={[styles.tag, { backgroundColor: colors.surfaceHigh }]}>
-                <Icon name="users" size={13} color={colors.text} />
-                <T variant="label">{t('{n} in call', { n: num(call.remotes.length + 1) })}</T>
-              </View>
-            )}
-            {!!call.localNet && call.localNet !== 'good' && (
-              <View style={[styles.tag, { backgroundColor: call.localNet === 'poor' ? colors.dangerTint : colors.amberTint }]}>
-                <Icon name={call.localNet === 'poor' ? 'wifi-off' : 'wifi'} size={13} color={call.localNet === 'poor' ? colors.danger : colors.amberText} />
-                <T variant="label" color={call.localNet === 'poor' ? colors.danger : colors.amberText}>
-                  {call.localNet === 'poor' ? t('Your connection is very weak') : t('Your connection is weak')}
+            <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
+              <View style={[styles.tag, { backgroundColor: colors.tealTint }]}>
+                <Icon name="wifi" size={13} color={colors.teal} />
+                <T variant="label" color={colors.teal}>
+                  {anyScreen ? t('Screen') : anyVideo ? t('HD Video') : t('Voice')}
                 </T>
               </View>
-            )}
-            {call.noiseMode !== 'off' && (
-              <View style={[styles.tag, { backgroundColor: colors.amberTint }]}>
-                <Icon name="wind" size={13} color={colors.amberText} />
-                <T variant="label" color={colors.amberText}>
-                  {call.noiseMode === 'strong' ? t('Strong (AI)') : t('Noise cancellation')}
-                </T>
-              </View>
-            )}
+              {call.isGroup && (
+                <View style={[styles.tag, { backgroundColor: colors.surfaceHigh }]}>
+                  <Icon name="users" size={13} color={colors.text} />
+                  <T variant="label">{t('{n} in call', { n: num(call.remotes.length + 1) })}</T>
+                </View>
+              )}
+              {!!call.localNet && call.localNet !== 'good' && (
+                <View style={[styles.tag, { backgroundColor: call.localNet === 'poor' ? colors.dangerTint : colors.amberTint }]}>
+                  <Icon name={call.localNet === 'poor' ? 'wifi-off' : 'wifi'} size={13} color={call.localNet === 'poor' ? colors.danger : colors.amberText} />
+                  <T variant="label" color={call.localNet === 'poor' ? colors.danger : colors.amberText}>
+                    {call.localNet === 'poor' ? t('Your connection is very weak') : t('Your connection is weak')}
+                  </T>
+                </View>
+              )}
+              {call.noiseMode !== 'off' && (
+                <View style={[styles.tag, { backgroundColor: colors.amberTint }]}>
+                  <Icon name="wind" size={13} color={colors.amberText} />
+                  <T variant="label" color={colors.amberText}>
+                    {call.noiseMode === 'strong' ? t('Strong (AI)') : t('Noise cancellation')}
+                  </T>
+                </View>
+              )}
+            </View>
           </View>
+          {/* A shared screen's own controls ride the header: they fade with the dock and sit in the top
+              corner, clear of the stream and the people strip (user request). */}
+          {!!shownScreen && (
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <Tooltip label={fullWidth ? t('Show participants') : t('Full width')} side="bottom">
+                <Pressable
+                  onPress={toggleFullWidth}
+                  accessibilityLabel={fullWidth ? t('Show participants') : t('Full width')}
+                  style={({ hovered }: any) => [
+                    styles.glass,
+                    { height: 40, minWidth: 40, paddingHorizontal: wide ? 12 : 0, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7 },
+                    hovered ? { backgroundColor: colors.surfaceHighest } : null,
+                  ]}>
+                  <Icon name={fullWidth ? 'users' : 'maximize-2'} size={16} />
+                  {wide && <T variant="label">{fullWidth ? t('Show participants') : t('Full width')}</T>}
+                </Pressable>
+              </Tooltip>
+              <Tooltip label={t('Close focused screen')} side="bottom">
+                <Pressable
+                  onPress={() => {
+                    setDismissedScreen(shownScreen);
+                    setFocusedScreen(null);
+                    setFullWidthSharer(null);
+                  }}
+                  accessibilityLabel={t('Close focused screen')}
+                  style={({ hovered }: any) => [styles.glass, { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }, hovered ? { backgroundColor: colors.surfaceHighest } : null]}>
+                  <Icon name="minimize-2" size={18} />
+                </Pressable>
+              </Tooltip>
+            </View>
+          )}
         </Animated.View>
 
         {/* Bottom controls */}
@@ -1698,7 +1773,9 @@ type MenuItem = { icon?: IconName; hand?: boolean; label: string; active?: boole
 function DockTile({ label, on, danger, children }: { label: string; on?: boolean; danger?: boolean; children: ReactNode }) {
   return (
     <View style={{ flex: 1, minWidth: 0, alignItems: 'center', gap: 7 }}>
-      {children}
+      {/* Its own centred box: a tooltip wrapper (web) aligns to the start, which pushed Chat and More
+          off their labels (user report). */}
+      <View>{children}</View>
       <T
         variant="labelSm"
         color={danger ? colors.danger : on ? colors.amberText : colors.textMuted}
@@ -2065,8 +2142,6 @@ function ScreenStage({
   version,
   padStyle,
   fullWidth,
-  onToggleFullWidth,
-  onClose,
 }: {
   stream: MediaStream | null | undefined;
   ownerName: string;
@@ -2075,8 +2150,6 @@ function ScreenStage({
   version: number;
   padStyle: object;
   fullWidth: boolean;
-  onToggleFullWidth: () => void;
-  onClose: () => void;
 }) {
   const wide = useIsWide();
   // Back from another tab: the browser can leave the shared screen in its floating window, and the
@@ -2109,25 +2182,6 @@ function ScreenStage({
     <Animated.View style={[{ flex: 1, minHeight: 0, flexDirection: wide && !fullWidth ? 'row' : 'column', paddingHorizontal: fullWidth ? 0 : 10, gap: fullWidth ? 0 : 10 }, padStyle]}>
       <View style={{ flex: 1, minWidth: 0, minHeight: 0, borderRadius: fullWidth ? 0 : radius.lg, overflow: 'hidden', backgroundColor: '#05070A', borderWidth: fullWidth ? 0 : 2, borderColor: ownerSpeaking ? colors.amber : colors.hairline }}>
         {!!stream && <VideoView key={`focused-screen-${ownerName}-${version}-${returnedAt}`} stream={stream} contain />}
-        <View style={{ position: 'absolute', top: 12, end: 12, flexDirection: 'row', gap: 8 }}>
-          <Tooltip label={fullWidth ? t('Show participants') : t('Full width')}>
-            <Pressable
-              onPress={onToggleFullWidth}
-              accessibilityLabel={fullWidth ? t('Show participants') : t('Full width')}
-              style={({ hovered }: any) => [styles.glass, { height: 40, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 7 }, hovered ? { backgroundColor: colors.surfaceHighest } : null]}>
-              <Icon name={fullWidth ? 'users' : 'maximize-2'} size={16} />
-              <T variant="label">{fullWidth ? t('Show participants') : t('Full width')}</T>
-            </Pressable>
-          </Tooltip>
-          <Tooltip label={t('Close focused screen')} side="bottom">
-            <Pressable
-              onPress={onClose}
-              accessibilityLabel={t('Close focused screen')}
-              style={({ hovered }: any) => [styles.glass, { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }, hovered ? { backgroundColor: colors.surfaceHighest } : null]}>
-              <Icon name="minimize-2" size={18} />
-            </Pressable>
-          </Tooltip>
-        </View>
         <View style={[styles.glass, { position: 'absolute', start: 12, bottom: 12, paddingHorizontal: 12, paddingVertical: 6, maxWidth: '70%' }]}>
           <T variant="label" numberOfLines={1}>
             {t('{name} is sharing', { name: ownerName })}

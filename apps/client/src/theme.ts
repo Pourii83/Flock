@@ -253,6 +253,21 @@ export function applyTheme(next: ThemeMode) {
       [data-chat-scroll][data-scrolled='1'] {
         -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 18px);
         mask-image: linear-gradient(to bottom, transparent 0, #000 18px);
+      }
+      /* The message box: no bar either, and whichever edge has more text beyond it fades out. */
+      [data-composer-input] { scrollbar-width: none; -ms-overflow-style: none; }
+      [data-composer-input]::-webkit-scrollbar { width: 0; height: 0; display: none; }
+      [data-composer-input][data-more='top'] {
+        -webkit-mask-image: linear-gradient(to bottom, transparent 4px, #000 22px);
+        mask-image: linear-gradient(to bottom, transparent 4px, #000 22px);
+      }
+      [data-composer-input][data-more='bottom'] {
+        -webkit-mask-image: linear-gradient(to top, transparent 4px, #000 22px);
+        mask-image: linear-gradient(to top, transparent 4px, #000 22px);
+      }
+      [data-composer-input][data-more='both'] {
+        -webkit-mask-image: linear-gradient(to bottom, transparent 4px, #000 22px, #000 calc(100% - 22px), transparent calc(100% - 4px));
+        mask-image: linear-gradient(to bottom, transparent 4px, #000 22px, #000 calc(100% - 22px), transparent calc(100% - 4px));
       }`;
   }
   listeners.forEach((fn) => fn());

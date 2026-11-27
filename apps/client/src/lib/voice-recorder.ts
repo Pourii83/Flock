@@ -41,10 +41,15 @@ export type VoiceClip = { file: File; seconds: number; waveform: string | null }
 export function useVoiceRecorder() {
   const [recording, setRecording] = useState(false);
   const [seconds, setSeconds] = useState(0);
+  // A locked recording can pause; the time paused doesn't count toward its length.
+  const [paused, setPaused] = useState(false);
+  const before = useRef(0);
+  const pausedNow = useRef(false);
   const recorder = useRef<MediaRecorder | null>(null);
   const stream = useRef<MediaStream | null>(null);
   const chunks = useRef<Blob[]>([]);
   const startedAt = useRef(0);
+  const elapsed = () => before.current + (pausedNow.current ? 0 : Date.now() - startedAt.current);
   const finish = useRef<((clip: VoiceClip | null) => void) | null>(null);
   // The start still waiting for the microphone, and whether the chat is off screen.
   const opening = useRef<symbol | null>(null);
@@ -62,16 +67,19 @@ export function useVoiceRecorder() {
   );
 
   useEffect(() => {
-    if (!recording) return;
-    const id = setInterval(() => setSeconds(Math.floor((Date.now() - startedAt.current) / 1000)), 250);
+    if (!recording || paused) return;
+    const id = setInterval(() => setSeconds(Math.floor(elapsed() / 1000)), 250);
     return () => clearInterval(id);
-  }, [recording]);
+  }, [recording, paused]);
 
   const release = () => {
     stream.current?.getTracks().forEach((track) => track.stop());
     stream.current = null;
     recorder.current = null;
+    before.current = 0;
+    pausedNow.current = false;
     setRecording(false);
+    setPaused(false);
     setSeconds(0);
   };
 
@@ -79,7 +87,7 @@ export function useVoiceRecorder() {
   useEffect(
     () => () => {
       finish.current = null;
-      if (recorder.current?.state === 'recording') recorder.current.stop();
+      if (recorder.current && recorder.current.state !== 'inactive') recorder.current.stop();
       stream.current?.getTracks().forEach((track) => track.stop());
     },
     [],
@@ -119,7 +127,7 @@ export function useVoiceRecorder() {
     rec.onstop = async () => {
       const done = finish.current;
       finish.current = null;
-      const secondsTaken = (Date.now() - startedAt.current) / 1000;
+      const secondsTaken = elapsed() / 1000;
       const type = (rec.mimeType || mimeType || 'audio/webm').split(';')[0]!;
       const blob = new Blob(chunks.current, { type });
       release();
@@ -133,6 +141,8 @@ export function useVoiceRecorder() {
     stream.current = mic;
     recorder.current = rec;
     startedAt.current = Date.now();
+    before.current = 0;
+    pausedNow.current = false;
     try {
       rec.start(250);
     } catch (e) {
@@ -147,18 +157,35 @@ export function useVoiceRecorder() {
   const stop = () =>
     new Promise<VoiceClip | null>((resolve) => {
       const rec = recorder.current;
-      if (!rec || rec.state !== 'recording') return resolve(null);
+      if (!rec || rec.state === 'inactive') return resolve(null);
       finish.current = resolve;
       rec.stop();
     });
+
+  /** Pauses or resumes a recording in progress. */
+  const togglePause = () => {
+    const rec = recorder.current;
+    if (!rec) return;
+    if (rec.state === 'recording') {
+      before.current += Date.now() - startedAt.current;
+      pausedNow.current = true;
+      rec.pause();
+      setPaused(true);
+    } else if (rec.state === 'paused') {
+      startedAt.current = Date.now();
+      pausedNow.current = false;
+      rec.resume();
+      setPaused(false);
+    }
+  };
 
   const cancel = () => {
     opening.current = null;
     finish.current = null;
     const rec = recorder.current;
-    if (rec?.state === 'recording') rec.stop();
+    if (rec && rec.state !== 'inactive') rec.stop();
     else release();
   };
 
-  return { recording, seconds, start, stop, cancel };
+  return { recording, paused, seconds, start, stop, cancel, togglePause };
 }

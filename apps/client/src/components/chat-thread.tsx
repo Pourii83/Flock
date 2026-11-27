@@ -1,9 +1,11 @@
 import { onJumpRequest, takeJump } from '@/lib/jump';
 import * as Clipboard from 'expo-clipboard';
 import * as DocumentPicker from 'expo-document-picker';
+import * as ImagePicker from 'expo-image-picker';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentRef } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -35,6 +37,7 @@ import { useCalls } from '@/state/calls';
 import { chatStore, useChat, useConversation, useMessages, usePinned, usePinnedList, useTyping } from '@/state/chat-store';
 import { colors, fonts, nestedRadius, radius } from '@/theme';
 import { Avatar, ConversationAvatar, MegaphoneIcon } from './avatar';
+import { ContextMenu } from './context-menu';
 import { EmojiPicker } from './emoji-picker';
 import { LinkedText } from './linked-text';
 import { TypingDots } from './typing-dots';
@@ -109,6 +112,10 @@ export function ChatThread({
   const [menu, setMenu] = useState<{ message: Message; point: { x: number; y: number } } | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [highlightId, setHighlightId] = useState<string | null>(null);
+  // The words a reply quoted from the message it jumps to: marked in that message for as long as it glows.
+  const [highlightQuote, setHighlightQuote] = useState<string | null>(null);
+  // A jump waits for the list to render the message it just paged in (it used to take two taps).
+  const [pendingJump, setPendingJump] = useState<string | null>(null);
   const [actionError, setActionError] = useState('');
   const [loadError, setLoadError] = useState(false);
   // Mobile multi-select: long-press a bubble to select it, then use the bar that replaces the header.
@@ -236,25 +243,39 @@ export function ChatThread({
   };
 
   /** Jumps to a message: pages older history in (bounded) until it is loaded, then highlights it. */
-  const jumpTo = async (messageId: string) => {
+  const jumpTo = async (messageId: string, quote?: string) => {
     const found = await chatStore.findMessage(conversationId, messageId).catch(() => null);
-    // Build the current row index from the store snapshot: paging above may have just changed it.
-    const currentRows = found ? buildRows(chatStore.state.messages[conversationId] ?? []) : [];
-    const index = currentRows.findIndex((row) => row.type === 'message' && row.message.id === messageId);
-    if (index < 0) {
+    const loaded = found && (chatStore.state.messages[conversationId] ?? []).some((m) => m.id === messageId);
+    if (!loaded) {
       showError(t('Message not found'));
       return;
     }
     setHighlightId(messageId);
+    setHighlightQuote(quote ?? null);
     clearTimeout(timers.current.highlight);
-    timers.current.highlight = setTimeout(() => setHighlightId(null), 3200);
-    scrollRetry.current = 0;
-    try {
-      listRef.current?.scrollToIndex({ index, viewPosition: 0.5, animated: true });
-    } catch {
-      // Variable-height rows can't always be located; the highlight still points at it.
-    }
+    timers.current.highlight = setTimeout(() => {
+      setHighlightId(null);
+      setHighlightQuote(null);
+    }, 3200);
+    setPendingJump(messageId);
   };
+  // Scroll once the rendered rows hold the target: older history paged in by findMessage only reaches
+  // the list on a later render, and scrolling before that missed (user report).
+  useEffect(() => {
+    if (!pendingJump) return;
+    const index = rows.findIndex((row) => row.type === 'message' && row.message.id === pendingJump);
+    if (index < 0) return;
+    const id = setTimeout(() => {
+      setPendingJump(null);
+      scrollRetry.current = 0;
+      try {
+        listRef.current?.scrollToIndex({ index, viewPosition: 0.5, animated: true });
+      } catch {
+        // Variable-height rows can't always be located; onScrollToIndexFailed takes it from here.
+      }
+    }, 0);
+    return () => clearTimeout(id);
+  }, [pendingJump, rows]);
   // "Show in chat" from the info panel's tabs: jump when asked (or right away for a request that
   // was waiting while the phone's info page was open).
   const jumpRef = useRef(jumpTo);
@@ -381,7 +402,7 @@ export function ChatThread({
           onScrollToIndexFailed={(info) => {
             // Variable-height rows that haven't been laid out yet: jump near the target by the average
             // row height (which renders it), then scroll to it exactly. A few tries at most.
-            if (scrollRetry.current >= 3) return;
+            if (scrollRetry.current >= 6) return;
             scrollRetry.current += 1;
             listRef.current?.scrollToOffset({ offset: Math.max(0, info.averageItemLength * info.index), animated: false });
             setTimeout(() => listRef.current?.scrollToIndex({ index: info.index, viewPosition: 0.5, animated: true }), 120);
@@ -413,13 +434,14 @@ export function ChatThread({
                 mine={item.message.senderId === user?.id}
                 desktop={desktop}
                 highlighted={highlightId === item.message.id}
+                highlightQuote={highlightId === item.message.id ? highlightQuote : null}
                 menuOpen={menu?.message.id === item.message.id}
                 selected={selection.includes(item.message.id)}
                 selectionMode={selection.length > 0}
                 onToggleSelect={() => toggleSelected(item.message.id)}
                 onReply={() => setReplyTo(item.message)}
                 onOpenMenu={(point) => setMenu({ message: item.message, point })}
-                onJumpTo={(id) => void jumpTo(id)}
+                onJumpTo={(id, quote) => void jumpTo(id, quote)}
               />
             )
           }
@@ -1313,6 +1335,7 @@ function Bubble({
   mine,
   desktop,
   highlighted,
+  highlightQuote,
   menuOpen,
   selected,
   selectionMode,
@@ -1326,13 +1349,14 @@ function Bubble({
   mine: boolean;
   desktop: boolean;
   highlighted: boolean;
+  highlightQuote?: string | null;
   menuOpen: boolean;
   selected: boolean;
   selectionMode: boolean;
   onToggleSelect: () => void;
   onReply: () => void;
   /** Scrolls to another message (the one a reply quotes). */
-  onJumpTo: (messageId: string) => void;
+  onJumpTo: (messageId: string, quote?: string) => void;
   onOpenMenu: (point: { x: number; y: number }) => void;
 }) {
   const { message: m, first, last } = row;
@@ -1491,7 +1515,7 @@ function Bubble({
           {m.replyTo && (
             // Tapping the quote scrolls to the original message and highlights it (like Telegram).
             <Pressable
-              onPress={selectionMode ? onToggleSelect : () => m.replyTo && onJumpTo(m.replyTo.id)}
+              onPress={selectionMode ? onToggleSelect : () => m.replyTo && onJumpTo(m.replyTo.id, m.replyTo.quote)}
               accessibilityRole="button"
               accessibilityLabel={t('Go to the original message')}
               style={({ hovered }: any) => ({
@@ -1501,6 +1525,9 @@ function Bubble({
                 borderRadius: framedMedia ? nestedRadius(r, 6 + 1.5) : 10, // in a photo bubble it sits 6px + the 1.5px border from the corner
                 padding: 10,
                 margin: framedMedia ? 6 : 0,
+                // Over a photo or video the quote never grows past the picture (its card tops out at
+                // 320): a long quote used to widen the bubble beyond it (user report).
+                maxWidth: framedMedia ? 320 - 12 : undefined,
               })}>
               <View style={{ width: 3, borderRadius: 2, backgroundColor: colors.amber }} />
               <View style={{ flexShrink: 1 }}>
@@ -1530,9 +1557,11 @@ function Bubble({
               variant="bodyLg"
               color={fg}
               linkColor={mine ? colors.amberSoftLink : colors.amberText}
-              codeBackground={mine ? colors.amberSoftFill : colors.surface}
+              codeBackground={mine ? colors.amberSoftFillStrong : colors.canvas}
               codeColor={fg}
               style={{ fontSize: 16, lineHeight: 24 }}
+              mark={highlightQuote ?? undefined}
+              markColor={colors.amberLine}
               selectable={desktop}>
               {m.body}
             </LinkedText>
@@ -1723,7 +1752,7 @@ function AttachmentCard({ message, mine, framed }: { message: Message; mine: boo
           variant="bodyLg"
           color={mine ? colors.onAmberSoft : colors.text}
           linkColor={mine ? colors.amberSoftLink : colors.amberText}
-          codeBackground={mine ? colors.amberSoftFill : colors.surface}
+          codeBackground={mine ? colors.amberSoftFillStrong : colors.canvas}
           codeColor={mine ? colors.onAmberSoft : colors.text}
           style={{ fontSize: 16, lineHeight: 24, ...(framed ? { paddingHorizontal: 14, paddingTop: 8, paddingBottom: 10 } : {}) }}>
           {caption}
@@ -1892,6 +1921,15 @@ function Composer({
   // The composer's edge lights up in amber while it has focus (Stitch).
   const [inputFocused, setInputFocused] = useState(false);
   const [inputHeight, setInputHeight] = useState(50);
+  // Which edge of a long message has more text past it: that edge fades instead of showing a bar.
+  const [inputMore, setInputMore] = useState<'none' | 'top' | 'bottom' | 'both'>('none');
+  const nativeInputContent = useRef(0);
+  const nativeInputOffset = useRef(0);
+  const moreFrom = (top: number, visible: number, total: number) => {
+    const up = top > 1;
+    const down = top + visible < total - 1;
+    setInputMore(up && down ? 'both' : up ? 'top' : down ? 'bottom' : 'none');
+  };
   const insets = useSafeAreaInsets();
   const canSend = !uploading && !savingEdit && (text.trim().length > 0 || (!!staged && !editing) || editing?.kind === 'file');
   // Voice messages (web/desktop): with nothing typed, the send button becomes a microphone.
@@ -2035,7 +2073,18 @@ function Composer({
     const height = node.scrollHeight;
     node.style.height = previous;
     setInputHeight(Math.min(140, Math.max(50, height)));
+    // After the new height is applied, see which edges have more text beyond them.
+    const frame = requestAnimationFrame(() => moreFrom(node.scrollTop, node.clientHeight, node.scrollHeight));
+    return () => cancelAnimationFrame(frame);
   }, [text]);
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    const node = inputRef.current as unknown as HTMLTextAreaElement | null;
+    if (!node?.addEventListener) return;
+    const onScroll = () => moreFrom(node.scrollTop, node.clientHeight, node.scrollHeight);
+    node.addEventListener('scroll', onScroll, { passive: true });
+    return () => node.removeEventListener('scroll', onScroll);
+  }, []);
 
   useEffect(() => {
     if (replyTo) inputRef.current?.focus();
@@ -2150,6 +2199,35 @@ function Composer({
     }
   };
 
+  // The paperclip asks first: the gallery (photos and videos) or any file (user request).
+  const attachRef = useRef<ComponentRef<typeof View>>(null);
+  const [attachMenu, setAttachMenu] = useState<{ x: number; y: number } | null>(null);
+  const openAttachMenu = () => {
+    const node = attachRef.current;
+    if (!node) return void pickFile();
+    node.measureInWindow((x, y, width) => setAttachMenu({ x: Math.max(8, x + width - 220), y: Math.max(8, y - 2 * 44 - 24) }));
+  };
+  const pickMedia = async () => {
+    setUploadError('');
+    // The web has no gallery of its own: the browser's picker, limited to pictures and videos, opens
+    // the phone's gallery there.
+    if (Platform.OS === 'web') {
+      const picked = await DocumentPicker.getDocumentAsync({ type: ['image/*', 'video/*'], multiple: false, base64: false });
+      if (!picked.canceled && picked.assets[0]) await stageAsset(picked.assets[0]);
+      return;
+    }
+    const picked = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images', 'videos'], quality: 1, allowsMultipleSelection: false });
+    const item = picked.canceled ? null : picked.assets?.[0];
+    if (!item) return;
+    const video = item.type === 'video';
+    await stageAsset({
+      uri: item.uri,
+      name: item.fileName || (video ? `video-${Date.now()}.mp4` : `photo-${Date.now()}.jpg`),
+      size: item.fileSize,
+      mimeType: item.mimeType || (video ? 'video/mp4' : 'image/jpeg'),
+      lastModified: Date.now(),
+    } as DocumentPicker.DocumentPickerAsset);
+  };
   const pickFile = async () => {
     setUploadError('');
     const picked = await DocumentPicker.getDocumentAsync({ type: '*/*', copyToCacheDirectory: true, multiple: false, base64: false });
@@ -2394,7 +2472,9 @@ function Composer({
             <View style={lineBox}>
               {filesAllowed && (
                 <Tooltip label={t('Upload file')} style={{ alignSelf: 'center' }}>
-                  <IconButton name="paperclip" label={t('Upload file')} onPress={() => void pickFile()} disabled={uploading} size={44} rounded={COMPOSER_INNER_RADIUS} color={colors.textMuted} />
+                  <View ref={attachRef} collapsable={false}>
+                    <IconButton name="paperclip" label={t('Upload file')} onPress={openAttachMenu} disabled={uploading} size={44} rounded={COMPOSER_INNER_RADIUS} color={attachMenu ? colors.amberText : colors.textMuted} />
+                  </View>
                 </Tooltip>
               )}
               <Tooltip label={t('Emoji')} style={{ alignSelf: 'center' }}>
@@ -2410,13 +2490,32 @@ function Composer({
           {voice.recording && (
             <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 44, paddingHorizontal: 6 }}>
               {desktop && <IconButton name="x" label={t('Cancel recording')} onPress={voice.cancel} size={36} iconSize={18} color={colors.danger} />}
-              <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: colors.danger }} />
+              <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: voice.paused ? colors.textMuted : colors.danger }} />
               <T variant="body" color={colors.text} style={{ fontVariant: ['tabular-nums'] }}>
                 {`${Math.floor(voice.seconds / 60)}:${String(voice.seconds % 60).padStart(2, '0')}`}
               </T>
-              <T variant="bodySm" color={colors.textMuted} numberOfLines={1} style={{ flex: 1 }}>
-                {desktop || locked ? t('Recording… tap send to finish') : t('Recording… let go to finish')}
-              </T>
+              {!desktop && locked ? (
+                // Locked (phone): the hand is free, so the bar offers Cancel in its middle, like Telegram.
+                <View style={{ flex: 1, alignItems: 'center' }}>
+                  <Pressable
+                    onPress={() => {
+                      voice.cancel();
+                      setLock(false);
+                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel={t('Cancel recording')}
+                    hitSlop={8}
+                    style={({ pressed }) => ({ paddingHorizontal: 12, paddingVertical: 6, borderRadius: radius.pill, backgroundColor: pressed ? colors.surfaceHigh : 'transparent' })}>
+                    <T variant="label" color={colors.amberText} style={{ letterSpacing: 0.6 }}>
+                      {t('Cancel').toLocaleUpperCase()}
+                    </T>
+                  </Pressable>
+                </View>
+              ) : (
+                <T variant="bodySm" color={colors.textMuted} numberOfLines={1} style={{ flex: 1 }}>
+                  {voice.paused ? t('Paused') : desktop ? t('Recording… tap send to finish') : t('Recording… slide up to lock')}
+                </T>
+              )}
             </View>
           )}
           {!!voiceClip && !voice.recording && (
@@ -2427,59 +2526,78 @@ function Composer({
               </View>
             </View>
           )}
-          <TextInput
-            ref={inputRef}
-            value={text}
-            onChangeText={onChange}
-            placeholder={staged ? t('Add a caption…') : placeholder}
-            placeholderTextColor={colors.textMuted}
-            {...emptyInputDirection(text)}
-            multiline
-            numberOfLines={1}
-            onContentSizeChange={(event) => {
-              // Web sizes itself in the layout effect above: measuring here resizes the textarea,
-              // which fires this event again and locks the page in a loop.
-              if (Platform.OS === 'web') return;
-              setInputHeight(Math.min(140, Math.max(50, event.nativeEvent.contentSize.height)));
-            }}
-            onFocus={() => {
-              setInputFocused(true);
-              if (!desktop && emojiOpen) setEmojiOpen(false);
-            }}
-            onBlur={() => setInputFocused(false)}
-            onKeyPress={(e: any) => {
-              if (Platform.OS !== 'web') return;
-              const key = e.nativeEvent.key;
-              // Touch keyboards: Enter is a new line, the send button sends (like Telegram).
-              if (key === 'Enter' && !e.nativeEvent.shiftKey && !touchKeyboard()) {
-                e.preventDefault();
-                send();
-              } else if (key === 'ArrowUp' && !text && !editing && !staged && onEditLast) {
-                e.preventDefault();
-                onEditLast();
-              }
-            }}
-            style={[
-              {
-                flex: 1,
-                color: colors.text,
-                fontFamily: fonts.regular,
-                fontSize: 16,
-                lineHeight: 22,
-                paddingVertical: 14,
-                paddingHorizontal: desktop ? 8 : 4,
-                maxHeight: 140,
-                height: text ? inputHeight : 50,
-                textAlignVertical: 'center',
-              },
-              noOutline,
-              persianFont(text || placeholder, { fontFamily: fonts.regular }),
-              (voice.recording || !!voiceClip) && { display: 'none' },
-            ]}
-          />
+          <View style={[{ flex: 1, alignSelf: 'stretch', justifyContent: 'flex-end' }, (voice.recording || !!voiceClip) && { display: 'none' }]}>
+            <TextInput
+              ref={inputRef}
+              value={text}
+              onChangeText={onChange}
+              {...(Platform.OS === 'web' ? ({ dataSet: { composerInput: '1', more: inputMore } } as object) : {})}
+              onScroll={(event: any) => {
+                if (Platform.OS === 'web') return;
+                nativeInputOffset.current = event.nativeEvent.contentOffset?.y ?? 0;
+                moreFrom(nativeInputOffset.current, inputHeight, nativeInputContent.current);
+              }}
+              placeholder={staged ? t('Add a caption…') : placeholder}
+              placeholderTextColor={colors.textMuted}
+              {...emptyInputDirection(text)}
+              multiline
+              numberOfLines={1}
+              onContentSizeChange={(event) => {
+                // Web sizes itself in the layout effect above: measuring here resizes the textarea,
+                // which fires this event again and locks the page in a loop.
+                if (Platform.OS === 'web') return;
+                const content = event.nativeEvent.contentSize.height;
+                const visible = Math.min(140, Math.max(50, content));
+                nativeInputContent.current = content;
+                setInputHeight(visible);
+                moreFrom(nativeInputOffset.current, visible, content);
+              }}
+              onFocus={() => {
+                setInputFocused(true);
+                if (!desktop && emojiOpen) setEmojiOpen(false);
+              }}
+              onBlur={() => setInputFocused(false)}
+              onKeyPress={(e: any) => {
+                if (Platform.OS !== 'web') return;
+                const key = e.nativeEvent.key;
+                // Touch keyboards: Enter is a new line, the send button sends (like Telegram).
+                if (key === 'Enter' && !e.nativeEvent.shiftKey && !touchKeyboard()) {
+                  e.preventDefault();
+                  send();
+                } else if (key === 'ArrowUp' && !text && !editing && !staged && onEditLast) {
+                  e.preventDefault();
+                  onEditLast();
+                }
+              }}
+              style={[
+                {
+                  color: colors.text,
+                  fontFamily: fonts.regular,
+                  fontSize: 16,
+                  lineHeight: 22,
+                  paddingVertical: 14,
+                  paddingHorizontal: desktop ? 8 : 4,
+                  maxHeight: 140,
+                  height: text ? inputHeight : 50,
+                  textAlignVertical: 'center',
+                },
+                noOutline,
+                persianFont(text || placeholder, { fontFamily: fonts.regular }),
+              ]}
+            />
+            {/* Phones (native): the same fades, drawn over the text in the box's own color. */}
+            {Platform.OS !== 'web' && (inputMore === 'top' || inputMore === 'both') && (
+              <LinearGradient pointerEvents="none" colors={[colors.surface, `${colors.surface}00`]} style={{ position: 'absolute', top: 0, start: 0, end: 0, height: 22 }} />
+            )}
+            {Platform.OS !== 'web' && (inputMore === 'bottom' || inputMore === 'both') && (
+              <LinearGradient pointerEvents="none" colors={[`${colors.surface}00`, colors.surface]} style={{ position: 'absolute', bottom: 0, start: 0, end: 0, height: 22 }} />
+            )}
+          </View>
           {!desktop && filesAllowed && !voice.recording && !voiceClip && (
             <View style={lineBox}>
-              <IconButton name="paperclip" label={t('Upload file')} onPress={() => void pickFile()} disabled={uploading} color={colors.textMuted} iconSize={21} />
+              <View ref={attachRef} collapsable={false}>
+                <IconButton name="paperclip" label={t('Upload file')} onPress={openAttachMenu} disabled={uploading} color={attachMenu ? colors.amberText : colors.textMuted} iconSize={21} />
+              </View>
             </View>
           )}
           {desktop && (
@@ -2504,6 +2622,38 @@ function Composer({
           )}
         </View>
         {!desktop && (
+          <View>
+          {/* Holding the mic: a lock waits above it (slide up to keep recording hands-free). Once
+              locked, a pause button takes its place (user request, like Telegram). */}
+          {voice.recording && (
+            <View pointerEvents="box-none" style={{ position: 'absolute', bottom: 52 + 16, start: 6, alignItems: 'center' }}>
+              {locked ? (
+                <Pressable
+                  onPress={voice.togglePause}
+                  accessibilityRole="button"
+                  accessibilityLabel={voice.paused ? t('Resume recording') : t('Pause recording')}
+                  style={({ pressed }) => ({
+                    width: 40,
+                    height: 40,
+                    borderRadius: 20,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    backgroundColor: pressed ? colors.surfaceHighest : colors.surfaceHigh,
+                    borderWidth: 1,
+                    borderColor: colors.hairline,
+                  })}>
+                  <Icon name={voice.paused ? 'mic' : 'pause'} size={18} color={voice.paused ? colors.danger : colors.text} />
+                </Pressable>
+              ) : (
+                <View
+                  pointerEvents="none"
+                  style={{ width: 40, paddingVertical: 10, gap: 4, borderRadius: 20, alignItems: 'center', backgroundColor: colors.surfaceHigh, borderWidth: 1, borderColor: colors.hairline }}>
+                  <Icon name="lock" size={17} color={colors.text} />
+                  <Icon name="chevron-up" size={16} color={colors.textMuted} />
+                </View>
+              )}
+            </View>
+          )}
           <Pressable
             onPress={mainAction}
             onPressIn={showMic ? (event: any) => void startHold(event) : undefined}
@@ -2534,8 +2684,17 @@ function Composer({
             })}>
             {savingEdit ? <ActivityIndicator color={colors.onAmber} /> : <Icon name={mainIcon} size={22} color={colors.onAmber} />}
           </Pressable>
+          </View>
         )}
       </View>
+      <ContextMenu
+        point={attachMenu}
+        onClose={() => setAttachMenu(null)}
+        items={[
+          { icon: 'image', label: t('Photo or video'), onPress: () => void pickMedia() },
+          { icon: 'file', label: t('File'), onPress: () => void pickFile() },
+        ]}
+      />
       {emojiOpen && !desktop && (
         // Sits where the keyboard was.
         <EmojiPicker onPick={insertEmoji} onClose={() => setEmojiOpen(false)} maxHeight={280} style={{ maxWidth: undefined }} />

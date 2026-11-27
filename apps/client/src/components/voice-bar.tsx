@@ -114,7 +114,7 @@ export function VoiceSession() {
  * A small card under its button. On the web it hangs off the bar (hover opens it); on a phone a
  * long press raises it over the chat with a scrim, since a phone has no hover.
  */
-function Panel({ children, onClose, width = 236 }: { children: ReactNode; onClose: () => void; width?: number }) {
+function Panel({ children, onClose, width = 236, centered }: { children: ReactNode; onClose: () => void; width?: number; centered?: boolean }) {
   if (!web) {
     return (
       <Modal transparent animationType="fade" visible onRequestClose={onClose}>
@@ -149,7 +149,8 @@ function Panel({ children, onClose, width = 236 }: { children: ReactNode; onClos
         // Touching the button: the pointer can move straight down into the card, so the hover
         // (which closes it) never crosses a gap.
         top: '100%',
-        end: 0,
+        // A narrow card (volume) hangs centred under its button; a wide one lines up with the bar's end.
+        ...(centered ? { left: '50%', marginLeft: -width / 2 } : { end: 0 }),
         width,
         padding: 10,
         gap: 8,
@@ -419,7 +420,7 @@ export function VoiceBar() {
             iconSize={15}
           />
           {panel === 'volume' && (
-            <Panel onClose={closePanel} width={72}>
+            <Panel onClose={closePanel} width={72} centered>
               <View style={{ alignItems: 'center', gap: 8 }}>
                 <T variant="labelSm" color={colors.textMuted} style={{ fontVariant: ['tabular-nums'] }}>
                   {`${Math.round(now.volume * 100)}%`}

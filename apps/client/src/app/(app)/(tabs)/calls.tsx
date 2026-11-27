@@ -257,12 +257,13 @@ function MeetingsCard() {
           </View>
           {/* A hairline marks where the choices end and the actions begin: without it the buttons
               read as two more options of "stays valid for" (user request). */}
-          <View style={{ height: 1, backgroundColor: colors.surfaceHighest }} />
-          {/* Side by side when there's room; on narrow screens they stack full width instead of spilling out of the card. */}
+          <View style={{ height: 1, marginVertical: 4, backgroundColor: colors.textDim, opacity: 0.35 }} />
+          {/* Side by side when there's room, as two equal columns that line up with the choices' grid
+              above (user request); on narrow screens they stack full width instead of spilling out of the card. */}
           {roomy ? (
-            <View style={{ flexDirection: 'row', gap: 8, justifyContent: 'flex-end' }}>
-              <Button title={t('Cancel')} variant="ghost" size="sm" onPress={() => setCreating(false)} />
-              <Button title={t('Create and copy link')} icon="link" size="sm" loading={busy === 'new'} onPress={create} />
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <Button title={t('Cancel')} variant="ghost" size="sm" onPress={() => setCreating(false)} style={{ flex: 1, flexBasis: 0 }} />
+              <Button title={t('Create and copy link')} icon="link" size="sm" loading={busy === 'new'} onPress={create} style={{ flex: 1, flexBasis: 0 }} />
             </View>
           ) : (
             <View style={{ gap: 8 }}>

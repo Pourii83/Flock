@@ -1,20 +1,23 @@
 import { compareConversations } from '@/lib/conversation-order';
 import { router } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentRef, type ReactNode } from 'react';
+import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { ActivityIndicator, FlatList, Modal, Platform, Pressable, ScrollView, View, type StyleProp, type ViewStyle } from 'react-native';
 
 import { ContextMenu, type ContextMenuItem } from '@/components/context-menu';
 import { ChangelogModal, UpdateBanner } from '@/components/update-banner';
+import { attachmentSource } from '@/lib/attachments';
 import { useDraft, useDraftTimes } from '@/lib/drafts';
 import { shortTime } from '@/lib/format';
-import { systemText } from '@/lib/system-message';
-import type { Conversation } from '@/lib/types';
+import { plainPreview, systemText } from '@/lib/system-message';
+import type { Conversation, Message } from '@/lib/types';
 import { useAuth } from '@/state/auth';
 import { chatStore, useChat } from '@/state/chat-store';
 import { colors, fonts, radius } from '@/theme';
 import { ConversationAvatar, MegaphoneIcon, isSavedConversation } from './avatar';
 import { Button, Chip, CHIP_HEIGHT, Icon, IconButton, PushPin, SearchBar, T, Tooltip, UnreadBadge } from './ui';
+import { VideoThumb } from './video-thumb';
 import { VoiceBar } from './voice-bar';
 import { ConnectionBanner, MobileHeader } from './shell';
 import { t, num, isRTL } from '@/lib/i18n';
@@ -84,7 +87,7 @@ function Preview({ c, meId, typing, draft }: { c: Conversation; meId?: string; t
         {systemText(m.body)}
       </T>
     );
-  const preview = m.kind === 'file' && m.attachment?.mimeType.startsWith('audio/') ? `🎤 ${t('Voice message')}` : m.kind === 'file' ? t('File: {name}', { name: m.attachment?.name ?? t('File') }) : m.kind === 'call_invite' ? t('Group call invitation') : m.body;
+  const preview = m.kind === 'file' && m.attachment?.mimeType.startsWith('audio/') ? `🎤 ${t('Voice message')}` : m.kind === 'file' ? t('File: {name}', { name: m.attachment?.name ?? t('File') }) : m.kind === 'call_invite' ? t('Group call invitation') : plainPreview(m.body);
   const mine = m.senderId === meId;
   const read = mine && c.othersReadAt >= m.createdAt;
   const sender = c.type === 'group' && !mine ? `${c.members.find((u) => u.id === m.senderId)?.displayName.split(' ')[0]}: ` : '';
@@ -103,6 +106,13 @@ function Preview({ c, meId, typing, draft }: { c: Conversation; meId?: string; t
  * A quick look at a chat without opening it: Alt+click on the web, long-press on phones. The thread is
  * read-only here and nothing gets marked as read.
  */
+/** A photo or video the preview can show as a picture: not a secret chat's sealed file, not expired. */
+function previewMedia(m: Message): 'image' | 'video' | null {
+  const a = m.kind === 'file' ? m.attachment : undefined;
+  if (!a?.url || a.expired || a.sealed) return null;
+  return a.mimeType.startsWith('image/') ? 'image' : a.mimeType.startsWith('video/') ? 'video' : null;
+}
+
 function ChatPreviewDialog({ c, visible, onClose, onOpen }: { c: Conversation; visible: boolean; onClose: () => void; onOpen: () => void }) {
   const { user } = useAuth();
   const messages = useChat((s) => s.messages[c.id]);
@@ -155,18 +165,47 @@ function ChatPreviewDialog({ c, visible, onClose, onOpen }: { c: Conversation; v
               recent.map((m) => {
                 const mine = m.senderId === user?.id;
                 const sender = !mine && group ? chatStore.memberName(c.id, m.senderId) : '';
-                const text = m.kind === 'file' ? t('File: {name}', { name: m.attachment?.name ?? t('File') }) : m.body;
+                const media = previewMedia(m);
+                const caption = media ? (m.body ?? '').trim() : '';
+                const text = media
+                  ? caption && caption !== m.attachment?.name.trim()
+                    ? plainPreview(caption)
+                    : ''
+                  : m.kind === 'file'
+                    ? m.attachment?.mimeType.startsWith('audio/')
+                      ? `🎤 ${t('Voice message')}`
+                      : `📎 ${m.attachment?.name ?? t('File')}`
+                    : m.kind === 'system'
+                      ? systemText(m.body)
+                      : plainPreview(m.body);
                 return (
                   <View key={m.id} style={{ alignItems: mine ? 'flex-end' : 'flex-start' }}>
-                    <View style={{ maxWidth: '85%', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 14, backgroundColor: mine ? colors.amberSoft : colors.surface }}>
+                    <View style={{ maxWidth: '85%', paddingHorizontal: media ? 4 : 12, paddingVertical: media ? 4 : 8, gap: 6, borderRadius: 14, backgroundColor: mine ? colors.amberSoft : colors.surface }}>
                       {!!sender && (
-                        <T variant="labelSm" color={colors.amberText} numberOfLines={1}>
+                        <T variant="labelSm" color={colors.amberText} numberOfLines={1} style={media ? { paddingHorizontal: 8, paddingTop: 4 } : undefined}>
                           {sender}
                         </T>
                       )}
-                      <T variant="body" color={mine ? colors.onAmberSoft : colors.text}>
-                        {text}
-                      </T>
+                      {/* Photos and videos show as themselves, like in the chat (user request). */}
+                      {media && (
+                        <View style={{ width: 220, aspectRatio: 4 / 3, borderRadius: 10, overflow: 'hidden', backgroundColor: colors.surfaceHigh, alignItems: 'center', justifyContent: 'center' }}>
+                          {media === 'image' ? (
+                            <Image source={attachmentSource(m.attachment!.url!)} style={{ width: '100%', height: '100%' }} contentFit="cover" />
+                          ) : (
+                            <>
+                              <VideoThumb url={m.attachment!.url!} size={m.attachment!.size} mimeType={m.attachment!.mimeType} />
+                              <View style={{ position: 'absolute', width: 40, height: 40, borderRadius: 20, backgroundColor: colors.glass, alignItems: 'center', justifyContent: 'center' }}>
+                                <Icon name="play" size={18} />
+                              </View>
+                            </>
+                          )}
+                        </View>
+                      )}
+                      {!!text && (
+                        <T variant="body" color={mine ? colors.onAmberSoft : colors.text} style={media ? { paddingHorizontal: 8, paddingBottom: 4 } : undefined}>
+                          {text}
+                        </T>
+                      )}
                     </View>
                   </View>
                 );

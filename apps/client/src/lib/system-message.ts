@@ -27,7 +27,7 @@ export function quoteText(kind: string | undefined, body: string): string {
       return t('Voice call');
     }
   }
-  return body;
+  return plainPreview(body);
 }
 
 /** Turns a group system message (JSON from the server) into a localized sentence. */
@@ -83,4 +83,14 @@ export function systemText(body: string): string {
     default:
       return actor;
   }
+}
+
+/** One line of a message for lists and previews: ```code``` fences lose their marks (and a language
+ *  word after the opening one), and line breaks fold into spaces. */
+export function plainPreview(body: string | null | undefined): string {
+  return (body ?? '')
+    .replace(/```(?:[A-Za-z0-9+#._-]{1,20}\n)?([\s\S]*?)```/g,(_, code: string) => ` ${code.trim()} `)
+    .replace(/```/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
