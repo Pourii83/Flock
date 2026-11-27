@@ -3,7 +3,7 @@ import * as Clipboard from 'expo-clipboard';
 import * as DocumentPicker from 'expo-document-picker';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -28,7 +28,7 @@ import { callLine, parseCallLog } from '@/lib/call-log';
 import { confirm } from '@/lib/confirm';
 import { clearDraft, setDraft, useDraft } from '@/lib/drafts';
 import { ensureDevice, safetyCode, useDevice, useSecretStatus } from '@/lib/e2e';
-import { systemText } from '@/lib/system-message';
+import { pinNoteRef, quoteText, systemText } from '@/lib/system-message';
 import type { Conversation, Message } from '@/lib/types';
 import { useAuth } from '@/state/auth';
 import { useCalls } from '@/state/calls';
@@ -101,7 +101,10 @@ export function ChatThread({
   // Channels are broadcast-only: only the owner and admins get a composer.
   const myRole = conversation?.members.find((m) => m.id === user?.id)?.role;
   const canPost = conversation?.type !== 'channel' || myRole === 'owner' || myRole === 'admin';
-  const [replyTo, setReplyTo] = useState<Message | null>(null);
+  // The message being answered, and optionally the part of its text the reply quotes.
+  const [reply, setReply] = useState<{ message: Message; quote?: string } | null>(null);
+  const replyTo = reply?.message ?? null;
+  const setReplyTo = useCallback((message: Message | null, quote?: string) => setReply(message ? { message, quote } : null), []);
   const [editing, setEditing] = useState<Message | null>(null);
   const [menu, setMenu] = useState<{ message: Message; point: { x: number; y: number } } | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -389,7 +392,13 @@ export function ChatThread({
             item.type === 'day' ? (
               <DayDivider label={item.label} desktop={desktop} />
             ) : item.type === 'system' ? (
-              <SystemNote message={item.message} />
+              <SystemNote
+                message={item.message}
+                meId={user?.id}
+                menuOpen={menu?.message.id === item.message.id}
+                onOpenMenu={(point) => setMenu({ message: item.message, point })}
+                onJumpTo={(id) => void jumpTo(id)}
+              />
             ) : item.type === 'call' ? (
               <CallNote
                 message={item.message}
@@ -456,6 +465,7 @@ export function ChatThread({
           conversation={conversation}
           desktop={desktop}
           replyTo={replyTo}
+          replyQuote={reply?.quote}
           onClearReply={() => setReplyTo(null)}
           editing={editing}
           onCancelEdit={() => setEditing(null)}
@@ -476,6 +486,7 @@ export function ChatThread({
           pinned={!!menu.message.pinnedAt}
           point={menu.point}
           onReply={() => setReplyTo(menu.message)}
+          onQuote={(quote) => setReplyTo(menu.message, quote)}
           onEdit={() => setEditing(menu.message)}
           onSelect={() => toggleSelected(menu.message.id)}
           onError={showError}
@@ -1094,15 +1105,68 @@ function JoinCallBanner({ conversation }: { conversation: Conversation }) {
 
 // ---------- messages ----------
 
-/** Centered note for group events ("Maya added Leo", "Leo is now an admin"…). */
-function SystemNote({ message }: { message: Message }) {
+/**
+ * Centered note for group events ("Maya added Leo", "Leo is now an admin"…). A "pinned" note works like
+ * a call note (user request): tap it to go to the pinned message; right-click or long-press it to
+ * reply, react or delete.
+ */
+function SystemNote({
+  message,
+  meId,
+  menuOpen,
+  onOpenMenu,
+  onJumpTo,
+}: {
+  message: Message;
+  meId: string | undefined;
+  menuOpen: boolean;
+  onOpenMenu: (point: { x: number; y: number }) => void;
+  onJumpTo: (id: string) => void;
+}) {
+  const pinRef = pinNoteRef(message.body);
+  const text = (
+    <T variant="bodySm" color={colors.textMuted} style={{ textAlign: 'center' }}>
+      {systemText(message.body)}
+    </T>
+  );
+  if (pinRef === null)
+    return (
+      <View style={{ alignItems: 'center', marginVertical: 8, paddingHorizontal: 24 }}>
+        <View style={{ backgroundColor: colors.surface, borderRadius: radius.pill, paddingHorizontal: 14, paddingVertical: 6 }}>{text}</View>
+      </View>
+    );
+  const openAtPointer = (event: any) => {
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
+    onOpenMenu({ x: event?.clientX ?? 24, y: event?.clientY ?? 120 });
+  };
+  const openAtTouch = (event: any) => onOpenMenu({ x: event?.nativeEvent?.pageX ?? 24, y: event?.nativeEvent?.pageY ?? 120 });
   return (
     <View style={{ alignItems: 'center', marginVertical: 8, paddingHorizontal: 24 }}>
-      <View style={{ backgroundColor: colors.surface, borderRadius: radius.pill, paddingHorizontal: 14, paddingVertical: 6 }}>
-        <T variant="bodySm" color={colors.textMuted} style={{ textAlign: 'center' }}>
-          {systemText(message.body)}
-        </T>
-      </View>
+      <Tooltip label={t('Show the pinned message')}>
+        <Pressable
+          onPress={() => pinRef && onJumpTo(pinRef)}
+          onLongPress={openAtTouch}
+          delayLongPress={350}
+          accessibilityRole="button"
+          accessibilityLabel={t('Show the pinned message')}
+          {...(Platform.OS === 'web' ? ({ onContextMenu: openAtPointer } as object) : {})}
+          style={({ hovered }: any) => ({
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 6,
+            backgroundColor: hovered ? colors.surfaceHigh : colors.surface,
+            borderRadius: radius.pill,
+            borderWidth: 1,
+            borderColor: menuOpen ? colors.amber : 'transparent',
+            paddingHorizontal: 14,
+            paddingVertical: 6,
+          })}>
+          <PushPin size={13} color={colors.textMuted} />
+          {text}
+        </Pressable>
+      </Tooltip>
+      <ReactionChips message={message} mine={false} meId={meId} center />
     </View>
   );
 }
@@ -1281,6 +1345,8 @@ function Bubble({
   const fg = mine ? colors.onAmberSoft : colors.text;
   // Stitch bubbles: 16px corners, the speaker's corner pinched to 4px on the last of a run.
   const r = 16;
+  // The quoted part of the replied-to message, or the whole of it as one readable line.
+  const replyLine = m.replyTo ? (m.replyTo.quote ?? quoteText(m.replyTo.kind, m.replyTo.body)) : '';
   // A photo or video fills its bubble: only the bubble's thin edge shows around it (no padding).
   const framedMedia =
     m.kind === 'file' && !!m.attachment && !m.attachment.expired && !!m.attachment.url && /^(image|video)\//.test(m.attachment.mimeType);
@@ -1441,8 +1507,8 @@ function Bubble({
                 <T variant="label" color={mine ? colors.amberSoftInk : colors.amberText}>
                   {m.replyTo.senderName}
                 </T>
-                <T variant="body" color={mine ? colors.onAmberSoft : colors.textMuted} numberOfLines={2} {...({ dataSet: contentDirection(m.replyTo.body).dataSet } as object)} style={[{ fontStyle: 'italic' }, contentDirection(m.replyTo.body).style]}>
-                  {m.replyTo.body}
+                <T variant="body" color={mine ? colors.onAmberSoft : colors.textMuted} numberOfLines={2} {...({ dataSet: contentDirection(replyLine).dataSet } as object)} style={[{ fontStyle: 'italic' }, contentDirection(replyLine).style]}>
+                  {m.replyTo.quote ? `“${replyLine}”` : replyLine}
                 </T>
               </View>
             </Pressable>
@@ -1776,6 +1842,7 @@ function Composer({
   conversation,
   desktop,
   replyTo,
+  replyQuote,
   onClearReply,
   editing,
   onCancelEdit,
@@ -1785,6 +1852,8 @@ function Composer({
   conversation: Conversation;
   desktop: boolean;
   replyTo: Message | null;
+  /** Only this part of `replyTo`'s text is quoted. */
+  replyQuote?: string;
   onClearReply: () => void;
   /** Message being edited: the composer prefills it and Saves instead of Sending. */
   editing: Message | null;
@@ -1970,7 +2039,7 @@ function Composer({
 
   useEffect(() => {
     if (replyTo) inputRef.current?.focus();
-  }, [replyTo]);
+  }, [replyTo, replyQuote]);
 
   // Entering edit mode prefills the input once; store updates must not clobber the typed text.
   useEffect(() => {
@@ -2105,7 +2174,7 @@ function Composer({
     setText('');
     setEmojiOpen(false);
     chatStore.notifyTyping(conversation.id, false);
-    chatStore.send(conversation.id, body, replyTo);
+    chatStore.send(conversation.id, body, replyTo, replyQuote);
     onClearReply();
     onSent?.();
     // On phones the emoji panel stays closed and the keyboard stays up for the next message.
@@ -2197,9 +2266,10 @@ function Composer({
   return (
     <View
       style={{
-        paddingHorizontal: desktop ? 24 : 12,
-        paddingTop: 10,
-        paddingBottom: desktop ? 18 : Math.max(insets.bottom, 12),
+        // Phones: like Telegram, the box runs almost edge to edge and close to the bottom.
+        paddingHorizontal: desktop ? 24 : 8,
+        paddingTop: desktop ? 10 : 8,
+        paddingBottom: desktop ? 18 : Math.max(insets.bottom, 8),
         backgroundColor: desktop ? colors.canvas : colors.barDeep,
         borderTopWidth: desktop ? 1 : 0,
         borderTopColor: colors.surfaceHigh,
@@ -2237,10 +2307,12 @@ function Composer({
           <View style={{ width: 3, alignSelf: 'stretch', borderRadius: 2, backgroundColor: colors.amber }} />
           <View style={{ flex: 1 }}>
             <T variant="label" color={colors.amberText}>
-              {t('Replying to {name}', { name: chatStore.memberName(conversation.id, replyTo.senderId) })}
+              {replyQuote
+                ? t('Quoting {name}', { name: chatStore.memberName(conversation.id, replyTo.senderId) })
+                : t('Replying to {name}', { name: chatStore.memberName(conversation.id, replyTo.senderId) })}
             </T>
-            <T variant="body" color={colors.textMuted} numberOfLines={1}>
-              {replyTo.body}
+            <T variant="body" color={colors.textMuted} numberOfLines={1} style={replyQuote ? { fontStyle: 'italic' } : undefined}>
+              {replyQuote ? `“${replyQuote}”` : quoteText(replyTo.kind, replyTo.body)}
             </T>
           </View>
           <IconButton name="x" label={t('Cancel reply')} onPress={onClearReply} size={32} iconSize={16} />
@@ -2288,24 +2360,14 @@ function Composer({
         </View>
       )}
       {emojiOpen && desktop && (
-        // Floats over the messages instead of pushing them up.
-        <View style={{ position: 'absolute', bottom: '100%', start: 24, zIndex: 20, marginBottom: 8 }}>
+        // Floats over the messages instead of pushing them up. A fixed width: sized by its content, the
+        // panel widened over several frames as the grid drew in, so the emoji seemed to grow (user report).
+        <View style={{ position: 'absolute', bottom: '100%', start: 24, zIndex: 20, marginBottom: 8, width: 380, maxWidth: '90%' }}>
           <EmojiPicker onPick={insertEmoji} onClose={() => setEmojiOpen(false)} maxHeight={300} />
         </View>
       )}
       {!!uploadError && <T variant="bodySm" color={colors.danger}>{uploadError}</T>}
-      <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 10 }}>
-        {!desktop && filesAllowed && (
-          <IconButton
-            name="plus"
-            label={t('Upload file')}
-            onPress={() => void pickFile()}
-            disabled={uploading}
-            size={52}
-            iconSize={24}
-            bg={colors.surface}
-          />
-        )}
+      <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: desktop ? 10 : 6 }}>
         <View
           style={{
             flex: 1,
@@ -2320,8 +2382,10 @@ function Composer({
             // (the delete button's side gets less, the waveform's end a little more; RTL mirrors it).
             // Start/end (not left/right) so Persian mirrors it: the text side gets the room, the
             // emoji side stays tight.
-            paddingStart: voice.recording || voiceClip ? 6 : desktop ? COMPOSER_PAD : 20,
-            paddingEnd: voice.recording || voiceClip ? 14 : desktop ? COMPOSER_PAD : 5, // phone: the 40px emoji circle is 6.5px from the pill on every side, sharing its end's center
+            // Phone, like Telegram: emoji at the start and the paperclip at the end, both inside the box;
+            // their 40px circles sit 6.5px from the pill on every side, sharing its ends' centers.
+            paddingStart: voice.recording || voiceClip ? 6 : desktop ? COMPOSER_PAD : 5,
+            paddingEnd: voice.recording || voiceClip ? 14 : desktop ? COMPOSER_PAD : 5,
             minHeight: 52,
           }}>
           {/* Every icon sits in a box as tall as one line of text, so it lines up with the text on
@@ -2336,6 +2400,11 @@ function Composer({
               <Tooltip label={t('Emoji')} style={{ alignSelf: 'center' }}>
                 <IconButton name="smile" label={t('Emoji')} onPress={toggleEmoji} size={44} rounded={COMPOSER_INNER_RADIUS} color={emojiOpen ? colors.amberText : colors.textMuted} />
               </Tooltip>
+            </View>
+          )}
+          {!desktop && !voice.recording && !voiceClip && (
+            <View style={lineBox}>
+              <IconButton name={emojiOpen ? 'type' : 'smile'} label={emojiOpen ? t('Keyboard') : t('Emoji')} onPress={toggleEmoji} color={emojiOpen ? colors.amberText : colors.textMuted} iconSize={22} />
             </View>
           )}
           {voice.recording && (
@@ -2398,7 +2467,7 @@ function Composer({
                 fontSize: 16,
                 lineHeight: 22,
                 paddingVertical: 14,
-                paddingHorizontal: desktop ? 8 : 0,
+                paddingHorizontal: desktop ? 8 : 4,
                 maxHeight: 140,
                 height: text ? inputHeight : 50,
                 textAlignVertical: 'center',
@@ -2408,9 +2477,9 @@ function Composer({
               (voice.recording || !!voiceClip) && { display: 'none' },
             ]}
           />
-          {!desktop && !voice.recording && !voiceClip && (
+          {!desktop && filesAllowed && !voice.recording && !voiceClip && (
             <View style={lineBox}>
-              <IconButton name={emojiOpen ? 'type' : 'smile'} label={emojiOpen ? t('Keyboard') : t('Emoji')} onPress={toggleEmoji} color={emojiOpen ? colors.amberText : colors.textMuted} iconSize={22} />
+              <IconButton name="paperclip" label={t('Upload file')} onPress={() => void pickFile()} disabled={uploading} color={colors.textMuted} iconSize={21} />
             </View>
           )}
           {desktop && (

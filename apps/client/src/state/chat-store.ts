@@ -170,7 +170,9 @@ class ChatStore {
     const status = secretStatus(c, this.me?.id);
     const open = (body: string) => (status?.state === 'ready' ? decryptText(body, status.peerKey) : null);
     const body = open(m.body);
-    const reply = m.replyTo ? open(m.replyTo.body) : null;
+    // A quoted call log or group note is plaintext, not ciphertext.
+    const plainQuote = m.replyTo?.kind === 'call' || m.replyTo?.kind === 'system';
+    const reply = m.replyTo ? (plainQuote ? m.replyTo.body : open(m.replyTo.body)) : null;
     // An encrypted file: its real name, type, size, caption and key are inside the text.
     if (m.kind === 'file') {
       const meta = body ? parseSealedMeta(body) : null;
@@ -610,12 +612,13 @@ class ChatStore {
    * Sends text. The server takes at most 4000 characters per message, so a longer text goes out as
    * several messages, split on a line break or a space where possible (user request).
    */
-  async send(conversationId: string, body: string, replyTo?: Message | null) {
+  async send(conversationId: string, body: string, replyTo?: Message | null, quote?: string) {
     const parts = splitBody(body);
-    for (let i = 0; i < parts.length; i++) await this.sendOne(conversationId, parts[i], i === 0 ? replyTo : null);
+    for (let i = 0; i < parts.length; i++) await this.sendOne(conversationId, parts[i], i === 0 ? replyTo : null, i === 0 ? quote : undefined);
   }
 
-  private async sendOne(conversationId: string, body: string, replyTo?: Message | null) {
+  /** `quote`: the part of `replyTo`'s text this reply quotes (not in secret chats). */
+  private async sendOne(conversationId: string, body: string, replyTo?: Message | null, quote?: string) {
     const me = this.me;
     if (!me) return;
     const tempId = `tmp-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -630,6 +633,8 @@ class ChatStore {
         ? {
             id: replyTo.id,
             body: replyTo.body,
+            kind: replyTo.kind,
+            ...(quote ? { quote } : {}),
             senderId: replyTo.senderId,
             senderName: this.memberName(conversationId, replyTo.senderId),
           }
@@ -648,7 +653,7 @@ class ChatStore {
       const status = conversation ? secretStatus(conversation, me.id) : null;
       if (conversation?.secret && status?.state !== 'ready') throw new Error('secret chat not ready');
       const wire = status?.state === 'ready' ? encryptText(body, status.peerKey) : body;
-      const sent = await api.sendMessage(conversationId, wire, replyTo?.id);
+      const sent = await api.sendMessage(conversationId, wire, replyTo?.id, conversation?.secret ? undefined : quote);
       const saved = status?.state === 'ready' ? { ...sent, body, secret: 'ok' as const, replyTo: optimistic.replyTo && sent.replyTo ? { ...sent.replyTo, body: optimistic.replyTo.body } : sent.replyTo } : sent;
       // The socket echo may already have delivered it.
       replace((list) =>

@@ -263,8 +263,8 @@ export const api = {
     request<Message[]>('GET', `/conversations/${id}/shared?type=${type}${before ? `&before=${before}` : ''}`),
   /** Pinned messages of one conversation, newest pin first. */
   pinnedMessages: (id: string) => request<Message[]>('GET', `/conversations/${id}/pinned`),
-  sendMessage: (id: string, body: string, replyToId?: string) =>
-    request<Message>('POST', `/conversations/${id}/messages`, { body, replyToId }),
+  sendMessage: (id: string, body: string, replyToId?: string, replyQuote?: string) =>
+    request<Message>('POST', `/conversations/${id}/messages`, { body, replyToId, ...(replyQuote ? { replyQuote } : {}) }),
   uploadFile,
   /** Same upload as `uploadFile`, with an optional caption stored as the message text. */
   sendFile: uploadFile,

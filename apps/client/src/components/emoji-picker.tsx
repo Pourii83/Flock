@@ -240,9 +240,17 @@ export function EmojiPicker({
           })}
         </ScrollView>
       )}
+      {/* The cell size follows the panel's measured width. Until that width is known the grid isn't drawn
+          (a box of the same height holds its place): drawing it at a guessed width first made every emoji
+          start small and then grow, which looked like lag (user report). */}
+      {!width ? (
+        <View style={{ height: maxHeight }} />
+      ) : (
       <FlatList
         ref={listRef}
         data={rows}
+        initialNumToRender={Math.ceil(maxHeight / cell) + 4}
+        maxToRenderPerBatch={16}
         keyExtractor={(row) => row.key}
         style={{ maxHeight }}
         contentContainerStyle={{ paddingBottom: 4 }}
@@ -293,6 +301,7 @@ export function EmojiPicker({
           )
         }
       />
+      )}
     </View>
   );
 }

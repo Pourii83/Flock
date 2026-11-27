@@ -37,13 +37,15 @@ export type PublicRoom = {
   host: { displayName: string; avatarUrl: string | null; avatarColor: string } | null;
 };
 
+export type MessageKind = 'text' | 'system' | 'file' | 'call_invite' | 'call';
+
 export type Message = {
   id: string;
   conversationId: string;
   senderId: string;
   /** Display name of the sender, set by the server on message payloads. */
   senderName?: string | null;
-  kind: 'text' | 'system' | 'file' | 'call_invite' | 'call';
+  kind: MessageKind;
   body: string;
   attachment: {
     name: string;
@@ -60,7 +62,9 @@ export type Message = {
     /** Secret chats: the key that opens the encrypted file (from the decrypted message text). */
     sealed?: { k: string; n: string };
   } | null;
-  replyTo: { id: string; body: string; senderId: string; senderName: string } | null;
+  /** `kind` of the quoted message: a call or a group note is quoted as its readable line. */
+  /** `quote`: the part of it the reply quotes (Telegram-style), when not the whole message. */
+  replyTo: { id: string; body: string; kind?: MessageKind; quote?: string; senderId: string; senderName: string } | null;
   /** Set on copies made into Saved Messages: the original sender's name. */
   forwardedFrom?: string | null;
   /** When the sender last changed the text (null/undefined = never edited). */

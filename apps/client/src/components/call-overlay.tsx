@@ -25,7 +25,7 @@ import { TypingDots } from './typing-dots';
 import { RemoteAudio } from './remote-audio';
 import { Slider } from './slider';
 import { VideoView } from './video-view';
-import { num, t } from '@/lib/i18n';
+import { isRTL, num, t } from '@/lib/i18n';
 import { playTestTone } from '@/lib/test-tone';
 import { LevelMeter } from './call/level-meter';
 
@@ -127,13 +127,28 @@ const miniDrag = (() => {
   const pan = new Animated.ValueXY();
   let offset = { x: 0, y: 0 };
   let box: LayoutRectangle | null = null;
+  /** The window size when `box` was measured. */
+  let boxScreen = { width: 0, height: 0 };
   let screen = { width: 0, height: 0, top: 0, bottom: 0, left: 0, right: 0 };
+  /**
+   * Where the window sits now, before the drag offset. On the web onLayout only fires when its size
+   * changes (a ResizeObserver), not when a rotation moves it, so the measured spot is shifted by the
+   * change in window size: it's anchored to the bottom and the end (the right edge; the left in
+   * Persian). Using the stale spot pushed it off a phone turned back to portrait (user report).
+   */
+  const anchored = (): LayoutRectangle | null => {
+    // Native onLayout reports moves too, so its measurement is already current.
+    if (!box || !boxScreen.width || Platform.OS !== 'web') return box;
+    const dx = isRTL() ? 0 : screen.width - boxScreen.width;
+    return { ...box, x: box.x + dx, y: box.y + screen.height - boxScreen.height };
+  };
   const clamp = (x: number, y: number) => {
-    if (!box || !screen.width) return { x, y };
+    const b = anchored();
+    if (!b || !screen.width) return { x, y };
     const m = 8;
     return {
-      x: Math.min(Math.max(x, screen.left + m - box.x), screen.width - screen.right - m - box.width - box.x),
-      y: Math.min(Math.max(y, screen.top + m - box.y), screen.height - screen.bottom - m - box.height - box.y),
+      x: Math.min(Math.max(x, screen.left + m - b.x), screen.width - screen.right - m - b.width - b.x),
+      y: Math.min(Math.max(y, screen.top + m - b.y), screen.height - screen.bottom - m - b.height - b.y),
     };
   };
   const settle = (x: number, y: number) => {
@@ -160,11 +175,14 @@ const miniDrag = (() => {
     handlers: responder.panHandlers,
     transform: pan.getTranslateTransform(),
     setScreen: (next: typeof screen) => {
+      // Measured before the window size was known: it was measured in this window.
+      if (box && !boxScreen.width) boxScreen = { width: next.width, height: next.height };
       screen = next;
       settle(offset.x, offset.y);
     },
     onLayout: (e: LayoutChangeEvent) => {
       box = e.nativeEvent.layout;
+      boxScreen = { width: screen.width, height: screen.height };
       settle(offset.x, offset.y);
     },
   };
@@ -258,11 +276,12 @@ function MiniCall() {
               width: 52,
               height: 40,
               borderRadius: 20,
-              backgroundColor: pressed ? '#B91C1C' : hovered ? colors.danger : colors.dangerDeep,
+              // Like Leave group: a tinted surface with a red icon, not a loud red fill.
+              backgroundColor: pressed || hovered ? colors.dangerTintStrong : colors.dangerTint,
               alignItems: 'center',
               justifyContent: 'center',
             })}>
-            <Icon name="phone-off" size={18} color={colors.dangerText} />
+            <Icon name="phone-off" size={18} color={colors.danger} />
           </Pressable>
         </Tooltip>
       </View>
@@ -781,8 +800,9 @@ function ActiveCall() {
   const canPip = (pipAvailable && !!pipStream) || (nativePipSupported && (!!pipStream || camOn));
   // Front/back toggle: phones (native), and browsers that see more than one camera.
   const canFlip = (canSwitchCamera || (Platform.OS === 'web' && call.videoDevices.length > 1)) && !call.cameraOff;
-  // A chevron on the camera button lists the other cameras (web/desktop with more than one).
-  const canSwitchCameras = Platform.OS === 'web' && call.videoDevices.length > 1;
+  // A chevron on the camera button opens the camera list, like the mic and speaker buttons (web and
+  // desktop; the phone apps flip front/back instead). Picking a camera also turns it on.
+  const canSwitchCameras = Platform.OS === 'web';
   // Phones keep the essentials in the dock and the rest behind "More". Their buttons shrink a little
   // so five of them plus the hang-up button still fit on a small screen.
   // The front/back toggle joins the dock only when my floating preview (which carries it) isn't shown.
@@ -1020,12 +1040,12 @@ function ActiveCall() {
                       width: tileSize,
                       height: tileSize,
                       borderRadius: tileSize / 2,
-                      backgroundColor: pressed ? '#B91C1C' : colors.danger,
+                      backgroundColor: pressed ? colors.dangerTintStrong : colors.dangerTint,
                       alignItems: 'center',
                       justifyContent: 'center',
                       transform: [{ scale: pressed ? 0.94 : 1 }],
                     })}>
-                    <Icon name="phone-off" size={Math.round(tileSize * 0.41)} color="#FFFFFF" />
+                    <Icon name="phone-off" size={Math.round(tileSize * 0.41)} color={colors.danger} />
                   </Pressable>
                 </DockTile>
               </View>
@@ -1092,11 +1112,12 @@ function ActiveCall() {
                     height: dockSize,
                     borderRadius: dockSize / 2,
                     marginStart: 6,
-                    backgroundColor: pressed ? '#B91C1C' : hovered ? '#DC2626' : colors.danger,
+                    // Like Leave group: a tinted surface with a red icon, not a loud red fill.
+                    backgroundColor: pressed || hovered ? colors.dangerTintStrong : colors.dangerTint,
                     alignItems: 'center',
                     justifyContent: 'center',
                   })}>
-                  <Icon name="phone-off" size={Math.round(dockSize * 0.42)} color="#FFFFFF" />
+                  <Icon name="phone-off" size={Math.round(dockSize * 0.42)} color={colors.danger} />
                 </Pressable>
               </Tooltip>
             </View>
@@ -1394,7 +1415,7 @@ function OutputButton({ muted, panelOpen, onToggleMute, onOpenPanel, size }: { m
   );
 }
 
-/** Camera toggle with a handle that lists the other cameras when the browser has more than one. */
+/** Camera toggle with a handle that opens the camera list (where the platform can list cameras). */
 function CameraButton({
   off,
   panelOpen,
@@ -1413,7 +1434,7 @@ function CameraButton({
   return (
     <View>
       <DockButton icon={off ? 'video-off' : 'video'} active={!off} onPress={onToggle} label={off ? t('Turn camera on') : t('Turn camera off')} size={size} />
-      {canSwitch && <ChevronBadge label={t('Switch camera')} open={panelOpen} onPress={onOpenPanel} />}
+      {canSwitch && <ChevronBadge label={t('Camera settings')} open={panelOpen} onPress={onOpenPanel} />}
     </View>
   );
 }
@@ -1490,7 +1511,7 @@ function CameraPanel({ onClose, bottom, anchorX, stageWidth }: { onClose: () => 
     onClose();
   };
   return (
-    <Popover title={t('Switch camera')} onClose={onClose} bottom={bottom} anchorX={anchorX} stageWidth={stageWidth}>
+    <Popover title={t('Camera settings')} onClose={onClose} bottom={bottom} anchorX={anchorX} stageWidth={stageWidth}>
       {call.videoDevices.map((device) => {
         const selected = !call.cameraOff && device.id === call.videoDeviceId;
         return (

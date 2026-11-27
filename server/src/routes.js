@@ -13,6 +13,16 @@ import * as push from './push.js';
 
 const USERNAME_RE = /^[a-zA-Z0-9_.]{3,24}$/;
 
+/** A system message that says someone pinned a message (it takes reactions, replies and deletion). */
+function isPinNote(message) {
+  if (message.kind !== 'system') return false;
+  try {
+    return JSON.parse(message.body)?.e === 'pinned';
+  } catch {
+    return false;
+  }
+}
+
 export function createRouter(realtime) {
   const r = Router();
 
@@ -363,8 +373,9 @@ export function createRouter(realtime) {
     if (!emoji || emoji.length > 16 || !/\p{Extended_Pictographic}/u.test(emoji)) return res.status(400).json({ error: 'Pick an emoji' });
     const message = await visibleMessage(req, res);
     if (!message) return;
-    // Call logs take reactions like any other message ("✅ received" on a missed call); group notes don't.
-    if (message.kind === 'system') return res.status(400).json({ error: 'You can’t react to this message' });
+    // Call logs and "X pinned …" notes take reactions like any other message ("✅ received" on a missed
+    // call); the other group notes don't.
+    if (message.kind === 'system' && !isPinNote(message)) return res.status(400).json({ error: 'You can’t react to this message' });
     const on = typeof req.body?.on === 'boolean' ? req.body.on : undefined;
     const reactions = await repo.setReaction(message.id, req.userId, emoji, on);
     await realtime.notifyReactions(message.conversation_id, { conversationId: message.conversation_id, messageId: message.id, reactions });
@@ -441,7 +452,7 @@ export function createRouter(realtime) {
       // everyone else only their own.
       const conv = await repo.getConversationRow(message.conversation_id);
       const owner = conv && conv.type !== 'direct' && (await repo.getRole(conv.id, req.userId)) === 'owner';
-      if (!owner || !['text', 'file'].includes(message.kind))
+      if (!owner || !(['text', 'file'].includes(message.kind) || isPinNote(message)))
         return res.status(403).json({ error: 'You can only delete your own messages' });
     }
     const deleted = await repo.deleteMessage(message.id);
@@ -496,7 +507,9 @@ export function createRouter(realtime) {
     const result = await repo.setPinned(message.id, on);
     if (!result) return res.status(404).json({ error: 'Message not found' });
     await realtime.notifyPinned(message.conversation_id, message.id, result.pinnedAt);
-    res.json(result);
+    // "Pourii pinned a video": a note in the chat that can be replied to, reacted to and deleted.
+    if (result.newlyPinned) await systemMessage(message.conversation_id, req.userId, await pinNote(message));
+    res.json({ messageId: result.messageId, pinnedAt: result.pinnedAt });
   });
 
   // ---------- end-to-end encrypted ("secret") chats ----------
@@ -621,7 +634,10 @@ export function createRouter(realtime) {
     if (await repo.directBlocked(req.params.id, req.userId)) return res.status(403).json({ error: BLOCKED });
     const { body, error } = await messageText(req.params.id, req.body?.body);
     if (error) return res.status(error.status).json({ error: error.message });
-    const message = await repo.addMessage(req.params.id, req.userId, { body, replyToId: req.body?.replyToId });
+    // A quoted part of the replied-to message (not in secret chats: there the server only sees ciphertext).
+    const rawQuote = typeof req.body?.replyQuote === 'string' ? req.body.replyQuote.trim().slice(0, 1000) : '';
+    const replyQuote = rawQuote && !(await repo.getSecretState(req.params.id))?.secret ? rawQuote : null;
+    const message = await repo.addMessage(req.params.id, req.userId, { body, replyToId: req.body?.replyToId, replyQuote });
     await realtime.notifyMessage(message);
     res.status(201).json(message);
   });
@@ -729,6 +745,20 @@ export function createRouter(realtime) {
   // ---------- groups: profile, members, roles ----------
 
   const CHANNEL_SILENT_EVENTS = new Set(['joined-link', 'added', 'removed', 'left', 'promoted', 'demoted', 'transferred', 'owner']);
+
+  /** A "pinned" system message: what was pinned (photo, video, voice, file or text) and a short preview. */
+  async function pinNote(message) {
+    const mime = message.attachment_mime || '';
+    const what =
+      message.kind === 'file'
+        ? mime.startsWith('image/') ? 'photo' : mime.startsWith('video/') ? 'video' : mime.startsWith('audio/') ? 'voice' : 'file'
+        : 'text';
+    // A secret chat's text is ciphertext here, so its note names no content.
+    const secret = (await repo.getSecretState(message.conversation_id))?.secret;
+    const raw = secret ? '' : what === 'file' ? message.attachment_name || '' : what === 'text' ? message.body : '';
+    const name = raw.replace(/\s+/g, ' ').trim();
+    return { e: 'pinned', what, ref: message.id, ...(name ? { name: name.length > 60 ? `${name.slice(0, 60)}…` : name } : {}) };
+  }
 
   /** Writes a system message (rendered/translated by the clients) and pushes it live. */
   async function systemMessage(conversationId, actorId, payload) {

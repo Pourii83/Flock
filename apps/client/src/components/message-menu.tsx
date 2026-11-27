@@ -2,7 +2,7 @@
 // Delete, Pin, plus the quick-reaction row. Uses the shared ContextMenu and EmojiPickerModal.
 import * as Clipboard from 'expo-clipboard';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, ScrollView, View } from 'react-native';
+import { ActivityIndicator, Modal, Platform, Pressable, ScrollView, TextInput, View } from 'react-native';
 
 import { api } from '@/lib/api';
 import { confirm } from '@/lib/confirm';
@@ -12,14 +12,16 @@ import { t } from '@/lib/i18n';
 import { useAuth } from '@/state/auth';
 import { chatStore, useChat } from '@/state/chat-store';
 import { colors, nestedRadius, radius } from '@/theme';
+import { pinNoteRef } from '@/lib/system-message';
 import { Avatar, ConversationAvatar } from './avatar';
 import { ContextMenu, type ContextMenuItem } from './context-menu';
 import { EmojiPickerModal } from './emoji-picker';
-import { Icon, IconButton, T } from './ui';
+import { Button, Icon, IconButton, T, noOutline, persianFont } from './ui';
+import { fonts } from '@/theme';
 
 /** Group/channel owners can delete other people's texts and files (the server checks the same). */
 export function canOwnerRemove(conversation: Conversation, message: Message) {
-  return conversation.type !== 'direct' && conversation.myRole === 'owner' && (message.kind === 'text' || message.kind === 'file');
+  return conversation.type !== 'direct' && conversation.myRole === 'owner' && (message.kind === 'text' || message.kind === 'file' || (message.kind === 'system' && pinNoteRef(message.body) !== null));
 }
 
 const QUICK_REACTIONS = ['❤️', '👍', '😂', '😢', '🙏', '👎'] as const;
@@ -31,11 +33,14 @@ export function MessageMenu({
   pinned,
   point,
   onReply,
+  onQuote,
   onEdit,
   onSelect,
   onError,
   onClose,
 }: {
+  /** Replies quoting only part of this message's text (Telegram-style). */
+  onQuote?: (quote: string) => void;
   /** Starts multi-select with this message. */
   onSelect?: () => void;
   message: Message;
@@ -53,9 +58,16 @@ export function MessageMenu({
   const [forwardOpen, setForwardOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
+  const [quoteOpen, setQuoteOpen] = useState(false);
+  // Web: text already selected inside this message when the menu opened can be quoted straight away.
+  const [selection] = useState(() => {
+    if (Platform.OS !== 'web' || typeof window === 'undefined') return '';
+    const picked = window.getSelection?.()?.toString().trim() ?? '';
+    return picked && picked !== message.body.trim() && message.body.includes(picked) ? picked : '';
+  });
 
-  // The whole menu dismisses only once every layer (menu, forward, picker, info) is closed.
-  const done = !menuPoint && !forwardOpen && !pickerOpen && !infoOpen;
+  // The whole menu dismisses only once every layer (menu, forward, picker, info, quote) is closed.
+  const done = !menuPoint && !forwardOpen && !pickerOpen && !infoOpen && !quoteOpen;
   useEffect(() => {
     if (done) onClose();
   }, [done, onClose]);
@@ -128,6 +140,13 @@ export function MessageMenu({
         { icon: 'x', label: t('Cancel sending'), danger: true, onPress: () => chatStore.discard(message) },
       ]
     : [{ icon: 'corner-up-left', label: t('Reply'), onPress: onReply }];
+  // Quote part of a text (not in secret chats, where the server can't check a quote against ciphertext).
+  if (canAct && isText && !conversation.secret && onQuote && message.body.trim().length > 1)
+    menuItems.push(
+      selection
+        ? { icon: 'chevrons-right', label: t('Quote selection'), onPress: () => onQuote(selection) }
+        : { icon: 'chevrons-right', label: t('Quote part…'), onPress: () => setQuoteOpen(true) },
+    );
   // Text, or the caption of my own photo/file.
   // The server can't read (or re-encrypt) a secret file's caption, so those aren't editable.
   if (canAct && mine && (isText || (message.kind === 'file' && !conversation.secret))) menuItems.push({ icon: 'edit-2', label: t('Edit'), onPress: onEdit });
@@ -163,6 +182,16 @@ export function MessageMenu({
         />
       )}
       {infoOpen && <MessageInfoDialog message={message} conversation={conversation} onClose={() => setInfoOpen(false)} />}
+      {quoteOpen && onQuote && (
+        <QuoteDialog
+          text={message.body}
+          onQuote={(quote) => {
+            setQuoteOpen(false);
+            onQuote(quote);
+          }}
+          onClose={() => setQuoteOpen(false)}
+        />
+      )}
       {pickerOpen && (
         <EmojiPickerModal
           onPick={(emoji) => {
@@ -251,6 +280,73 @@ function MessageInfoDialog({ message, conversation, onClose }: { message: Messag
               </>
             )}
           </ScrollView>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+/**
+ * Pick the part of a message to quote: the text is shown in a read-only box where it can be selected
+ * (mouse or the phone's selection handles); "Quote" replies with just that part.
+ */
+function QuoteDialog({ text, onQuote, onClose }: { text: string; onQuote: (quote: string) => void; onClose: () => void }) {
+  const [range, setRange] = useState({ start: 0, end: 0 });
+  const picked = text.slice(Math.min(range.start, range.end), Math.max(range.start, range.end)).trim();
+  return (
+    <Modal transparent animationType="fade" visible onRequestClose={onClose}>
+      <Pressable onPress={onClose} accessibilityLabel={t('Close')} style={{ flex: 1, backgroundColor: colors.scrim, alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+        <Pressable
+          onPress={(event) => event.stopPropagation()}
+          style={{ width: '100%', maxWidth: 480, maxHeight: '80%', backgroundColor: colors.panel, borderRadius: radius.xl, borderWidth: 1, borderColor: colors.surfaceHigh, overflow: 'hidden' }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 18, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: colors.hairline }}>
+            <Icon name="chevrons-right" size={18} color={colors.amberText} />
+            <View style={{ flex: 1 }}>
+              <T variant="labelLg" style={{ fontSize: 15 }}>
+                {t('Quote part of the message')}
+              </T>
+              <T variant="bodySm" color={colors.textMuted}>
+                {t('Select the words to quote')}
+              </T>
+            </View>
+            <IconButton name="x" label={t('Close')} onPress={onClose} />
+          </View>
+          <View style={{ padding: 16, gap: 14, flexShrink: 1 }}>
+            <TextInput
+              value={text}
+              multiline
+              autoFocus
+              // Read-only on the web (still selectable); phones keep it "editable" so the selection
+              // handles work, but there's no keyboard and changes are ignored.
+              editable={Platform.OS !== 'web'}
+              showSoftInputOnFocus={false}
+              contextMenuHidden
+              onChangeText={() => {}}
+              onSelectionChange={(event) => setRange(event.nativeEvent.selection)}
+              style={[
+                {
+                  minHeight: 80,
+                  maxHeight: 320,
+                  color: colors.text,
+                  fontFamily: fonts.regular,
+                  fontSize: 16,
+                  lineHeight: 24,
+                  padding: 12,
+                  borderRadius: nestedRadius(radius.xl, 16),
+                  backgroundColor: colors.surface,
+                  borderWidth: 1,
+                  borderColor: colors.surfaceHigh,
+                  textAlignVertical: 'top',
+                },
+                noOutline,
+                persianFont(text, { fontFamily: fonts.regular }),
+              ]}
+            />
+            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 10 }}>
+              <Button title={t('Cancel')} variant="ghost" size="sm" onPress={onClose} />
+              <Button title={t('Quote')} icon="corner-up-left" size="sm" disabled={!picked} onPress={() => onQuote(picked)} />
+            </View>
+          </View>
         </Pressable>
       </Pressable>
     </Modal>

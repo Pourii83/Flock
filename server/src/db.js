@@ -149,6 +149,8 @@ export async function migrate() {
     ALTER TABLE messages ADD COLUMN IF NOT EXISTS edited_at BIGINT;
     -- Pinning: when the message was pinned in its conversation (NULL = not pinned).
     ALTER TABLE messages ADD COLUMN IF NOT EXISTS pinned_at BIGINT;
+    -- Quoting: the part of the replied-to message the reply quotes (NULL = the whole message).
+    ALTER TABLE messages ADD COLUMN IF NOT EXISTS reply_quote TEXT;
     CREATE INDEX IF NOT EXISTS messages_pinned
       ON messages (conversation_id, pinned_at DESC) WHERE pinned_at IS NOT NULL;
     -- Emoji reactions (plaintext metadata, so they work in end-to-end encrypted chats too).

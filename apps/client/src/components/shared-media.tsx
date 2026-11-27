@@ -161,19 +161,21 @@ export function SharedMedia({ conversation }: { conversation: Conversation }) {
                 ) : a.mimeType.startsWith('video/') ? (
                   <View style={{ flex: 1 }}>
                     {Platform.OS === 'web' && <VideoThumb url={a.url} />}
-                    <View
-                      style={{
-                        position: 'absolute',
-                        end: 6,
-                        bottom: 6,
-                        width: 22,
-                        height: 22,
-                        borderRadius: 11,
-                        backgroundColor: 'rgba(0,0,0,0.55)',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                      }}>
-                      <Icon name="play" size={11} color="#fff" />
+                    {/* The tooltip is a no-op wrapper on native, so the position sits on a View of its own. */}
+                    <View style={{ position: 'absolute', end: 6, bottom: 6 }}>
+                    <Tooltip label={t('Play video')}>
+                      <View
+                        style={{
+                          width: 22,
+                          height: 22,
+                          borderRadius: 11,
+                          backgroundColor: 'rgba(0,0,0,0.55)',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}>
+                        <Icon name="play" size={11} color="#fff" />
+                      </View>
+                    </Tooltip>
                     </View>
                   </View>
                 ) : (
@@ -187,13 +189,17 @@ export function SharedMedia({ conversation }: { conversation: Conversation }) {
                 {/* The Files tab has an eye in every row; media tiles get one too, so a photo can be
                     found in the chat again. */}
                 {!more && (
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={t('Show in chat')}
-                    onPress={() => showInChat(m.id)}
-                    style={{ position: 'absolute', top: 4, start: 4, width: 26, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(10,13,20,0.6)' }}>
-                    <Icon name="eye" size={13} color="#fff" />
-                  </Pressable>
+                  <View style={{ position: 'absolute', top: 4, start: 4 }}>
+                  <Tooltip label={t('Show in chat')}>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={t('Show in chat')}
+                      onPress={() => showInChat(m.id)}
+                      style={{ width: 26, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(10,13,20,0.6)' }}>
+                      <Icon name="eye" size={13} color="#fff" />
+                    </Pressable>
+                  </Tooltip>
+                  </View>
                 )}
               </Pressable>
             );

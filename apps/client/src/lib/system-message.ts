@@ -1,6 +1,34 @@
 import { isRTL, t } from './i18n';
 
-type SystemEvent = { e: string; actor?: string; name?: string; targets?: string[] };
+type SystemEvent = { e: string; actor?: string; name?: string; targets?: string[]; what?: string; ref?: string };
+
+function parse(body: string): SystemEvent | null {
+  try {
+    const p = JSON.parse(body);
+    return p && typeof p === 'object' && typeof p.e === 'string' ? p : null;
+  } catch {
+    return null;
+  }
+}
+
+/** "Pourii pinned a video": the id of the pinned message, or null for any other note. */
+export function pinNoteRef(body: string): string | null {
+  const p = parse(body);
+  return p?.e === 'pinned' ? (p.ref ?? '') : null;
+}
+
+/** A quoted (replied-to) message as one readable line: call logs and group notes aren't raw JSON. */
+export function quoteText(kind: string | undefined, body: string): string {
+  if (kind === 'system') return systemText(body);
+  if (kind === 'call' && body.trimStart().startsWith('{')) {
+    try {
+      return JSON.parse(body)?.video ? t('Video call') : t('Voice call');
+    } catch {
+      return t('Voice call');
+    }
+  }
+  return body;
+}
 
 /** Turns a group system message (JSON from the server) into a localized sentence. */
 export function systemText(body: string): string {
@@ -39,6 +67,19 @@ export function systemText(body: string): string {
       return t('{actor} changed the group description', { actor });
     case 'photo':
       return t('{actor} changed the group photo', { actor });
+    case 'pinned':
+      switch (p.what) {
+        case 'photo':
+          return t('{actor} pinned a photo', { actor });
+        case 'video':
+          return t('{actor} pinned a video', { actor });
+        case 'voice':
+          return t('{actor} pinned a voice message', { actor });
+        case 'file':
+          return p.name ? t('{actor} pinned the file "{name}"', { actor, name: p.name }) : t('{actor} pinned a file', { actor });
+        default:
+          return p.name ? t('{actor} pinned "{name}"', { actor, name: p.name }) : t('{actor} pinned a message', { actor });
+      }
     default:
       return actor;
   }

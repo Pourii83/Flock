@@ -59,6 +59,8 @@ const dark = {
   danger: '#EF4444',
   dangerDeep: '#93000A',
   dangerTint: 'rgba(239, 68, 68, 0.14)',
+  /** Hover/pressed of a dangerTint control (Hang up, Leave). */
+  dangerTintStrong: 'rgba(239, 68, 68, 0.24)',
   dangerText: '#FF8A80',
 };
 
@@ -108,6 +110,7 @@ const light: Palette = {
   danger: '#DC2626',
   dangerDeep: '#B91C1C',
   dangerTint: 'rgba(220, 38, 38, 0.10)',
+  dangerTintStrong: 'rgba(220, 38, 38, 0.18)',
   dangerText: '#FFFFFF',
 };
 

@@ -139,7 +139,7 @@ export async function createConversation(meId, userIds, name, description = '', 
 }
 
 const MESSAGE_SELECT = `
-  SELECT m.*, r.body AS reply_body, r.sender_id AS reply_sender_id, ru.display_name AS reply_sender_name,
+  SELECT m.*, r.body AS reply_body, r.kind AS reply_kind, r.sender_id AS reply_sender_id, ru.display_name AS reply_sender_name,
          su.display_name AS sender_name
   FROM messages m
   LEFT JOIN messages r ON r.id = m.reply_to_id
@@ -168,7 +168,14 @@ function serializeMessage(row) {
         }
       : null,
     replyTo: row.reply_to_id
-      ? { id: row.reply_to_id, body: row.reply_body, senderId: row.reply_sender_id, senderName: row.reply_sender_name }
+      ? {
+          id: row.reply_to_id,
+          body: row.reply_body,
+          kind: row.reply_kind ?? 'text',
+          senderId: row.reply_sender_id,
+          senderName: row.reply_sender_name,
+          ...(row.reply_quote ? { quote: row.reply_quote } : {}),
+        }
       : null,
     forwardedFrom: row.forwarded_from ?? null,
     reactions: [],
@@ -202,7 +209,7 @@ async function loadConversations(meId, onlyId) {
       [ids],
     ),
     query(
-      `SELECT DISTINCT ON (m.conversation_id) m.*, r.body AS reply_body, r.sender_id AS reply_sender_id,
+      `SELECT DISTINCT ON (m.conversation_id) m.*, r.body AS reply_body, r.kind AS reply_kind, r.sender_id AS reply_sender_id,
          ru.display_name AS reply_sender_name
        FROM messages m
        LEFT JOIN messages r ON r.id = m.reply_to_id
@@ -458,7 +465,8 @@ export async function setPinned(messageId, on) {
   const want = on === undefined ? row.pinned_at == null : !!on;
   const pinnedAt = want ? now() : null;
   await query('UPDATE messages SET pinned_at = $2 WHERE id = $1', [messageId, pinnedAt]);
-  return { messageId, pinnedAt };
+  // `newlyPinned` is for the server only (the "X pinned …" note): it isn't sent to clients.
+  return { messageId, pinnedAt, newlyPinned: want && row.pinned_at == null };
 }
 
 /** Messages whose text or file name contains `q` (newest first). Excludes system/call noise. */
@@ -578,17 +586,19 @@ export async function getOrCreateSaved(meId) {
   }
 }
 
-export async function addMessage(conversationId, senderId, { body, replyToId, kind = 'text', attachment = null, forwardedFrom = null }) {
+export async function addMessage(conversationId, senderId, { body, replyToId, replyQuote = null, kind = 'text', attachment = null, forwardedFrom = null }) {
   const id = newId();
   const t = now();
-  const reply =
-    isUuid(replyToId) &&
-    (await one('SELECT id FROM messages WHERE id = $1 AND conversation_id = $2', [replyToId, conversationId]))?.id;
+  const replied = isUuid(replyToId) ? await one('SELECT id, kind, body FROM messages WHERE id = $1 AND conversation_id = $2', [replyToId, conversationId]) : null;
+  const reply = replied?.id;
+  // A quote must be a piece of the replied-to text, so a reply can't put words in someone's mouth.
+  const quote = reply && replyQuote && replied.kind === 'text' && replied.body.includes(replyQuote) ? replyQuote : null;
   await query(
     `INSERT INTO messages
        (id, conversation_id, sender_id, kind, body, reply_to_id, created_at,
-        attachment_name, attachment_mime, attachment_size, attachment_path, attachment_expires_at, forwarded_from, attachment_waveform, attachment_duration_ms)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+        attachment_name, attachment_mime, attachment_size, attachment_path, attachment_expires_at, forwarded_from, attachment_waveform, attachment_duration_ms,
+        reply_quote)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
     [
       id,
       conversationId,
@@ -605,6 +615,7 @@ export async function addMessage(conversationId, senderId, { body, replyToId, ki
       forwardedFrom,
       attachment?.waveform ?? null,
       attachment?.durationMs ?? null,
+      quote,
     ],
   );
   await query('UPDATE members SET last_read_at = $3 WHERE conversation_id = $1 AND user_id = $2', [conversationId, senderId, t]);
