@@ -1,8 +1,8 @@
 // Right-click / long-press menu for a message: Reply, Edit, Forward, Copy, Saved Messages,
 // Delete, Pin, plus the quick-reaction row. Uses the shared ContextMenu and EmojiPickerModal.
 import * as Clipboard from 'expo-clipboard';
-import { useEffect, useState } from 'react';
-import { ActivityIndicator, Modal, Platform, Pressable, ScrollView, TextInput, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Modal, Platform, Pressable, ScrollView, TextInput, View, useWindowDimensions, type TextInputInstance } from 'react-native';
 
 import { api } from '@/lib/api';
 import { confirm } from '@/lib/confirm';
@@ -11,13 +11,12 @@ import type { Conversation, Message } from '@/lib/types';
 import { t } from '@/lib/i18n';
 import { useAuth } from '@/state/auth';
 import { chatStore, useChat } from '@/state/chat-store';
-import { colors, nestedRadius, radius } from '@/theme';
+import { colors, fonts, nestedRadius, radius } from '@/theme';
 import { pinNoteRef } from '@/lib/system-message';
 import { Avatar, ConversationAvatar } from './avatar';
 import { ContextMenu, type ContextMenuItem } from './context-menu';
 import { EmojiPickerModal } from './emoji-picker';
 import { Button, Icon, IconButton, T, noOutline, persianFont } from './ui';
-import { fonts } from '@/theme';
 
 /** Group/channel owners can delete other people's texts and files (the server checks the same). */
 export function canOwnerRemove(conversation: Conversation, message: Message) {
@@ -293,6 +292,36 @@ function MessageInfoDialog({ message, conversation, onClose }: { message: Messag
 function QuoteDialog({ text, onQuote, onClose }: { text: string; onQuote: (quote: string) => void; onClose: () => void }) {
   const [range, setRange] = useState({ start: 0, end: 0 });
   const picked = text.slice(Math.min(range.start, range.end), Math.max(range.start, range.end)).trim();
+  // The box is as tall as the text (user request): a line or two stays small, a long message grows up
+  // to half the screen and scrolls from there.
+  const inputRef = useRef<TextInputInstance>(null);
+  const [contentHeight, setContentHeight] = useState(0);
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const boxHeight = contentHeight ? Math.min(Math.max(contentHeight, 48), Math.round(windowHeight * 0.5)) : undefined;
+  // Web: a textarea doesn't report its content size, so measure it unconstrained (once laid out at its
+  // real width; ResizeObserver-based onLayout only fires again if that width changes).
+  const measureWeb = () => {
+    if (Platform.OS !== 'web') return;
+    const node = inputRef.current as unknown as HTMLTextAreaElement | null;
+    if (!node) return;
+    const previous = node.style.height;
+    node.style.height = 'auto';
+    // scrollHeight has the padding but not the 1px border on each side.
+    const next = node.scrollHeight + 2;
+    node.style.height = previous;
+    setContentHeight((current) => (current === next ? current : next));
+  };
+  // The first layout can come before the dialog has its final width (it fades in), and a box that is
+  // already the measured size never reports again: measure once more after the first frame and the fade.
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    const frame = requestAnimationFrame(measureWeb);
+    const later = setTimeout(measureWeb, 320);
+    return () => {
+      cancelAnimationFrame(frame);
+      clearTimeout(later);
+    };
+  }, [text, windowWidth]);
   return (
     <Modal transparent animationType="fade" visible onRequestClose={onClose}>
       <Pressable onPress={onClose} accessibilityLabel={t('Close')} style={{ flex: 1, backgroundColor: colors.scrim, alignItems: 'center', justifyContent: 'center', padding: 20 }}>
@@ -313,9 +342,18 @@ function QuoteDialog({ text, onQuote, onClose }: { text: string; onQuote: (quote
           </View>
           <View style={{ padding: 16, gap: 14, flexShrink: 1 }}>
             <TextInput
+              ref={inputRef}
               value={text}
               multiline
               autoFocus
+              onLayout={measureWeb}
+              // Web: a textarea is two rows tall by default, which a one-line message would keep.
+              {...(Platform.OS === 'web' ? { numberOfLines: 1 } : {})}
+              onContentSizeChange={(event) => {
+                if (Platform.OS === 'web') return;
+                const next = Math.ceil(event.nativeEvent.contentSize.height);
+                setContentHeight((current) => (current === next ? current : next));
+              }}
               // Read-only on the web (still selectable); phones keep it "editable" so the selection
               // handles work, but there's no keyboard and changes are ignored.
               editable={Platform.OS !== 'web'}
@@ -325,8 +363,7 @@ function QuoteDialog({ text, onQuote, onClose }: { text: string; onQuote: (quote
               onSelectionChange={(event) => setRange(event.nativeEvent.selection)}
               style={[
                 {
-                  minHeight: 80,
-                  maxHeight: 320,
+                  height: boxHeight,
                   color: colors.text,
                   fontFamily: fonts.regular,
                   fontSize: 16,
