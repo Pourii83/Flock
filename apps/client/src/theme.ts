@@ -254,6 +254,39 @@ export function applyTheme(next: ThemeMode) {
         -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 18px);
         mask-image: linear-gradient(to bottom, transparent 0, #000 18px);
       }
+      /* ||Spoilers||, like Telegram: three layers of tiny dots drift over the hidden words (each moves a
+         whole number of its own tiles per loop, so it never jumps); a tap dissolves them into the text. */
+      [data-spoiler] { border-radius: 4px; }
+      [data-spoiler='light'], [data-spoiler='dark'] {
+        color: transparent !important; cursor: pointer; user-select: none; -webkit-user-select: none;
+        background-size: 4px 4px, 6px 6px, 9px 9px;
+        animation: flock-spoiler 3.2s linear infinite;
+      }
+      [data-spoiler='light'] *, [data-spoiler='dark'] * {
+        color: transparent !important; text-decoration-color: transparent !important; background: transparent !important;
+      }
+      [data-spoiler='light'] {
+        background-image: radial-gradient(circle, rgba(255,255,255,0.8) 0 0.6px, transparent 0.95px),
+          radial-gradient(circle, rgba(255,255,255,0.55) 0 0.55px, transparent 0.9px),
+          radial-gradient(circle, rgba(255,255,255,0.4) 0 0.75px, transparent 1.1px);
+      }
+      [data-spoiler='dark'] {
+        background-image: radial-gradient(circle, rgba(0,0,0,0.7) 0 0.6px, transparent 0.95px),
+          radial-gradient(circle, rgba(0,0,0,0.45) 0 0.55px, transparent 0.9px),
+          radial-gradient(circle, rgba(0,0,0,0.3) 0 0.75px, transparent 1.1px);
+      }
+      [data-spoiler='open'] { animation: flock-spoiler-open 420ms ease-out; }
+      @keyframes flock-spoiler {
+        from { background-position: 0 0, 2px 3px, 5px 1px; }
+        to { background-position: 8px -12px, -10px 9px, 14px 19px; }
+      }
+      @keyframes flock-spoiler-open {
+        from { filter: blur(3px); opacity: 0.2; letter-spacing: 0.06em; }
+        to { filter: blur(0); opacity: 1; letter-spacing: normal; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        [data-spoiler='light'], [data-spoiler='dark'], [data-spoiler='open'] { animation: none; }
+      }
       /* The message box: no bar either, and whichever edge has more text beyond it fades out. */
       [data-composer-input] { scrollbar-width: none; -ms-overflow-style: none; }
       [data-composer-input]::-webkit-scrollbar { width: 0; height: 0; display: none; }

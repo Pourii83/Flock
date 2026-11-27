@@ -167,19 +167,37 @@ export function LinkedText({
 /** ||Hidden|| text: covered until tapped, like Telegram's spoilers. */
 function Spoiler({ children, color }: { children: ReactNode; color?: string }) {
   const [open, setOpen] = useState(false);
+  // Web: Telegram's look, a cloud of drifting dots over the hidden words that dissolves when tapped
+  // (user request; styled in theme.ts). The dots are light on dark text backgrounds and dark on light.
+  if (Platform.OS === 'web') {
+    return (
+      <Text
+        onPress={open ? undefined : () => setOpen(true)}
+        accessibilityRole={open ? undefined : 'button'}
+        accessibilityLabel={open ? undefined : t('Show hidden text')}
+        {...({ dataSet: { spoiler: open ? 'open' : isLight(color) ? 'light' : 'dark' } } as object)}>
+        {children}
+      </Text>
+    );
+  }
   if (open) return <Text>{children}</Text>;
   return (
     <Text
       onPress={() => setOpen(true)}
       accessibilityRole="button"
       accessibilityLabel={t('Show hidden text')}
-      style={[
-        { color: 'transparent', backgroundColor: color ?? '#94A3B8', borderRadius: 4, opacity: 0.35 },
-        Platform.OS === 'web' ? ({ cursor: 'pointer', userSelect: 'none' } as object) : null,
-      ]}>
+      style={{ color: 'transparent', backgroundColor: color ?? '#94A3B8', borderRadius: 4, opacity: 0.35 }}>
       {children}
     </Text>
   );
+}
+
+/** Whether a text color is light (so it sits on a dark background). */
+function isLight(color?: string) {
+  const hex = /^#([0-9a-f]{6})/i.exec(color ?? '')?.[1];
+  const rgb = /rgba?\((\d+),\s*(\d+),\s*(\d+)/i.exec(color ?? '');
+  const [r, g, b] = hex ? [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16)) : rgb ? [rgb[1], rgb[2], rgb[3]].map(Number) : [248, 250, 252];
+  return 0.299 * r + 0.587 * g + 0.114 * b > 140;
 }
 
 /** A ```fenced``` block: its own box, always left-to-right, with a copy button in its header. A first
