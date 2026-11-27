@@ -14,7 +14,7 @@ import { useAuth } from '@/state/auth';
 import { chatStore, useChat } from '@/state/chat-store';
 import { colors, fonts, radius } from '@/theme';
 import { ConversationAvatar, MegaphoneIcon, isSavedConversation } from './avatar';
-import { Button, Chip, Icon, IconButton, PushPin, SearchBar, T, Tooltip, UnreadBadge } from './ui';
+import { Button, Chip, CHIP_HEIGHT, Icon, IconButton, PushPin, SearchBar, T, Tooltip, UnreadBadge } from './ui';
 import { VoiceBar } from './voice-bar';
 import { ConnectionBanner, MobileHeader } from './shell';
 import { t, num, isRTL } from '@/lib/i18n';
@@ -309,7 +309,7 @@ export function ChatRow({
 
 /**
  * The filter chips: one row that scrolls sideways when they don't fit, instead of wrapping onto a second
- * line. An edge with more chips beyond it glows in the accent color, so it's clear the row goes on
+ * line. An edge with more chips beyond it shows a thin accent line, so it's clear the row goes on
  * (user request). Desktop web also shows a thin scrollbar under the chips on hover (CSS in index.html);
  * phones (and the apps) swipe it, with no scrollbar and no space kept for one.
  */
@@ -323,11 +323,13 @@ function ChipRow({ desktop, children }: { desktop: boolean; children: ReactNode 
   const fade = (edge: 'start' | 'end') => (
     <LinearGradient
       pointerEvents="none"
-      colors={[colors.amberGlow, colors.amberClear]}
+      // A thin line of accent at the edge that fades out within a few pixels (user request: a line, not a glow).
+      colors={[colors.amberLine, colors.amberClear]}
       // From the edge inward: the physical direction flips in Persian, where "start" is the right side.
       start={{ x: (edge === 'start') !== rtl ? 0 : 1, y: 0 }}
       end={{ x: (edge === 'start') !== rtl ? 1 : 0, y: 0 }}
-      style={{ position: 'absolute', top: 0, bottom: 0, width: 28, [edge]: 0, borderRadius: radius.pill }}
+      // As tall as the pills (the row's desktop scrollbar space below them stays clear).
+      style={{ position: 'absolute', top: 0, height: CHIP_HEIGHT, width: 4, [edge]: 0, borderRadius: 2 }}
     />
   );
   return (

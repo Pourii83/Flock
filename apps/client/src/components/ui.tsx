@@ -442,6 +442,9 @@ export function UnreadBadge({ count, style }: { count: number; style?: StyleProp
   );
 }
 
+/** Height of a filter chip (its pill). */
+export const CHIP_HEIGHT = 32;
+
 export function Chip({
   label,
   active,
@@ -459,7 +462,7 @@ export function Chip({
     <Pressable
       onPress={onPress}
       style={({ hovered }: any) => ({
-        height: 32,
+        height: CHIP_HEIGHT,
         paddingHorizontal: 14,
         borderRadius: radius.pill,
         flexDirection: 'row',
