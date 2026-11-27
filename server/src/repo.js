@@ -140,6 +140,8 @@ export async function createConversation(meId, userIds, name, description = '', 
 
 const MESSAGE_SELECT = `
   SELECT m.*, r.body AS reply_body, r.kind AS reply_kind, r.sender_id AS reply_sender_id, ru.display_name AS reply_sender_name,
+         r.attachment_name AS reply_attachment_name, r.attachment_mime AS reply_attachment_mime,
+         r.attachment_path AS reply_attachment_path, r.attachment_expires_at AS reply_attachment_expires_at,
          su.display_name AS sender_name
   FROM messages m
   LEFT JOIN messages r ON r.id = m.reply_to_id
@@ -175,6 +177,8 @@ function serializeMessage(row) {
           senderId: row.reply_sender_id,
           senderName: row.reply_sender_name,
           ...(row.reply_quote ? { quote: row.reply_quote } : {}),
+          // The quoted message's file, so a reply to a photo or video shows a thumbnail (like Telegram).
+          ...(row.reply_attachment_name ? { attachment: replyAttachment(row) } : {}),
         }
       : null,
     forwardedFrom: row.forwarded_from ?? null,
@@ -210,7 +214,8 @@ async function loadConversations(meId, onlyId) {
     ),
     query(
       `SELECT DISTINCT ON (m.conversation_id) m.*, r.body AS reply_body, r.kind AS reply_kind, r.sender_id AS reply_sender_id,
-         ru.display_name AS reply_sender_name
+         ru.display_name AS reply_sender_name, r.attachment_name AS reply_attachment_name, r.attachment_mime AS reply_attachment_mime,
+         r.attachment_path AS reply_attachment_path, r.attachment_expires_at AS reply_attachment_expires_at
        FROM messages m
        LEFT JOIN messages r ON r.id = m.reply_to_id
        LEFT JOIN users ru ON ru.id = r.sender_id
@@ -421,6 +426,11 @@ export async function directConversationId(a, b) {
 }
 
 /** A stored file is still there: it has a path and either no expiry (kept forever) or a future one. */
+function replyAttachment(row) {
+  const live = fileLive({ attachment_path: row.reply_attachment_path, attachment_expires_at: row.reply_attachment_expires_at });
+  return { name: row.reply_attachment_name, mimeType: row.reply_attachment_mime || 'application/octet-stream', url: live ? `/api/files/${row.reply_to_id}` : null };
+}
+
 export const fileLive = (row) => !!row?.attachment_path && (row.attachment_expires_at == null || Number(row.attachment_expires_at) > now());
 
 // ---------- messages ----------

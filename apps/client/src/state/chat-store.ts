@@ -637,6 +637,7 @@ class ChatStore {
             ...(quote ? { quote } : {}),
             senderId: replyTo.senderId,
             senderName: this.memberName(conversationId, replyTo.senderId),
+            ...(replyTo.attachment ? { attachment: { name: replyTo.attachment.name, mimeType: replyTo.attachment.mimeType, url: replyTo.attachment.url } } : {}),
           }
         : null,
       createdAt: Date.now(),

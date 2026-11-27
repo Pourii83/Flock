@@ -1,6 +1,6 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { JoinAudio, joinAudioSupported } from '@/components/join-audio';
@@ -31,6 +31,41 @@ function connectedSoon(timeoutMs = 8000) {
   });
 }
 
+/**
+ * Someone arriving by a meeting link is asked for the microphone and camera as soon as the page opens
+ * (user request), not in the middle of joining. Only when the browser would still ask: once allowed or
+ * refused, nothing happens. The streams are closed again at once. True when something was allowed.
+ */
+async function askForMediaEarly(): Promise<boolean> {
+  if (Platform.OS !== 'web' || typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) return false;
+  const state = async (name: string) => {
+    try {
+      return (await navigator.permissions.query({ name } as unknown as PermissionDescriptor)).state;
+    } catch {
+      return 'prompt'; // Browsers that can't say (older Firefox, Safari): ask anyway.
+    }
+  };
+  const [mic, cam] = await Promise.all([state('microphone'), state('camera')]);
+  const audio = mic === 'prompt';
+  const video = cam === 'prompt';
+  if (!audio && !video) return false;
+  const open = async (constraints: MediaStreamConstraints) => {
+    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+    stream.getTracks().forEach((track) => track.stop());
+  };
+  try {
+    await open({ audio, video });
+    return true;
+  } catch {
+    // No camera on this device, or the camera was refused: the microphone alone still matters.
+    if (!audio || !video) return false;
+    return open({ audio: true }).then(
+      () => true,
+      () => false,
+    );
+  }
+}
+
 function expiryLabel(expiresAt: number | null) {
   if (!expiresAt) return t('Open until the host closes it');
   return t('Link valid until {time}', { time: new Date(expiresAt).toLocaleString() });
@@ -56,6 +91,8 @@ export default function MeetScreen() {
   // The name the guest token was made with, so editing it after a failed attempt really renames.
   const [guestName, setGuestName] = useState('');
   const [reload, setReload] = useState(0);
+  // Bumped when the early permission prompt was answered: the device pickers read their names again.
+  const [mediaAllowed, setMediaAllowed] = useState(0);
 
   const inCall = call.phase !== 'idle';
   const left = joined && !inCall;
@@ -71,6 +108,17 @@ export default function MeetScreen() {
       active = false;
     };
   }, [code, reload, left]);
+
+  // Asked once the link proved good, before anyone types a name.
+  const roomOpen = !!room?.open;
+  useEffect(() => {
+    if (!roomOpen) return;
+    let active = true;
+    void askForMediaEarly().then((allowed) => active && allowed && setMediaAllowed((n) => n + 1));
+    return () => {
+      active = false;
+    };
+  }, [roomOpen]);
 
   // Guests have no app behind the meeting: drop the guest connection when the page goes away, and
   // a signed-in user who joined as a guest gets their own account connection back.
@@ -216,7 +264,7 @@ export default function MeetScreen() {
                   autoFocus
                 />
               )}
-              {guestMode && !joined && joinAudioSupported && <JoinAudio joining={busy} />}
+              {guestMode && !joined && joinAudioSupported && <JoinAudio key={mediaAllowed} joining={busy} />}
               {!!error && (
                 <T variant="body" color={colors.danger}>
                   {error}

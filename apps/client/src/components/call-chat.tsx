@@ -7,7 +7,7 @@ import { useIsWide } from '@/hooks/use-layout';
 import { clock } from '@/lib/format';
 import { t } from '@/lib/i18n';
 import { useCalls } from '@/state/calls';
-import { colors, fonts, radius } from '@/theme';
+import { appear, colors, fonts, radius } from '@/theme';
 import { EmojiPicker } from './emoji-picker';
 import { LinkedText } from './linked-text';
 import { Icon, IconButton, noOutline, persianFont, PushPin, T, Tooltip } from './ui';
@@ -238,7 +238,7 @@ export function CallChatPanel({
       />
 
       {emojiOpen && (
-        <View style={{ borderTopWidth: 1, borderTopColor: colors.hairline }}>
+        <View {...appear} style={{ borderTopWidth: 1, borderTopColor: colors.hairline }}>
           <EmojiPicker onPick={insertEmoji} onClose={() => setEmojiOpen(false)} maxHeight={wide ? 260 : 220} style={{ maxWidth: '100%' }} />
         </View>
       )}

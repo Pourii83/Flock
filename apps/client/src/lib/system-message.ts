@@ -19,6 +19,21 @@ export function pinNoteRef(body: string): string | null {
 }
 
 /** A quoted (replied-to) message as one readable line: call logs and group notes aren't raw JSON. */
+/** The line a reply shows for the message it quotes: a photo, video, voice message or file reads as its kind
+ *  (the caption when it has one), not as the file name (user request, like Telegram). */
+export function replyText(reply: { kind?: string; body: string; attachment?: { name: string; mimeType: string } | null }): string {
+  const a = reply.attachment;
+  if (reply.kind === 'file' && a) {
+    const caption = reply.body && reply.body !== a.name ? plainPreview(reply.body) : '';
+    if (caption) return caption;
+    if (a.mimeType.startsWith('image/')) return t('Photo');
+    if (a.mimeType.startsWith('video/')) return t('Video');
+    if (a.mimeType.startsWith('audio/')) return t('Voice message');
+    return a.name;
+  }
+  return quoteText(reply.kind, reply.body);
+}
+
 export function quoteText(kind: string | undefined, body: string): string {
   if (kind === 'system') return systemText(body);
   if (kind === 'call' && body.trimStart().startsWith('{')) {

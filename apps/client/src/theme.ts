@@ -285,6 +285,14 @@ export function applyTheme(next: ThemeMode) {
         --spoiler-a: 0; background-position: center;
         animation: flock-spoiler-open 520ms cubic-bezier(0.2, 0.7, 0.3, 1) both;
       }
+      /* Panels and bars that open in place (reply bar, attachment card, formatting bar, emoji panels) come in
+         with a short fade and a 6px rise instead of snapping into view (user request: no stiff movement).
+         data-appear='down' is for panels that open downward. */
+      [data-appear] { animation: flock-appear 180ms cubic-bezier(0.2, 0.7, 0.3, 1) both; }
+      [data-appear='down'] { animation-name: flock-appear-down; }
+      @keyframes flock-appear { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+      @keyframes flock-appear-down { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+      @media (prefers-reduced-motion: reduce) { [data-appear] { animation: none; } }
       @keyframes flock-spoiler {
         from { background-position: 0 0, 2px 3px, 5px 1px; }
         to { background-position: 8px -12px, -10px 9px, 14px 19px; }
@@ -351,6 +359,8 @@ export function useThemeMode() {
 export const radius = { sm: 4, md: 8, lg: 16, xl: 24, pill: 9999 } as const;
 /** Radius of a shape inset `gap` px inside a rounded container, so both curves share one center. */
 export const nestedRadius = (outer: number, gap: number) => Math.max(0, outer - gap);
+/** Spread on a View that opens in place: a short fade-and-rise on the web (styled above). */
+export const appear = { dataSet: { appear: 'up' } } as object;
 export const space = { xs: 4, sm: 8, md: 16, lg: 24, xl: 32 } as const;
 
 // On web the browser falls back per glyph, so Persian inside English UI (messages, names, the

@@ -34,12 +34,12 @@ import { confirm } from '@/lib/confirm';
 import { clearDraft, setDraft, useDraft } from '@/lib/drafts';
 import { ensureDevice, safetyCode, useDevice, useSecretStatus } from '@/lib/e2e';
 import { toggleMarker } from '@/lib/rich-text';
-import { pinNoteRef, quoteText, systemText } from '@/lib/system-message';
+import { pinNoteRef, replyText, systemText } from '@/lib/system-message';
 import type { Conversation, Message } from '@/lib/types';
 import { useAuth } from '@/state/auth';
 import { useCalls } from '@/state/calls';
 import { chatStore, useChat, useConversation, useMessages, usePinned, usePinnedList, useTyping } from '@/state/chat-store';
-import { colors, fonts, nestedRadius, radius } from '@/theme';
+import { appear, colors, fonts, nestedRadius, radius } from '@/theme';
 import { Avatar, ConversationAvatar, MegaphoneIcon } from './avatar';
 import { ContextMenu } from './context-menu';
 import { EmojiPicker } from './emoji-picker';
@@ -557,6 +557,7 @@ function FormatBar({ desktop, onFormat }: { desktop: boolean; onFormat: (marker:
   ];
   return (
     <View
+      {...appear}
       style={{
         position: 'absolute',
         bottom: '100%',
@@ -641,7 +642,7 @@ function JumpToNewest({ visible, onPress }: { visible: boolean; onPress: () => v
 }
 
 /** A soft ring behind the record button that swells with the microphone's loudness, like Telegram's. */
-function RecordHalo({ level, paused, size = 52, reach = 0.55 }: { level: () => number; paused: boolean; size?: number; reach?: number }) {
+function RecordHalo({ level, paused, size = 52, reach = 0.55, corner }: { level: () => number; paused: boolean; size?: number; reach?: number; corner?: number }) {
   const [scale] = useState(() => new Animated.Value(1.15));
   // The recorder hands a new function every render; the loop reads whichever is current.
   const levelRef = useRef(level);
@@ -668,7 +669,7 @@ function RecordHalo({ level, paused, size = 52, reach = 0.55 }: { level: () => n
   return (
     <Animated.View
       pointerEvents="none"
-      style={{ position: 'absolute', top: 0, start: 0, width: size, height: size, borderRadius: size / 2, backgroundColor: colors.amberGlow, transform: [{ scale }] }}
+      style={{ position: 'absolute', top: 0, start: 0, width: size, height: size, borderRadius: corner ?? size / 2, backgroundColor: colors.amberGlow, transform: [{ scale }] }}
     />
   );
 }
@@ -1512,7 +1513,7 @@ function Bubble({
   // Stitch bubbles: 16px corners, the speaker's corner pinched to 4px on the last of a run.
   const r = 16;
   // The quoted part of the replied-to message, or the whole of it as one readable line.
-  const replyLine = m.replyTo ? (m.replyTo.quote ?? quoteText(m.replyTo.kind, m.replyTo.body)) : '';
+  const replyLine = m.replyTo ? (m.replyTo.quote ?? replyText(m.replyTo)) : '';
   // A photo or video fills its bubble: only the bubble's thin edge shows around it (no padding).
   const framedMedia =
     m.kind === 'file' && !!m.attachment && !m.attachment.expired && !!m.attachment.url && /^(image|video)\//.test(m.attachment.mimeType);
@@ -1672,6 +1673,7 @@ function Bubble({
                 maxWidth: framedMedia ? 320 - 12 : undefined,
               })}>
               <View style={{ width: 3, borderRadius: 2, backgroundColor: colors.amber }} />
+              <ReplyThumb attachment={m.replyTo.attachment} />
               <View style={{ flexShrink: 1 }}>
                 <T variant="label" color={mine ? colors.amberSoftInk : colors.amberText}>
                   {m.replyTo.senderName}
@@ -2580,8 +2582,9 @@ function Composer({
         </View>
       )}
       {replyTo && !editing && (
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: colors.surface, borderRadius: radius.lg, padding: 10, paddingStart: 14 }}>
+        <View {...appear} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: colors.surface, borderRadius: radius.lg, padding: 10, paddingStart: 14 }}>
           <View style={{ width: 3, alignSelf: 'stretch', borderRadius: 2, backgroundColor: colors.amber }} />
+          {!replyQuote && <ReplyThumb attachment={replyTo.attachment} />}
           <View style={{ flex: 1 }}>
             <T variant="label" color={colors.amberText}>
               {replyQuote
@@ -2589,7 +2592,7 @@ function Composer({
                 : t('Replying to {name}', { name: chatStore.memberName(conversation.id, replyTo.senderId) })}
             </T>
             <T variant="body" color={colors.textMuted} numberOfLines={1} style={replyQuote ? { fontStyle: 'italic' } : undefined}>
-              {replyQuote ? `“${replyQuote}”` : quoteText(replyTo.kind, replyTo.body)}
+              {replyQuote ? `“${replyQuote}”` : replyText(replyTo)}
             </T>
           </View>
           <IconButton name="x" label={t('Cancel reply')} onPress={onClearReply} size={32} iconSize={16} />
@@ -2597,6 +2600,7 @@ function Composer({
       )}
       {staged && (
         <View
+          {...appear}
           style={{
             flexDirection: 'row',
             gap: 10,
@@ -2639,7 +2643,7 @@ function Composer({
       {emojiOpen && desktop && (
         // Floats over the messages instead of pushing them up. A fixed width: sized by its content, the
         // panel widened over several frames as the grid drew in, so the emoji seemed to grow (user report).
-        <View style={{ position: 'absolute', bottom: '100%', start: 24, zIndex: 20, marginBottom: 8, width: 380, maxWidth: '90%' }}>
+        <View {...appear} style={{ position: 'absolute', bottom: '100%', start: 24, zIndex: 20, marginBottom: 8, width: 380, maxWidth: '90%' }}>
           <EmojiPicker onPick={insertEmoji} onClose={() => setEmojiOpen(false)} maxHeight={300} />
         </View>
       )}
@@ -2695,7 +2699,7 @@ function Composer({
             <View style={{ flex: 1, alignSelf: 'stretch', flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 44, paddingHorizontal: 6 }}>
               {desktop && (
                 <Tooltip label={t('Cancel recording')} style={{ alignSelf: 'center' }}>
-                  <IconButton name="x" label={t('Cancel recording')} onPress={voice.cancel} size={36} iconSize={18} color={colors.danger} bg={colors.surfaceHigh} activeBg={colors.surfaceHighest} />
+                  <IconButton name="x" label={t('Cancel recording')} onPress={voice.cancel} size={36} iconSize={18} color={colors.danger} bg={colors.surfaceHigh} activeBg={colors.surfaceHighest} rounded={nestedRadius(COMPOSER_INNER_RADIUS, 4)} />
                 </Tooltip>
               )}
               {desktop && (
@@ -2709,6 +2713,7 @@ function Composer({
                     color={voice.paused ? colors.danger : colors.text}
                     bg={colors.surfaceHigh}
                     activeBg={colors.surfaceHighest}
+                    rounded={nestedRadius(COMPOSER_INNER_RADIUS, 4)}
                   />
                 </Tooltip>
               )}
@@ -2848,8 +2853,9 @@ function Composer({
           {desktop && (
             <View style={lineBox}>
             <Tooltip label={voice.recording ? t('Send voice message') : showMic ? t('Record a voice message') : editing ? t('Save changes') : t('Send')} style={{ alignSelf: 'center' }}>
-            {/* Recording on desktop too: a round button with the same breathing halo as on phones. */}
-            {voice.recording && <RecordHalo level={voice.level} paused={voice.paused} size={44} reach={0.4} />}
+            {/* Recording on desktop too: the same breathing halo as on phones, but the buttons keep the
+                desktop composer's rounded-square shape, like every other button there (user request). */}
+            {voice.recording && <RecordHalo level={voice.level} paused={voice.paused} size={44} reach={0.4} corner={COMPOSER_INNER_RADIUS} />}
             <Pressable
               onPress={mainAction}
               disabled={!mainEnabled}
@@ -2857,7 +2863,7 @@ function Composer({
               style={{
                 width: 44,
                 height: 44,
-                borderRadius: voice.recording || voiceClip ? 22 : COMPOSER_INNER_RADIUS,
+                borderRadius: COMPOSER_INNER_RADIUS,
                 backgroundColor: mainEnabled ? colors.amber : colors.surfaceHigh,
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -2946,7 +2952,29 @@ function Composer({
       />
       {emojiOpen && !desktop && (
         // Sits where the keyboard was.
-        <EmojiPicker onPick={insertEmoji} onClose={() => setEmojiOpen(false)} maxHeight={windowHeight < 500 ? 200 : 280} style={{ maxWidth: '100%' }} />
+        <View {...appear}>
+          <EmojiPicker onPick={insertEmoji} onClose={() => setEmojiOpen(false)} maxHeight={windowHeight < 500 ? 200 : 280} style={{ maxWidth: '100%' }} />
+        </View>
+      )}
+    </View>
+  );
+}
+
+/** A photo or video being replied to: a small square of the picture beside the quote, like Telegram. */
+function ReplyThumb({ attachment }: { attachment?: { mimeType: string; url: string | null } | null }) {
+  if (!attachment?.url || !/^(image|video)\//.test(attachment.mimeType)) return null;
+  const size = 40;
+  return (
+    <View style={{ width: size, height: size, borderRadius: 6, overflow: 'hidden', backgroundColor: colors.surface, alignSelf: 'center', alignItems: 'center', justifyContent: 'center' }}>
+      {attachment.mimeType.startsWith('image/') ? (
+        <Image source={attachmentSource(attachment.url)} style={{ width: size, height: size }} contentFit="cover" />
+      ) : (
+        <>
+          <View style={{ position: 'absolute', inset: 0 }}>
+            <VideoThumb url={attachment.url} />
+          </View>
+          <Icon name="play" size={14} color="#fff" />
+        </>
       )}
     </View>
   );

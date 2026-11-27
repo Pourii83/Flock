@@ -64,7 +64,16 @@ export type Message = {
   } | null;
   /** `kind` of the quoted message: a call or a group note is quoted as its readable line. */
   /** `quote`: the part of it the reply quotes (Telegram-style), when not the whole message. */
-  replyTo: { id: string; body: string; kind?: MessageKind; quote?: string; senderId: string; senderName: string } | null;
+  /** `attachment`: the quoted message's file (a photo or video quote shows a thumbnail). */
+  replyTo: {
+    id: string;
+    body: string;
+    kind?: MessageKind;
+    quote?: string;
+    senderId: string;
+    senderName: string;
+    attachment?: { name: string; mimeType: string; url: string | null };
+  } | null;
   /** Set on copies made into Saved Messages: the original sender's name. */
   forwardedFrom?: string | null;
   /** When the sender last changed the text (null/undefined = never edited). */

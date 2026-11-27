@@ -248,6 +248,7 @@ const fa: Record<string, string> = {
   'Super fast': 'فوق‌سریع',
   Call: 'تماس',
   Video: 'ویدیو',
+  Photo: 'عکس',
   Members: 'اعضا',
   '(you)': '(شما)',
   'Private conversation': 'گفتگوی خصوصی',
