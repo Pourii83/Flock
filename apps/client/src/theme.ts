@@ -254,6 +254,10 @@ export function applyTheme(next: ThemeMode) {
         -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 18px);
         mask-image: linear-gradient(to bottom, transparent 0, #000 18px);
       }
+      /* While a voice message records, nothing scrolls: not the page (the halo reaching past the edge used
+         to let it slide sideways) and not the chat under the finger (user report). */
+      html[data-recording], html[data-recording] body { overflow: hidden !important; overscroll-behavior: none; }
+      html[data-recording] [data-chat-scroll] { overflow: hidden !important; touch-action: none; }
       /* ||Spoilers||, like Telegram: three layers of tiny dots drift over the hidden words (each moves a
          whole number of its own tiles per loop, so it never jumps); a tap dissolves them into the text. */
       [data-spoiler] { border-radius: 4px; }

@@ -641,7 +641,7 @@ function JumpToNewest({ visible, onPress }: { visible: boolean; onPress: () => v
 }
 
 /** A soft ring behind the record button that swells with the microphone's loudness, like Telegram's. */
-function RecordHalo({ level, paused }: { level: () => number; paused: boolean }) {
+function RecordHalo({ level, paused, size = 52, reach = 0.55 }: { level: () => number; paused: boolean; size?: number; reach?: number }) {
   const [scale] = useState(() => new Animated.Value(1.15));
   // The recorder hands a new function every render; the loop reads whichever is current.
   const levelRef = useRef(level);
@@ -658,17 +658,17 @@ function RecordHalo({ level, paused }: { level: () => number; paused: boolean })
         last = now;
         const target = paused ? 0 : levelRef.current();
         smooth += (target - smooth) * (target > smooth ? 0.45 : 0.12);
-        scale.setValue(1.15 + smooth * 0.55);
+        scale.setValue(1.15 + smooth * reach);
       }
       frame = requestAnimationFrame(tick);
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-  }, [paused, scale]);
+  }, [paused, scale, reach]);
   return (
     <Animated.View
       pointerEvents="none"
-      style={{ position: 'absolute', top: 0, start: 0, width: 52, height: 52, borderRadius: 26, backgroundColor: colors.amberGlow, transform: [{ scale }] }}
+      style={{ position: 'absolute', top: 0, start: 0, width: size, height: size, borderRadius: size / 2, backgroundColor: colors.amberGlow, transform: [{ scale }] }}
     />
   );
 }
@@ -2108,6 +2108,14 @@ function Composer({
   const canSend = !uploading && !savingEdit && (text.trim().length > 0 || (!!staged && !editing) || editing?.kind === 'file');
   // Voice messages (web/desktop): with nothing typed, the send button becomes a microphone.
   const voice = useVoiceRecorder();
+  // Nothing scrolls while recording (styled in theme.ts).
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof document === 'undefined' || !voice.recording) return;
+    document.documentElement.dataset.recording = '1';
+    return () => {
+      delete document.documentElement.dataset.recording;
+    };
+  }, [voice.recording]);
   // Phones: hold the mic to record, let go to get the clip ready (play it back, then send or delete).
   const [ready, setReady] = useState<{ clip: VoiceClip; url: string } | null>(null);
   const voiceClip = ready?.clip ?? null;
@@ -2247,8 +2255,14 @@ function Composer({
     const height = node.scrollHeight;
     node.style.height = previous;
     setInputHeight(Math.min(140, Math.max(50, height)));
+    // Typing on the last line keeps the box scrolled to its end (the caret's line used to sit half under
+    // the bottom fade); changing words higher up leaves the scroll alone (user request).
+    const onLastLine = !node.value.slice(node.selectionEnd ?? node.value.length).includes('\n');
     // After the new height is applied, see which edges have more text beyond them.
-    const frame = requestAnimationFrame(() => moreFrom(node.scrollTop, node.clientHeight, node.scrollHeight));
+    const frame = requestAnimationFrame(() => {
+      if (onLastLine && document.activeElement === node) node.scrollTop = node.scrollHeight;
+      moreFrom(node.scrollTop, node.clientHeight, node.scrollHeight);
+    });
     return () => cancelAnimationFrame(frame);
   }, [text]);
   useEffect(() => {
@@ -2375,7 +2389,7 @@ function Composer({
 
   // The paperclip asks first: the gallery (photos and videos) or any file (user request).
   const attachRef = useRef<ComponentRef<typeof View>>(null);
-  const [attachMenu, setAttachMenu] = useState<{ x: number; y: number } | null>(null);
+  const [attachMenu, setAttachMenu] = useState<{ x: number; y: number; bottom: number } | null>(null);
   const openAttachMenu = () => {
     const node = attachRef.current;
     if (!node) return void pickFile();
@@ -2385,7 +2399,9 @@ function Composer({
       const menuWidth = 200;
       const menuHeight = 10 + 2 * 44;
       const towardEnd = x + width / 2 > windowWidth / 2;
-      setAttachMenu({ x: Math.max(8, towardEnd ? x + width - menuWidth : x), y: Math.max(8, y - menuHeight - 6) });
+      // Hung from the bottom edge: when a phone keyboard closes the box drops to the bottom and the menu
+      // keeps its place right above it, instead of staying in mid-screen (user report).
+      setAttachMenu({ x: Math.max(8, towardEnd ? x + width - menuWidth : x), y: Math.max(8, y - menuHeight - 6), bottom: windowHeight - y + 6 });
     });
   };
   const pickMedia = async () => {
@@ -2534,6 +2550,8 @@ function Composer({
         borderTopColor: colors.surfaceHigh,
         gap: 10,
         position: 'relative',
+        // The record halo may reach past the screen's side; it is cut there instead of widening the page.
+        ...(Platform.OS === 'web' ? ({ overflowX: 'clip' } as object) : {}),
       }}>
       {editing && (
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: colors.surface, borderRadius: radius.lg, padding: 10, paddingStart: 14 }}>
@@ -2646,8 +2664,9 @@ function Composer({
             // emoji side stays tight.
             // Phone, like Telegram: emoji at the start and the paperclip at the end, both inside the box;
             // their 40px circles sit 6.5px from the pill on every side, sharing its ends' centers.
-            paddingStart: voice.recording || voiceClip ? 6 : desktop ? COMPOSER_PAD : 5,
-            paddingEnd: voice.recording || voiceClip ? 14 : desktop ? COMPOSER_PAD : 5,
+            // Desktop keeps its padding while recording, so the send button never moves (user report).
+            paddingStart: desktop ? COMPOSER_PAD : voice.recording || voiceClip ? 6 : 5,
+            paddingEnd: desktop ? COMPOSER_PAD : voice.recording || voiceClip ? 14 : 5,
             minHeight: 52,
           }}>
           {/* Every icon sits in a box as tall as one line of text, so it lines up with the text on
@@ -2674,7 +2693,11 @@ function Composer({
           {voice.recording && (
             // Stretched to the box's full height so the time and Cancel sit on its middle line (user report).
             <View style={{ flex: 1, alignSelf: 'stretch', flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 44, paddingHorizontal: 6 }}>
-              {desktop && <IconButton name="x" label={t('Cancel recording')} onPress={voice.cancel} size={36} iconSize={18} color={colors.danger} />}
+              {desktop && (
+                <Tooltip label={t('Cancel recording')} style={{ alignSelf: 'center' }}>
+                  <IconButton name="x" label={t('Cancel recording')} onPress={voice.cancel} size={36} iconSize={18} color={colors.danger} bg={colors.surfaceHigh} activeBg={colors.surfaceHighest} />
+                </Tooltip>
+              )}
               {desktop && (
                 <Tooltip label={voice.paused ? t('Resume recording') : t('Pause recording')} style={{ alignSelf: 'center' }}>
                   <IconButton
@@ -2684,6 +2707,8 @@ function Composer({
                     size={36}
                     iconSize={17}
                     color={voice.paused ? colors.danger : colors.text}
+                    bg={colors.surfaceHigh}
+                    activeBg={colors.surfaceHighest}
                   />
                 </Tooltip>
               )}
@@ -2823,6 +2848,8 @@ function Composer({
           {desktop && (
             <View style={lineBox}>
             <Tooltip label={voice.recording ? t('Send voice message') : showMic ? t('Record a voice message') : editing ? t('Save changes') : t('Send')} style={{ alignSelf: 'center' }}>
+            {/* Recording on desktop too: a round button with the same breathing halo as on phones. */}
+            {voice.recording && <RecordHalo level={voice.level} paused={voice.paused} size={44} reach={0.4} />}
             <Pressable
               onPress={mainAction}
               disabled={!mainEnabled}
@@ -2830,7 +2857,7 @@ function Composer({
               style={{
                 width: 44,
                 height: 44,
-                borderRadius: COMPOSER_INNER_RADIUS,
+                borderRadius: voice.recording || voiceClip ? 22 : COMPOSER_INNER_RADIUS,
                 backgroundColor: mainEnabled ? colors.amber : colors.surfaceHigh,
                 alignItems: 'center',
                 justifyContent: 'center',

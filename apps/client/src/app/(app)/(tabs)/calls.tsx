@@ -573,6 +573,12 @@ function CallsList() {
     <FlatList
       data={data}
       keyExtractor={(c) => c.id}
+      // The history is at most 100 rows (the server's limit): drawing them all up front means a fast
+      // scroll never lands on rows that haven't been drawn yet (user report: an empty stretch above
+      // "End of recent history").
+      initialNumToRender={100}
+      maxToRenderPerBatch={100}
+      windowSize={41}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={colors.amber} />}
       contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: 24 }}
       ListHeaderComponent={

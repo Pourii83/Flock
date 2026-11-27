@@ -33,8 +33,10 @@ export function ContextMenu({
   onClose,
   title,
 }: {
-  /** Press point in window coordinates; null keeps the menu closed. */
-  point: { x: number; y: number } | null;
+  /** Press point in window coordinates; null keeps the menu closed. With `bottom` (distance from the
+   *  window's bottom edge) the menu hangs from there instead, so it stays put when the window's height
+   *  changes under it (a phone keyboard closing). */
+  point: { x: number; y: number; bottom?: number } | null;
   items: ContextMenuItem[];
   /** Quick-reaction row shown under the items (message menu). */
   emoji?: readonly string[];
@@ -58,7 +60,7 @@ export function ContextMenu({
           style={{
             position: 'absolute',
             left: x,
-            top: y,
+            ...(point.bottom != null ? { bottom: Math.max(8, point.bottom) } : { top: y }),
             minWidth: 190,
             backgroundColor: colors.panel,
             borderRadius: radius.lg,
